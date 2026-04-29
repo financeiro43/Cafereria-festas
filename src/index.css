@@ -62,9 +62,6 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
 

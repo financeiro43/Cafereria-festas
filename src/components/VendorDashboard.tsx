@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile } from '../types';
-import { Scanner, ShoppingCart, Users, LogOut, CheckCircle2, XCircle } from 'lucide-react';
+import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function VendorDashboard({ profile }: { profile: UserProfile }) {
@@ -132,7 +132,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           <Card className="bg-slate-800 border-slate-700 text-white">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <ScanLine className="h-5 w-5" /> Identificar Aluno
+                <QrCode className="h-5 w-5" /> Identificar Aluno
               </CardTitle>
               <CardDescription className="text-slate-400">Escaneie o QR Code do aluno</CardDescription>
             </CardHeader>

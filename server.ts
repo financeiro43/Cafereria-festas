@@ -2,19 +2,28 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import * as admin from "firebase-admin";
-
-// Initialize Firebase Admin
-if (!admin.apps.length) {
-  admin.initializeApp({
-    // In this environment, Admin SDK uses the same project as the app
-  });
-}
-
-const db = admin.firestore();
+import fs from "fs";
 
 async function startServer() {
+  console.log("Starting server...");
   const app = express();
   const PORT = 3000;
+
+  // Initialize Firebase Admin
+  let db: admin.firestore.Firestore | null = null;
+  try {
+    const firebaseConfig = JSON.parse(fs.readFileSync("./firebase-applet-config.json", "utf-8"));
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        projectId: firebaseConfig.projectId,
+      });
+    }
+    db = admin.firestore(firebaseConfig.firestoreDatabaseId);
+    console.log("Firebase Admin initialized successfully");
+  } catch (error) {
+    console.error("Firebase Admin initialization failed:", error);
+    // Continue without DB if needed, or handle accordingly
+  }
 
   app.use(express.json());
 
@@ -22,22 +31,21 @@ async function startServer() {
   
   const REDE_PV = process.env.REDE_PV;
   const REDE_TOKEN = process.env.REDE_TOKEN;
-  const REDE_BASE_URL = process.env.REDE_SANDBOX === "true" 
-    ? "https://api.userede.com.br/redelabs/v1" 
-    : "https://api.userede.com.br/ecommerce/v1";
 
   // Endpoint to create a payment link
   app.post("/api/rede/create-checkout", async (req, res) => {
     try {
       const { amount, userId, studentName } = req.body;
 
-      if (!REDE_PV || !REDE_TOKEN) {
-        return res.status(500).json({ error: "Rede API not configured" });
+      if (!db) {
+        return res.status(500).json({ error: "Database not available" });
       }
 
-      // Mocking Rede Link Creation for demo purposes if keys are missing
-      // In a real scenario, we would call fetch(`${REDE_BASE_URL}/transactions`, ...)
-      
+      if (!REDE_PV || !REDE_TOKEN) {
+        // For simulation purposes, we allow it to proceed with a mock
+        console.warn("Rede API not configured, using mock");
+      }
+
       const transactionId = `txn_${Date.now()}`;
       
       // Store pending transaction
@@ -50,8 +58,6 @@ async function startServer() {
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      // Returning a mock URL if real integration isn't possible without real creds
-      // The user can replace this with actual Rede API calls
       res.json({
         checkoutUrl: `${process.env.APP_URL}/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}`,
         transactionId
@@ -66,6 +72,7 @@ async function startServer() {
   app.post("/api/rede/webhook", async (req, res) => {
     try {
       const { transactionId, status } = req.body;
+      if (!db) return res.status(500).json({ error: "Database not available" });
 
       if (status === "approved") {
         const txnRef = db.collection("transactions").doc(transactionId);
@@ -99,11 +106,17 @@ async function startServer() {
   // --- Vite / Static Assets ---
 
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    console.log("Loading Vite middleware...");
+    try {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+      console.log("Vite middleware loaded");
+    } catch (vError) {
+      console.error("Failed to load Vite middleware:", vError);
+    }
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
@@ -113,8 +126,11 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("Failed to start server:", err);
+});
+
