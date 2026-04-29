@@ -35,8 +35,8 @@ service cloud.firestore {
     match /users/{userId} {
       // Students can read their own profile, Vendors/Admins can read any profile
       allow get: if isSignedIn() && (request.auth.uid == userId || isVendor() || isAdmin());
-      // Admins can list all users
-      allow list: if isAdmin();
+      // Admins can list all users, students can find themselves by email
+      allow list: if isSignedIn() && (isAdmin() || (resource.data.email == request.auth.token.email));
       // Users create their own profile on first login, or Admins pre-register
       allow create: if isSignedIn() && (request.auth.uid == userId || isAdmin());
       // Profile updates

@@ -1,10 +1,10 @@
 {
-  "projectId": "gen-lang-client-0885634231",
-  "appId": "1:952879745566:web:8048698c17208ae19afc0f",
-  "apiKey": "AIzaSyAUpApGtAAyi1zDGXK0922PyCXlAugKSYg",
-  "authDomain": "gen-lang-client-0885634231.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-e28b8c68-96f6-4155-a5e5-f7a5301be60d",
-  "storageBucket": "gen-lang-client-0885634231.firebasestorage.app",
-  "messagingSenderId": "952879745566",
-  "measurementId": ""
+  "projectId": "cafeteria-f5d24",
+  "appId": "1:643228121774:web:8555bb1c8ac62f33cf0b3f",
+  "apiKey": "AIzaSyAgFIxS2BsI0GxNH6muRqjfGcuMbrep6-s",
+  "authDomain": "cafeteria-f5d24.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "cafeteria-f5d24.firebasestorage.app",
+  "messagingSenderId": "643228121774",
+  "measurementId": "G-WZV6L6XYZH"
 }
