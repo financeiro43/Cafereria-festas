@@ -8,7 +8,7 @@ import ParentDashboard from './components/ParentDashboard';
 import VendorDashboard from './components/VendorDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import MockPayment from './components/MockPayment';
-import { Toaster } from './components/ui/toaster.tsx';
+import { Toaster } from '@/components/ui/toaster';
 import { Button } from '@/components/ui/button';
 import { Coffee, ShieldCheck, CreditCard, ChevronRight, Settings, LayoutDashboard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
