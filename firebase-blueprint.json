@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "System user (Student/Parent or Vendor)",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "balance": { "type": "number", "description": "Current available credit" },
+        "role": { "type": "string", "enum": ["student", "vendor", "admin"] },
+        "qrCode": { "type": "string", "description": "Unique ID for QR identification" }
+      },
+      "required": ["uid", "name", "email", "balance", "role", "qrCode"]
+    },
+    "Transaction": {
+      "title": "Balance Transaction",
+      "description": "Log of balance updates (credits and debits)",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "number", "description": "Positive for credit, negative for debit" },
+        "type": { "type": "string", "enum": ["credit", "debit"] },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["completed", "pending", "failed"] },
+        "redeRef": { "type": "string", "description": "Rede payment reference" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "type", "timestamp", "status"]
+    },
+    "Consumption": {
+      "title": "Consumption Log",
+      "description": "Detailed log of cafeteria purchases",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "vendorId": { "type": "string" },
+        "amount": { "type": "number" },
+        "items": { "type": "array", "items": { "type": "string" } },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "vendorId", "amount", "items", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile and balance"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Financial history"
+    },
+    "/consumption/{consumptionId}": {
+      "schema": "Consumption",
+      "description": "Cafeteria sale records"
+    }
+  }
+}

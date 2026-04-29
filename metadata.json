@@ -1,0 +1,10 @@
+{
+  "name": "Cafeteria Inteligente",
+  "description": "Sistema de gestão de saldo de alunos com QR Code e pagamentos via Rede.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "full-stack"
+  ]
+}

@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isVendor() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor';
+    }
+
+    // --- Users Collection ---
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (isOwner(userId) || isVendor() || isAdmin());
+    }
+
+    // --- Transactions Collection ---
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Only system (via Admin SDK/Function proxy) should create credits, 
+      // but vendors can create debits for purchases.
+      allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isVendor() || isAdmin());
+    }
+
+    // --- Consumption Collection ---
+    match /consumption/{consumptionId} {
+      allow read: if isSignedIn() && (resource.data.studentId == request.auth.uid || isVendor() || isAdmin());
+      allow create: if isVendor() || isAdmin();
+    }
+  }
+}
