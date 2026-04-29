@@ -42,6 +42,30 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["studentId", "vendorId", "amount", "items", "timestamp"]
+    },
+    "Stall": {
+      "title": "Cafeteria Stall",
+      "description": "A vendor unit or 'barraca'",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerId": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Product": {
+      "title": "Stall Product",
+      "description": "Item sold in a specific stall",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "vendorId": { "type": "string", "description": "ID of the Stall" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "price", "vendorId", "active"]
     }
   },
   "firestore": {
@@ -56,6 +80,14 @@
     "/consumption/{consumptionId}": {
       "schema": "Consumption",
       "description": "Cafeteria sale records"
+    },
+    "/stalls/{stallId}": {
+      "schema": "Stall",
+      "description": "Cafeteria stall information"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Individual items for sale"
     }
   }
 }

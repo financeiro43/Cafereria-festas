@@ -1,37 +1,60 @@
 import React, { useState, useEffect } from 'react';
-import { db, auth } from '../lib/firebase';
-import { doc, onSnapshot, collection, query, where, orderBy, limit } from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase';
+import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserProfile, Transaction } from '../types';
-import { PlusCircle, History, QrCode, LogOut, Wallet } from 'lucide-react';
+import { handleFirestoreError, OperationType } from '@/lib/error-handler';
+import { PlusCircle, History, QrCode, LogOut, Wallet, ShoppingBag, ListChecks } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
+import ShopView from './ShopView';
+import { Order } from '../types';
 
 export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [rechargeAmount, setRechargeAmount] = useState<string>('50');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!profile.uid) return;
     
-    const q = query(
+    // Transactions listener
+    const qTx = query(
       collection(db, 'transactions'),
       where('userId', '==', profile.uid),
       orderBy('timestamp', 'desc'),
       limit(10)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const txs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
-      setTransactions(txs);
+    const unsubTx = onSnapshot(qTx, (snapshot) => {
+      setTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'transactions');
     });
 
-    return () => unsubscribe();
+    // Orders listener
+    const qOrders = query(
+      collection(db, 'orders'),
+      where('studentId', '==', profile.uid),
+      orderBy('timestamp', 'desc'),
+      limit(10)
+    );
+
+    const unsubOrders = onSnapshot(qOrders, (snapshot) => {
+      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'orders');
+    });
+
+    return () => {
+      unsubTx();
+      unsubOrders();
+    };
   }, [profile.uid]);
 
   const handleRecharge = async () => {
@@ -40,13 +63,25 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       const amount = parseFloat(rechargeAmount);
       if (isNaN(amount) || amount <= 0) {
         toast.error('Valor inválido');
+        setLoading(false);
         return;
       }
+
+      // Create the pending transaction on the client side to bypass server permission issues
+      const txnRef = await addDoc(collection(db, 'transactions'), {
+        userId: profile.uid,
+        amount,
+        type: 'credit',
+        status: 'pending',
+        description: `Recarga de saldo para ${profile.name}`,
+        timestamp: serverTimestamp(),
+      });
 
       const response = await axios.post('/api/rede/create-checkout', {
         amount,
         userId: profile.uid,
-        studentName: profile.name
+        studentName: profile.name,
+        transactionId: txnRef.id
       });
 
       if (response.data.checkoutUrl) {
@@ -54,9 +89,20 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         window.open(response.data.checkoutUrl, '_blank');
         toast.success('Link de pagamento gerado!');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Recharge error:', error);
-      toast.error('Erro ao processar recarga');
+      const errorData = error.response?.data;
+      let displayMessage = error.message;
+      
+      if (errorData) {
+        if (typeof errorData === 'object') {
+          displayMessage = errorData.message || errorData.error || JSON.stringify(errorData);
+        } else {
+          displayMessage = errorData;
+        }
+      }
+      
+      toast.error(`Erro ao processar recarga: ${displayMessage}`);
     } finally {
       setLoading(false);
     }
@@ -111,8 +157,14 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           </Card>
         </div>
 
-        <Tabs defaultValue="qr" className="w-full">
+        <Tabs defaultValue="shop" className="w-full">
           <TabsList className="bg-white border border-slate-100 shadow-sm mb-4">
+            <TabsTrigger value="shop" className="data-[state=active]:bg-slate-900 data-[state=active]:text-white">
+              <ShoppingBag className="h-4 w-4 mr-2" /> Comprar
+            </TabsTrigger>
+            <TabsTrigger value="orders" className="data-[state=active]:bg-slate-900 data-[state=active]:text-white">
+              <ListChecks className="h-4 w-4 mr-2" /> Meus Pedidos
+            </TabsTrigger>
             <TabsTrigger value="qr" className="data-[state=active]:bg-slate-900 data-[state=active]:text-white">
               <QrCode className="h-4 w-4 mr-2" /> Cartão Digital (QR)
             </TabsTrigger>
@@ -121,14 +173,39 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             </TabsTrigger>
           </TabsList>
           
-          <TabsContent value="qr">
+          <TabsContent value="shop">
+            <ShopView profile={profile} />
+          </TabsContent>
+
+          <TabsContent value="orders">
             <Card className="bg-white border-slate-100">
-              <CardContent className="flex flex-col items-center justify-center p-12 text-center">
-                <div className="p-4 bg-white border-2 border-slate-100 rounded-2xl shadow-inner mb-6">
-                  <QRCodeSVG value={profile.qrCode} size={200} />
+              <CardContent className="p-0">
+                <div className="divide-y divide-slate-100">
+                  {orders.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 font-medium">Nenhum pedido realizado via app</div>
+                  ) : (
+                    orders.map((order) => (
+                      <div key={order.id} className="p-4 flex justify-between items-center">
+                        <div className="space-y-1">
+                          <p className="text-xs font-black text-blue-600 uppercase tracking-tighter">{order.stallName}</p>
+                          <p className="text-sm font-bold text-slate-900">{order.items.join(', ')}</p>
+                          <p className="text-[10px] text-slate-400 italic">ID: {order.id.slice(-6).toUpperCase()}</p>
+                        </div>
+                        <div className="text-right flex flex-col items-end gap-1">
+                          <p className="font-black text-slate-900">R$ {order.total.toFixed(2)}</p>
+                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                            order.status === 'delivered' ? 'bg-green-100 text-green-600' : 
+                            order.status === 'cancelled' ? 'bg-red-100 text-red-600' : 
+                            'bg-orange-100 text-orange-600'
+                          }`}>
+                            {order.status === 'pending' ? 'Pendente' : 
+                             order.status === 'delivered' ? 'Entregue' : 'Cancelado'}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
-                <h3 className="text-lg font-semibold text-slate-900">Mostre este QR na barraca</h3>
-                <p className="text-slate-500 max-w-xs mt-2">O valor da compra será descontado automaticamente do seu saldo.</p>
               </CardContent>
             </Card>
           </TabsContent>

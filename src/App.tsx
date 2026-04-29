@@ -1,19 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from './lib/firebase';
+import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, collection, query, where, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { UserProfile } from './types';
 import ParentDashboard from './components/ParentDashboard';
 import VendorDashboard from './components/VendorDashboard';
+import AdminDashboard from './components/AdminDashboard';
+import MockPayment from './components/MockPayment';
 import { Toaster } from '@/components/ui/sonner';
 import { Button } from '@/components/ui/button';
-import { Coffee, ShieldCheck, CreditCard, ChevronRight } from 'lucide-react';
+import { Coffee, ShieldCheck, CreditCard, ChevronRight, Settings, LayoutDashboard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<'normal' | 'admin'>('normal');
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -22,27 +26,99 @@ export default function App() {
         // Manage profile updates in real-time
         const userRef = doc(db, 'users', user.uid);
         
-        // Setup a listener for real-time balance updates
-        const unsubProfile = onSnapshot(userRef, async (snap) => {
+        let unsubProfile: (() => void) | undefined;
+        
+        try {
+          // Setup a listener for real-time balance updates
+          unsubProfile = onSnapshot(userRef, (snap) => {
           if (snap.exists()) {
-            setProfile(snap.data() as UserProfile);
+            const data = snap.data() as UserProfile;
+            // Force admin role for the specific finance email
+            if (user.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
+              data.role = 'admin';
+            }
+            setProfile(data);
+            setLoading(false);
           } else {
-            // Create default profile for first-time login
-            const newProfile: UserProfile = {
-              uid: user.uid,
-              name: user.displayName || 'Estudante',
-              email: user.email || '',
-              balance: 0,
-              role: 'student',
-              qrCode: `STU-${user.uid.slice(0, 8)}-${Date.now()}`
-            };
-            await setDoc(userRef, newProfile);
-            setProfile(newProfile);
+            // Find by email (pre-registered by admin)
+            getDocs(query(collection(db, 'users'), where('email', '==', user.email?.toLowerCase())))
+              .then(async (emailSnap) => {
+                if (!emailSnap.empty) {
+                  const existingDoc = emailSnap.docs[0];
+                  const existingData = existingDoc.data();
+                  
+                  const newProfile: UserProfile = {
+                    ...(existingData as any),
+                    uid: user.uid,
+                    qrCode: user.uid,
+                    name: existingData.name || user.displayName || 'Estudante',
+                    email: user.email?.toLowerCase() || existingData.email
+                  };
+                  
+                  // Move data to the correct document ID (user.uid)
+                  await setDoc(userRef, newProfile);
+                  
+                  // Delete the old random-ID document
+                  if (existingDoc.id !== user.uid) {
+                    await deleteDoc(existingDoc.ref);
+                  }
+                  
+                  setProfile(newProfile);
+                  setLoading(false);
+                } else {
+                  // Create default profile for first-time login
+                  const newProfile: UserProfile = {
+                    uid: user.uid,
+                    name: user.displayName || 'Estudante',
+                    email: user.email || '',
+                    balance: 0,
+                    role: user.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
+                    qrCode: user.uid
+                  };
+                  
+                  setDoc(userRef, newProfile)
+                    .then(() => {
+                      setProfile(newProfile);
+                      setLoading(false);
+                    })
+                    .catch(e => {
+                      handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}`);
+                      setLoading(false);
+                    });
+                }
+              })
+              .catch(e => {
+                console.error("Error finding user by email:", e);
+                setLoading(false);
+              });
           }
+          }, (error) => {
+            // If we get an error, it might be because the document is being created or permissions are still propagating
+            console.warn('onSnapshot error:', error);
+            if (error.message.includes('insufficient permissions')) {
+               // Try a one-time get if onSnapshot fails initially
+               getDoc(userRef).then((snap) => {
+                 if (snap.exists()) {
+                   setProfile(snap.data() as UserProfile);
+                   setLoading(false);
+                 }
+               }).catch(() => {
+                 handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+                 setLoading(false);
+               });
+            } else {
+              handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+              setLoading(false);
+            }
+          });
+        } catch (e) {
+          console.error('Error setting up onSnapshot:', e);
           setLoading(false);
-        });
+        }
 
-        return () => unsubProfile();
+        return () => {
+          if (unsubProfile) unsubProfile();
+        };
       } else {
         setProfile(null);
         setLoading(false);
@@ -60,6 +136,10 @@ export default function App() {
       console.error('Login error:', error);
     }
   };
+
+  if (window.location.pathname === '/mock-payment') {
+    return <MockPayment />;
+  }
 
   if (loading) {
     return (
@@ -163,7 +243,11 @@ export default function App() {
   return (
     <>
       <AnimatePresence mode="wait">
-        {profile.role === 'vendor' ? (
+        {profile.role === 'admin' ? (
+          <motion.div key="admin" className="w-full" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <AdminDashboard profile={profile} />
+          </motion.div>
+        ) : profile.role === 'vendor' ? (
           <motion.div key="vendor" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <VendorDashboard profile={profile} />
           </motion.div>
@@ -173,6 +257,7 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
       <Toaster />
     </>
   );

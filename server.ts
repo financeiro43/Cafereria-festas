@@ -1,7 +1,8 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import * as admin from "firebase-admin";
+import { initializeApp, getApps, App } from "firebase-admin/app";
+import { getFirestore, Firestore, FieldValue } from "firebase-admin/firestore";
 import fs from "fs";
 
 async function startServer() {
@@ -10,22 +11,46 @@ async function startServer() {
   const PORT = 3000;
 
   // Initialize Firebase Admin
-  let db: admin.firestore.Firestore | null = null;
+  let db: Firestore | null = null;
   try {
-    const firebaseConfig = JSON.parse(fs.readFileSync("./firebase-applet-config.json", "utf-8"));
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        projectId: firebaseConfig.projectId,
-      });
+    const configPath = path.resolve(process.cwd(), "firebase-applet-config.json");
+    const apps = getApps();
+    
+    let firebaseApp: App;
+    if (apps.length === 0) {
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        firebaseApp = initializeApp({ projectId: config.projectId });
+      } else {
+        firebaseApp = initializeApp();
+      }
+    } else {
+      firebaseApp = apps[0];
     }
-    db = admin.firestore(firebaseConfig.firestoreDatabaseId);
-    console.log("Firebase Admin initialized successfully");
-  } catch (error) {
-    console.error("Firebase Admin initialization failed:", error);
-    // Continue without DB if needed, or handle accordingly
+
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (config.firestoreDatabaseId) {
+        try {
+          db = getFirestore(firebaseApp, config.firestoreDatabaseId);
+        } catch (fError: any) {
+          db = getFirestore(firebaseApp);
+        }
+      } else {
+        db = getFirestore(firebaseApp);
+      }
+    } else {
+      db = getFirestore(firebaseApp);
+    }
+  } catch (error: any) {
+    console.error("Firebase Admin initialization failed:", error?.message);
   }
 
   app.use(express.json());
+
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", dbInitialized: !!db });
+  });
 
   // --- Rede API Integration ---
   
@@ -34,37 +59,61 @@ async function startServer() {
 
   // Endpoint to create a payment link
   app.post("/api/rede/create-checkout", async (req, res) => {
+    console.log("Create checkout request received. Body keys:", Object.keys(req.body));
     try {
-      const { amount, userId, studentName } = req.body;
+      const { amount, userId, studentName, transactionId: providedId } = req.body;
+      console.log(`Processing recharge: amount=${amount}, userId=${userId}, providedId=${providedId}`);
 
-      if (!db) {
-        return res.status(500).json({ error: "Database not available" });
-      }
-
-      if (!REDE_PV || !REDE_TOKEN) {
-        // For simulation purposes, we allow it to proceed with a mock
-        console.warn("Rede API not configured, using mock");
-      }
-
-      const transactionId = `txn_${Date.now()}`;
+      const transactionId = providedId || `txn_${Date.now()}`;
       
-      // Store pending transaction
-      await db.collection("transactions").doc(transactionId).set({
-        userId,
-        amount,
-        type: "credit",
-        status: "pending",
-        description: `Recarga de saldo para ${studentName}`,
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      // Only attempt server-side write if NOT provided by client
+      if (!providedId) {
+        if (!db) {
+          console.error("CRITICAL: Firestore 'db' is null");
+          return res.status(500).json({ 
+            error: "Database not available", 
+            details: "Firestore initialization failed or 'db' variable was reset."
+          });
+        }
 
+        console.log("Writing transaction to Firestore (Server-side fallback)...");
+        try {
+          const docRef = db.collection("transactions").doc(transactionId);
+          await docRef.set({
+            userId,
+            amount: parseFloat(amount),
+            type: "credit",
+            status: "pending",
+            description: `Recarga de saldo para ${studentName}`,
+            timestamp: FieldValue.serverTimestamp(),
+          });
+          console.log("Firestore write success. Doc path:", docRef.path);
+        } catch (writeError: any) {
+          console.error("Firestore WRITE FAILED (Server-side):", writeError.message);
+          // If server write fails, we might still proceed if this is just creating a URL
+          // But here we'll fail to be safe if NOT provided by client
+          return res.status(500).json({ 
+            error: "Firestore write failure", 
+            message: writeError.message
+          });
+        }
+      } else {
+        console.log("Using client-provided transactionId:", providedId);
+      }
+
+      const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}`;
+      console.log("Returning checkout URL:", checkoutUrl);
+      
       res.json({
-        checkoutUrl: `${process.env.APP_URL}/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}`,
+        checkoutUrl,
         transactionId
       });
-    } catch (error) {
-      console.error("Rede Payment Error:", error);
-      res.status(500).json({ error: "Failed to create payment" });
+    } catch (error: any) {
+      console.error("Unexpected error in create-checkout route:", error);
+      res.status(500).json({ 
+        error: "Internal Server Error", 
+        message: error?.message || "Unknown error"
+      });
     }
   });
 
@@ -88,7 +137,7 @@ async function startServer() {
             if (userDoc.exists) {
               const currentBalance = userDoc.data()?.balance || 0;
               t.update(userRef, { balance: currentBalance + amount });
-              t.update(txnRef, { status: "completed", updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+              t.update(txnRef, { status: "completed", updatedAt: FieldValue.serverTimestamp() });
             }
           });
           
