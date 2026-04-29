@@ -714,7 +714,6 @@ function RechargePortal() {
       
       scannerRef.current.render(async (decodedText) => {
         try {
-          const uRef = doc(db, 'users', decodedText);
           const snap = await getDocs(query(collection(db, 'users'), where('uid', '==', decodedText)));
           if (!snap.empty) {
             setScannedUser(snap.docs[0].data() as UserProfile);
