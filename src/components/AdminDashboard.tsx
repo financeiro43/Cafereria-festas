@@ -174,7 +174,7 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
 
     try {
       // Update balance
-      await updateDoc(doc(db, 'users', userId), {
+      await updateDoc(doc(collection(db, 'users'), userId), {
         balance: increment(amount)
       });
 
@@ -207,7 +207,7 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
         newVendorIds = newVendorIds.filter(id => id !== stallId);
       }
 
-      await updateDoc(doc(db, 'users', userId), {
+      await updateDoc(doc(collection(db, 'users'), userId), {
         vendorIds: newVendorIds,
         role: newVendorIds.length > 0 ? 'vendor' : 'student'
       });
@@ -220,10 +220,10 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
   const handleDeleteStall = async (id: string) => {
     if (!confirm('Excluir esta barraca e todos os seus produtos?')) return;
     try {
-      await deleteDoc(doc(db, 'stalls', id));
+      await deleteDoc(doc(collection(db, 'stalls'), id));
       const stallProducts = products.filter(p => p.vendorId === id);
       for (const p of stallProducts) {
-        await deleteDoc(doc(db, 'products', p.id));
+        await deleteDoc(doc(collection(db, 'products'), p.id));
       }
       toast.success('Barraca excluída');
     } catch (error) {
@@ -233,7 +233,7 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
 
   const handleDeleteProduct = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'products', id));
+      await deleteDoc(doc(collection(db, 'products'), id));
       toast.success('Produto excluído');
     } catch (error) {
       toast.error('Erro ao excluir produto');
@@ -748,7 +748,7 @@ function RechargePortal() {
     try {
       setProcessing(true);
       
-      await updateDoc(doc(db, 'users', scannedUser.uid), {
+      await updateDoc(doc(collection(db, 'users'), scannedUser.uid), {
         balance: increment(val)
       });
 

@@ -58,7 +58,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
     setLoading(true);
 
     // Fetch Stall Info
-    const stallRef = doc(db, 'stalls', activeStallId);
+    const stallRef = doc(collection(db, 'stalls'), activeStallId);
     const unsubStall = onSnapshot(stallRef, (snap) => {
       if (snap.exists()) {
         setStall({ id: snap.id, ...snap.data() } as Stall);
@@ -92,7 +92,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
 
   const markAsDelivered = async (orderId: string) => {
     try {
-      await updateDoc(doc(db, 'orders', orderId), {
+      await updateDoc(doc(collection(db, 'orders'), orderId), {
         status: 'delivered',
         deliveredAt: serverTimestamp()
       });
@@ -185,7 +185,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       }
 
       // Update student balance
-      const studentRef = doc(db, 'users', scannedUser.uid);
+      const studentRef = doc(collection(db, 'users'), scannedUser.uid);
       await updateDoc(studentRef, {
         balance: increment(-cartTotal)
       });
