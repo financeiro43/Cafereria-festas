@@ -17,8 +17,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 
 type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app_view' | 'recharge_pos' | 'transactions' | 'card_printer';
 
-export default function AdminDashboard({ profile }: { profile: UserProfile }) {
-  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+export default function AdminDashboard({ profile, forcedTab }: { profile: UserProfile, forcedTab?: AdminTab }) {
+  const [activeTab, setActiveTab] = useState<AdminTab>(forcedTab || 'overview');
+
+  useEffect(() => {
+    if (forcedTab) {
+      setActiveTab(forcedTab);
+    }
+  }, [forcedTab]);
   
   const [stalls, setStalls] = useState<Stall[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -288,7 +294,7 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
   return (
     <div className="min-h-screen bg-slate-50 flex">
       {/* Sidebar */}
-      <aside className="w-72 bg-slate-900 text-white p-6 flex flex-col gap-8 sticky top-0 h-screen overflow-hidden">
+      <aside className={`w-72 bg-slate-900 text-white p-6 flex flex-col gap-8 sticky top-0 h-screen overflow-hidden ${forcedTab ? 'hidden' : 'flex'}`}>
         <div className="flex items-center gap-3 px-2">
           <div className="p-2 bg-blue-600 rounded-lg">
             <LayoutDashboard className="h-6 w-6 text-white" />
@@ -398,7 +404,7 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
 
       {/* Main Content */}
       <main className="flex-1 h-screen overflow-y-auto">
-        <div className="max-w-6xl mx-auto p-8">
+        <div className={`max-w-6xl mx-auto ${forcedTab ? 'p-2' : 'p-8'}`}>
           {activeTab === 'overview' && (
           <div className="space-y-8">
             <header>
@@ -682,9 +688,21 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                     />
                   </div>
                   <div className="space-y-1.5 flex-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Função / Acesso</label>
+                    <select 
+                      value={newUserRole}
+                      onChange={(e) => setNewUserRole(e.target.value as any)}
+                      className="w-full flex h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus-visible:ring-blue-500"
+                    >
+                      <option value="student">Estudante / Portal</option>
+                      <option value="vendor">PDV / Vendedor</option>
+                      <option value="recharge">Carga e Recarga</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5 flex-1">
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">E-mail do Google</label>
                     <div className="flex gap-2">
-                      <Input 
+                       <Input 
                         type="email"
                         value={newUserEmail}
                         onChange={(e) => setNewUserEmail(e.target.value)}
