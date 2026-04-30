@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Stall, Product, UserProfile, Withdrawal, Order } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon } from 'lucide-react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
 import VendorDashboard from './VendorDashboard';
@@ -539,148 +539,181 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
         )}
 
         {activeTab === 'users' && (
-          <div className="space-y-8">
-            <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-200 pb-8">
               <div>
-                <h2 className="text-3xl font-black text-slate-900 uppercase">Equipe de Vendas</h2>
-                <p className="text-slate-500">Controle quem opera cada terminal e adicione novos membros</p>
+                <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+                  <Users className="h-8 w-8 text-blue-600" />
+                  EQUIPE DE VENDAS
+                </h2>
+                <p className="text-slate-500 mt-1 max-w-lg">
+                  Gerencie acessos dos terminais, atribua barracas e controle saldos manuais de colaboradores e alunos.
+                </p>
               </div>
-              <Button 
-                onClick={async () => {
-                  try {
-                    // 1. Ensure "Bebida" stall exists
-                    let bebidaStall = stalls.find(s => s.name === 'Bebida');
-                    let stallId = bebidaStall?.id;
+              <div className="flex items-center gap-3">
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      let bebidaStall = stalls.find(s => s.name === 'Bebida');
+                      let stallId = bebidaStall?.id;
 
-                    if (!bebidaStall) {
-                      const docRef = await addDoc(collection(db, 'stalls'), {
-                        name: 'Bebida',
-                        createdAt: new Date().toISOString()
-                      });
-                      stallId = docRef.id;
-                      toast.success('Barraca "Bebida" criada!');
-                    }
+                      if (!bebidaStall) {
+                        const docRef = await addDoc(collection(db, 'stalls'), {
+                          name: 'Bebida',
+                          createdAt: new Date().toISOString()
+                        });
+                        stallId = docRef.id;
+                      }
 
-                    // 2. Add Denis (Bebida)
-                    const denisEmail = 'denis.alves@exemplo.com';
-                    if (!users.find(u => u.email === denisEmail)) {
-                      await addDoc(collection(db, 'users'), {
-                        name: 'Denis Alves',
-                        email: denisEmail,
-                        role: 'vendor',
-                        balance: 0,
-                        vendorIds: [stallId],
-                        qrCode: `TEMP-DENIS-${Date.now()}`,
-                        timestamp: serverTimestamp()
-                      });
-                      toast.success('Denis Alves pré-cadastrado!');
-                    }
+                      const denisEmail = 'denis.alves@exemplo.com';
+                      if (!users.find(u => u.email === denisEmail)) {
+                        await addDoc(collection(db, 'users'), {
+                          name: 'Denis Alves',
+                          email: denisEmail,
+                          role: 'vendor',
+                          balance: 0,
+                          vendorIds: [stallId],
+                          qrCode: `TEMP-DENIS-${Date.now()}`,
+                          timestamp: serverTimestamp()
+                        });
+                      }
 
-                    // 3. Add Luis (Recharge/Admin)
-                    const luisEmail = 'luis@exemplo.com';
-                    if (!users.find(u => u.email === luisEmail)) {
-                      await addDoc(collection(db, 'users'), {
-                        name: 'Luis',
-                        email: luisEmail,
-                        role: 'admin',
-                        balance: 0,
-                        vendorIds: [],
-                        qrCode: `TEMP-LUIS-${Date.now()}`,
-                        timestamp: serverTimestamp()
-                      });
-                      toast.success('Luis pré-cadastrado!');
+                      const luisEmail = 'luis@exemplo.com';
+                      if (!users.find(u => u.email === luisEmail)) {
+                        await addDoc(collection(db, 'users'), {
+                          name: 'Luis',
+                          email: luisEmail,
+                          role: 'admin',
+                          balance: 0,
+                          vendorIds: [],
+                          qrCode: `TEMP-LUIS-${Date.now()}`,
+                          timestamp: serverTimestamp()
+                        });
+                      }
+                      toast.success('Configuração Denis/Luis aplicada!');
+                    } catch (e) {
+                      toast.error('Erro na configuração rápida');
                     }
-                  } catch (e) {
-                    toast.error('Erro na configuração rápida');
-                  }
-                }}
-                className="bg-orange-500 hover:bg-orange-600 text-white font-bold"
-              >
-                Configuração Rápida (Denis e Luis)
-              </Button>
+                  }}
+                  className="border-orange-200 text-orange-600 hover:bg-orange-50 font-bold text-[10px] uppercase tracking-widest px-4 h-10 rounded-xl"
+                >
+                  Configuração Rápida
+                </Button>
+              </div>
             </header>
 
-            {/* Quick Add User Form */}
-            <div className="p-6 bg-slate-900 rounded-2xl shadow-xl border border-slate-800">
-              <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Nome do Vendedor/Membro</label>
-                  <Input 
-                    value={newUserName}
-                    onChange={(e) => setNewUserName(e.target.value)}
-                    placeholder="Ex: João Silva"
-                    className="bg-slate-800 border-slate-700 text-white h-12"
-                  />
+            {/* Form Section */}
+            <section className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
+              <div className="flex flex-col md:flex-row items-center gap-8">
+                <div className="md:w-1/3">
+                  <h3 className="font-bold text-slate-900 text-lg uppercase tracking-tight">Novo Membro</h3>
+                  <p className="text-slate-500 text-sm mt-1">Pré-cadastre usuários para que eles possam acessar o sistema.</p>
                 </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">E-mail do Google</label>
-                  <Input 
-                    type="email"
-                    value={newUserEmail}
-                    onChange={(e) => setNewUserEmail(e.target.value)}
-                    placeholder="exemplo@gmail.com"
-                    className="bg-slate-800 border-slate-700 text-white h-12"
-                  />
-                </div>
-                <Button type="submit" className="bg-blue-600 hover:bg-blue-500 text-white h-12 font-black uppercase tracking-tight">
-                  <Plus className="h-4 w-4 mr-2" /> Cadastrar Membro
-                </Button>
-              </form>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {users.filter(u => u.role !== 'admin').map(user => (
-                <div key={user.uid} className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-black text-slate-900 uppercase tracking-tight">{user.name}</p>
-                      <p className="text-[10px] text-slate-400 font-bold">{user.email}</p>
-                    </div>
-                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${user.role === 'vendor' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>
-                      {user.role}
-                    </span>
+                <form onSubmit={handleAddUser} className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5 flex-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome Completo</label>
+                    <Input 
+                      value={newUserName}
+                      onChange={(e) => setNewUserName(e.target.value)}
+                      placeholder="Ex: João Silva"
+                      className="bg-slate-50 border-slate-200 h-11 focus-visible:ring-blue-500 rounded-xl"
+                    />
                   </div>
-                  
-                  <div className="space-y-3 pt-3 border-t border-slate-100">
-                    <label className="text-[10px] font-black uppercase text-slate-400">Gestão de Saldo</label>
+                  <div className="space-y-1.5 flex-1">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">E-mail do Google</label>
                     <div className="flex gap-2">
-                       <div className="relative flex-1">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">R$</span>
+                      <Input 
+                        type="email"
+                        value={newUserEmail}
+                        onChange={(e) => setNewUserEmail(e.target.value)}
+                        placeholder="exemplo@gmail.com"
+                        className="bg-slate-50 border-slate-200 h-11 focus-visible:ring-blue-500 rounded-xl"
+                      />
+                      <Button type="submit" className="bg-slate-900 hover:bg-slate-800 text-white h-11 px-6 rounded-xl font-bold transition-all shrink-0">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </section>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+              {users.filter(u => u.role !== 'admin').map(user => (
+                <div key={user.uid} className="group flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+                  <div className="p-6 pb-0">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="h-12 w-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 font-black text-lg border border-blue-100 uppercase">
+                          {user.name.charAt(0)}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900 uppercase tracking-tight">{user.name}</h4>
+                          <p className="text-[11px] text-slate-400 font-medium truncate max-w-[140px] italic">{user.email}</p>
+                        </div>
+                      </div>
+                      <div className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border ${
+                        user.role === 'vendor' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'
+                      }`}>
+                        {user.role}
+                      </div>
+                    </div>
+
+                    <div className="mt-8 mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Saldo Disponível</label>
+                        <p className="text-sm font-black text-slate-900">R$ {user.balance.toFixed(2)}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1 group/input">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">R$</span>
                           <input 
                             type="number"
-                            placeholder="0.00"
-                            className="w-full text-xs rounded-lg border-slate-200 bg-slate-50 pl-6 p-2"
+                            placeholder="0,00"
+                            className="w-full text-xs font-bold rounded-xl border-slate-200 bg-white pl-8 p-2.5 transition-all focus:border-blue-500 outline-none"
                             value={rechargeAmounts[user.uid] || ''}
                             onChange={(e) => setRechargeAmounts(prev => ({ ...prev, [user.uid]: e.target.value }))}
                           />
-                       </div>
-                       <Button 
-                         size="sm" 
-                         onClick={() => handleManualRecharge(user.uid)}
-                         className="bg-green-600 hover:bg-green-700 text-white border-none"
-                       >
-                         Adicionar
-                       </Button>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          onClick={() => handleManualRecharge(user.uid)}
+                          className="bg-slate-900 hover:bg-slate-800 text-white rounded-xl px-4 h-10 font-bold border-none"
+                        >
+                          Recarregar
+                        </Button>
+                      </div>
                     </div>
-                    <p className="text-[10px] text-slate-500 font-medium">Saldo atual: <span className="font-bold text-slate-900">R$ {user.balance.toFixed(2)}</span></p>
                   </div>
                   
-                  <div className="space-y-3 pt-3 border-t border-slate-100">
-                    <label className="text-[10px] font-black uppercase text-slate-400">Atribuir Barracas</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {stalls.map(s => (
-                        <label key={s.id} className="flex items-center gap-2 p-2 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors border border-slate-100">
-                          <input 
-                            type="checkbox"
-                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                            checked={!!user.vendorIds?.includes(s.id)}
-                            onChange={(e) => setUserVendorIds(user.uid, s.id, e.target.checked)}
-                          />
-                          <span className="text-xs font-medium text-slate-700">{s.name}</span>
-                        </label>
-                      ))}
+                  <div className="mt-auto bg-white p-6 pt-0">
+                    <div className="space-y-4 pt-6 border-t border-slate-100">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Acesso às Barracas</label>
+                        <span className="text-[10px] text-slate-400 font-bold">{user.vendorIds?.length || 0} Ativa(s)</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {stalls.map(s => (
+                          <label key={s.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-tight cursor-pointer transition-all border ${
+                            user.vendorIds?.includes(s.id) 
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+                              : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                          }`}>
+                            <input 
+                              type="checkbox"
+                              className="hidden"
+                              checked={!!user.vendorIds?.includes(s.id)}
+                              onChange={(e) => setUserVendorIds(user.uid, s.id, e.target.checked)}
+                            />
+                            {user.vendorIds?.includes(s.id) && <CircleCheckIcon className="h-3 w-3" />}
+                            {s.name}
+                          </label>
+                        ))}
+                        {stalls.length === 0 && <p className="text-[10px] text-slate-400 italic">Cadastre barracas primeiro.</p>}
+                      </div>
                     </div>
-                    {stalls.length === 0 && <p className="text-[10px] text-slate-400 italic">Nenhuma barraca cadastrada.</p>}
                   </div>
                 </div>
               ))}
