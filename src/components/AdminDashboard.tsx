@@ -1024,7 +1024,7 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                 <div id="printable-cards" className="print:block">
                   <div className="grid grid-cols-2 gap-4 max-w-[800px] mx-auto">
                     {users.filter(u => u.isPhysicalCard).sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, batchSize).map(card => (
-                      <div key={card.uid} className="relative aspect-[1.586] w-full rounded-[12px] overflow-hidden bg-white shadow-sm border border-slate-200 print:break-inside-avoid print:shadow-none print:mb-4">
+                      <div key={card.uid} className="relative print-card w-full rounded-[12px] overflow-hidden bg-white shadow-sm border border-slate-200 print:break-inside-avoid print:shadow-none print:mb-4">
                         <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
                         <div className="absolute inset-0 bg-slate-900/20" />
                         <div className="relative h-full p-6 flex flex-col justify-between text-white">
@@ -1050,23 +1050,79 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                   </div>
                   <style>{`
                     @media print {
-                      body * { visibility: hidden; }
-                      #printable-cards, #printable-cards * { visibility: visible; }
-                      #printable-cards { 
-                        position: absolute!important; 
-                        left: 0!important; 
-                        top: 0!important; 
-                        width: 100%!important;
-                        background: transparent!important;
-                        padding: 10mm!important;
+                      @page {
+                        size: A4;
+                        margin: 10mm;
                       }
-                      .bg-slate-100 { background: transparent!important; }
-                      main, section { padding: 0 !important; overflow: visible !important; height: auto !important; margin: 0 !important; }
-                      .aspect-[1.586] { 
+                      
+                      /* Force background colors and images */
+                      * {
+                        -webkit-print-color-adjust: exact !important;
+                        print-color-adjust: exact !important;
+                        color-adjust: exact !important;
+                      }
+
+                      body {
+                        background: white !important;
+                      }
+
+                      /* Hide everything else */
+                      body * { 
+                        visibility: hidden; 
+                        transition: none !important;
+                      }
+
+                      /* Show only the print area */
+                      #printable-cards, #printable-cards * { 
+                        visibility: visible !important; 
+                      }
+
+                      #printable-cards { 
+                        position: absolute !important; 
+                        left: 0 !important; 
+                        top: 0 !important; 
+                        width: 100% !important;
+                        background: white !important;
+                        display: block !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
+                      }
+
+                      .bg-slate-100 { background: white !important; }
+                      
+                      main, section { 
+                        padding: 0 !important; 
+                        overflow: visible !important; 
+                        height: auto !important; 
+                        margin: 0 !important; 
+                        background: white !important;
+                      }
+
+                      /* Force card dimensions and background */
+                      .print-card { 
                         width: 85.6mm !important; 
                         height: 53.98mm !important; 
-                        border: 1px solid #ddd !important;
-                        -webkit-print-color-adjust: exact;
+                        margin-bottom: 2mm !important;
+                        border: 0.1mm solid #eee !important;
+                        box-shadow: none !important;
+                        break-inside: avoid !important;
+                        page-break-inside: avoid !important;
+                        position: relative !important;
+                        background-color: #fff !important;
+                        display: block !important;
+                        border-radius: 4mm !important;
+                        overflow: hidden !important;
+                      }
+
+                      .print-card img {
+                        display: block !important;
+                        width: 100% !important;
+                        height: 100% !important;
+                        object-fit: cover !important;
+                        position: absolute !important;
+                        top: 0 !important;
+                        left: 0 !important;
+                        z-index: 0 !important;
                       }
                     }
                   `}</style>
