@@ -80,6 +80,35 @@
       },
       "required": ["stallId", "amount", "adminId", "timestamp"]
     },
+    "Transaction": {
+      "title": "Financial Transaction",
+      "description": "Any money flow (credit/debit/recharge)",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["credit", "debit"] },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["completed", "pending", "failed"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "type", "status", "timestamp"]
+    },
+    "Consumption": {
+      "title": "Consumption Record",
+      "description": "Log of a specific item purchase",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "stallId": { "type": "string" },
+        "stallName": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "object" } },
+        "amount": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "stallId", "amount", "timestamp"]
+    },
     "Order": {
       "title": "In-App Order",
       "description": "Purchase order made via mobile app",
@@ -115,6 +144,14 @@
     "/products/{productId}": {
       "schema": "Product",
       "description": "Individual items for sale"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Financial transaction history"
+    },
+    "/consumption/{consumptionId}": {
+      "schema": "Consumption",
+      "description": "Specific sale line items"
     },
     "/withdrawals/{withdrawalId}": {
       "schema": "Withdrawal",
