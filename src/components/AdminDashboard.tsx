@@ -4,14 +4,16 @@ import { collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc, order
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Stall, Product, UserProfile, Withdrawal, Order } from '../types';
+import { Stall, Product, UserProfile, Withdrawal, Order, Transaction } from '../types';
 import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon } from 'lucide-react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
 import VendorDashboard from './VendorDashboard';
 import ShopView from './ShopView';
 
-type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app_view' | 'recharge_pos';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+
+type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app_view' | 'recharge_pos' | 'transactions';
 
 export default function AdminDashboard({ profile }: { profile: UserProfile }) {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
@@ -21,6 +23,7 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [recentSales, setRecentSales] = useState<any[]>([]);
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   
   const [newStallName, setNewStallName] = useState('');
   const [newProductName, setNewProductName] = useState('');
@@ -52,12 +55,17 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
       setWithdrawals(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Withdrawal)));
     });
 
+    const unsubTransactions = onSnapshot(query(collection(db, 'transactions'), orderBy('timestamp', 'desc')), (snap) => {
+      setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
+    });
+
     return () => {
       unsubStalls();
       unsubProducts();
       unsubUsers();
       unsubSales();
       unsubWithdrawals();
+      unsubTransactions();
     };
   }, []);
 
@@ -285,6 +293,13 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                   className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'users' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                 >
                   <Users className="h-4 w-4" /> Gestão de Equipe
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setActiveTab('transactions')}
+                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'transactions' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                >
+                  <History className="h-4 w-4" /> Histórico de Vendas
                 </Button>
               </nav>
             </section>
@@ -718,6 +733,87 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'transactions' && (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <header>
+              <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-3">
+                <FileText className="h-8 w-8 text-blue-600" />
+                Histórico de Vendas
+              </h2>
+              <p className="text-slate-500 mt-1">Lista completa de transações financeiras registradas no sistema.</p>
+            </header>
+
+            <Card className="shadow-sm border-none bg-white rounded-3xl overflow-hidden">
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader className="bg-slate-50">
+                    <TableRow>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest pl-8">Início / Data</TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest">ID do Usuário</TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-right">Valor</TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-center">Tipo</TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest">Descrição</TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-right pr-8">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {transactions.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-12 text-slate-400 italic">
+                          Nenhuma transação encontrada.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      transactions.map((tx) => (
+                        <TableRow key={tx.id} className="hover:bg-slate-50/50 border-slate-100">
+                          <TableCell className="py-4 pl-8">
+                            <div className="flex flex-col">
+                              <span className="font-medium text-slate-900">
+                                {tx.timestamp?.toDate ? tx.timestamp.toDate().toLocaleDateString('pt-BR') : 'Recent'}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">
+                                {tx.timestamp?.toDate ? tx.timestamp.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-4">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-slate-700 text-xs truncate max-w-[150px]">{tx.userId}</span>
+                              <span className="text-[9px] text-slate-400 font-medium">#{tx.id.slice(0, 8)}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-4 text-right">
+                            <span className={`font-black tracking-tight ${tx.type === 'credit' ? 'text-green-600' : 'text-slate-900'}`}>
+                              {tx.type === 'credit' ? '+' : '-'} R$ {tx.amount.toFixed(2)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="py-4 text-center">
+                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                              tx.type === 'credit' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-slate-100 text-slate-500 border-slate-200'
+                            }`}>
+                              {tx.type === 'credit' ? 'Crédito' : 'Débito'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="py-4">
+                            <span className="text-sm text-slate-600">{tx.description}</span>
+                          </TableCell>
+                          <TableCell className="py-4 text-right pr-8">
+                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                              tx.status === 'completed' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'
+                            }`}>
+                              {tx.status}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
           </div>
         )}
         {activeTab === 'terminal' && (
