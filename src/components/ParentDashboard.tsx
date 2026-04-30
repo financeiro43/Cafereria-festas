@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs, updateDoc, increment } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -21,6 +21,9 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
+  const [pendingAmount, setPendingAmount] = useState<number>(0);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
   useEffect(() => {
@@ -133,10 +136,11 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         transactionId: txnRef.id
       });
 
-      if (response.data.checkoutUrl) {
-        // Redireciona para o link da Rede (ou simulação)
-        window.open(response.data.checkoutUrl, '_blank');
-        toast.success('Link de pagamento gerado!');
+      if (response.data.transactionId) {
+        setPendingAmount(amount);
+        setCurrentTransactionId(response.data.transactionId);
+        setShowPaymentModal(true);
+        toast.success('Link de faturamento gerado!');
       }
     } catch (error: any) {
       console.error('Recharge error:', error);
@@ -227,6 +231,67 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             </CardContent>
           </Card>
         </div>
+
+        {showPaymentModal && currentTransactionId && (
+          <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
+            <Card className="w-full max-w-sm">
+              <CardHeader className="text-center pb-2">
+                <CardTitle>Pagamento com Rede</CardTitle>
+                <CardDescription>Simulação de Checkout e-Rede</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                <div className="p-4 bg-slate-50 rounded-xl space-y-2 border border-slate-100">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-500 uppercase font-bold">Valor da Recarga:</span>
+                    <span className="font-black text-slate-900">R$ {pendingAmount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs overflow-hidden">
+                    <span className="text-slate-500 uppercase font-bold shrink-0">Protocolo:</span>
+                    <span className="font-mono text-slate-400 truncate">{currentTransactionId}</span>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="ghost" onClick={() => {
+                    setShowPaymentModal(false);
+                    setCurrentTransactionId(null);
+                  }} className="text-slate-500">
+                    Cancelar
+                  </Button>
+                  <Button onClick={async () => {
+                    try {
+                      const txnRef = doc(db, 'transactions', currentTransactionId);
+                      const userRef = doc(db, 'users', profile.uid);
+                      
+                      await updateDoc(userRef, {
+                        balance: increment(pendingAmount)
+                      });
+                      
+                      await updateDoc(txnRef, {
+                        status: 'completed',
+                        updatedAt: serverTimestamp()
+                      });
+
+                      toast.success('Recarga aprovada com sucesso!');
+                      setShowPaymentModal(false);
+                      setCurrentTransactionId(null);
+                      setRechargeAmount('50');
+                    } catch (err) {
+                      console.error(err);
+                      toast.error('Erro ao aprovar recarga');
+                    }
+                  }} className="bg-red-600 hover:bg-red-700 text-white font-bold">
+                    Simular Pagamento
+                  </Button>
+                </div>
+                
+                <p className="text-[10px] text-center text-slate-400 leading-tight">
+                  Ambiente de Testes: Clique em "Simular" para confirmar o recebimento do valor via Rede.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         <Tabs defaultValue="shop" className="w-full">
           <TabsList className="bg-white border border-slate-100 shadow-sm mb-4">

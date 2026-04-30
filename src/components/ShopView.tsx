@@ -16,6 +16,8 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
   const [cart, setCart] = useState<{product: Product, quantity: number}[]>([]);
   const [loading, setLoading] = useState(false);
   const [payingWithRede, setPayingWithRede] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'stalls'), (snap) => {
@@ -136,9 +138,9 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
         transactionId: txnRef.id
       });
 
-      if (response.data.checkoutUrl) {
-        window.open(response.data.checkoutUrl, '_blank');
-        toast.info('Pague na nova aba. Seu saldo será atualizado automaticamente.');
+      if (response.data.transactionId) {
+        setCurrentTransactionId(response.data.transactionId);
+        setShowPaymentModal(true);
       }
     } catch (error: any) {
       console.error('Rede payment error:', error);
@@ -212,18 +214,17 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                       <span className="font-bold">Total</span>
                       <span className="text-2xl font-black">R$ {total.toFixed(2)}</span>
                     </div>
-                    <div className="space-y-2">
-                      <Button 
-                        className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl"
-                        disabled={loading || profile.balance < total || payingWithRede}
-                        onClick={handleCheckout}
-                      >
-                        {loading ? 'Processando...' : profile.balance < total ? 'Saldo Insuficiente' : 'Pagar com Saldo'}
-                      </Button>
+                      <div className="space-y-2">
+                        <Button 
+                          className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl"
+                          disabled={loading || profile.balance < total || payingWithRede}
+                          onClick={handleCheckout}
+                        >
+                          {loading ? 'Processando...' : profile.balance < total ? 'Saldo Insuficiente' : 'Pagar com Saldo'}
+                        </Button>
 
-                      {profile.balance < total && (
                         <div className="space-y-2">
-                          <p className="text-[10px] text-center text-slate-400 uppercase font-black tracking-widest">Ou pague agora via</p>
+                          <p className="text-[10px] text-center text-slate-400 uppercase font-black tracking-widest">Ou pague via</p>
                           <Button 
                             variant="outline"
                             className="w-full h-12 border-slate-200 hover:bg-red-50 hover:text-red-600 font-bold rounded-xl flex items-center justify-center gap-2"
@@ -234,8 +235,7 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                             {payingWithRede ? 'Iniciando...' : `Pagar R$ ${total.toFixed(2)} com Rede`}
                           </Button>
                         </div>
-                      )}
-                    </div>
+                      </div>
                   </>
                 )}
               </CardContent>
@@ -263,6 +263,74 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
           </Button>
         ))}
       </div>
+
+      {showPaymentModal && currentTransactionId && (
+        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
+          <Card className="w-full max-w-sm">
+            <CardHeader className="text-center pb-2">
+              <CardTitle>Pagamento com Rede</CardTitle>
+              <CardDescription>Simulação de Checkout e-Rede</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4">
+              <div className="p-4 bg-slate-50 rounded-xl space-y-2 border border-slate-100">
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500 uppercase font-bold">Valor do Pedido:</span>
+                  <span className="font-black text-slate-900">R$ {total.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-xs overflow-hidden">
+                  <span className="text-slate-500 uppercase font-bold shrink-0">Terminal:</span>
+                  <span className="font-mono text-slate-400 truncate">{currentTransactionId}</span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="ghost" onClick={() => {
+                  setShowPaymentModal(false);
+                  setCurrentTransactionId(null);
+                }} className="text-slate-500">
+                  Cancelar
+                </Button>
+                <Button onClick={async () => {
+                  try {
+                    // Logic to approve the transaction
+                    const txnRef = doc(db, 'transactions', currentTransactionId);
+                    const userRef = doc(db, 'users', profile.uid);
+                    
+                    // Approval process (Simulation)
+                    // We directly update balance and status
+                    await updateDoc(userRef, {
+                      balance: increment(total)
+                    });
+                    
+                    await updateDoc(txnRef, {
+                      status: 'completed',
+                      updatedAt: serverTimestamp()
+                    });
+
+                    // Success!
+                    toast.success('Crédito via Rede aprovado!');
+                    setShowPaymentModal(false);
+                    setCurrentTransactionId(null);
+                    
+                    // Now they can pay with their balance automatically or they have to click again?
+                    // Let's try to complete the order automatically since they just "paid" the exact amount.
+                    handleCheckout();
+                  } catch (err) {
+                    console.error(err);
+                    toast.error('Erro ao processar aprovação simulada');
+                  }
+                }} className="bg-red-600 hover:bg-red-700 text-white font-bold">
+                  Pagar Agora
+                </Button>
+              </div>
+              
+              <p className="text-[10px] text-center text-slate-400 leading-tight">
+                Em ambiente real, você seria redirecionado para o ambiente seguro da Rede para inserir os dados do cartão.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
