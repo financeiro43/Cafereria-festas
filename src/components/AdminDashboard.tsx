@@ -40,7 +40,7 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
     });
 
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      setUsers(snap.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+      setUsers(snap.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile)));
     });
 
     const qSales = query(collection(db, 'consumption'), orderBy('timestamp', 'desc'), limit(10));
@@ -153,7 +153,6 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
         balance: 0,
         vendorIds: [],
         qrCode: `TEMP-${Date.now()}`,
-        uid: 'pending',
         timestamp: serverTimestamp()
       });
 
@@ -546,6 +545,59 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                 <h2 className="text-3xl font-black text-slate-900 uppercase">Equipe de Vendas</h2>
                 <p className="text-slate-500">Controle quem opera cada terminal e adicione novos membros</p>
               </div>
+              <Button 
+                onClick={async () => {
+                  try {
+                    // 1. Ensure "Bebida" stall exists
+                    let bebidaStall = stalls.find(s => s.name === 'Bebida');
+                    let stallId = bebidaStall?.id;
+
+                    if (!bebidaStall) {
+                      const docRef = await addDoc(collection(db, 'stalls'), {
+                        name: 'Bebida',
+                        createdAt: new Date().toISOString()
+                      });
+                      stallId = docRef.id;
+                      toast.success('Barraca "Bebida" criada!');
+                    }
+
+                    // 2. Add Denis (Bebida)
+                    const denisEmail = 'denis.alves@exemplo.com';
+                    if (!users.find(u => u.email === denisEmail)) {
+                      await addDoc(collection(db, 'users'), {
+                        name: 'Denis Alves',
+                        email: denisEmail,
+                        role: 'vendor',
+                        balance: 0,
+                        vendorIds: [stallId],
+                        qrCode: `TEMP-DENIS-${Date.now()}`,
+                        timestamp: serverTimestamp()
+                      });
+                      toast.success('Denis Alves pré-cadastrado!');
+                    }
+
+                    // 3. Add Luis (Recharge/Admin)
+                    const luisEmail = 'luis@exemplo.com';
+                    if (!users.find(u => u.email === luisEmail)) {
+                      await addDoc(collection(db, 'users'), {
+                        name: 'Luis',
+                        email: luisEmail,
+                        role: 'admin',
+                        balance: 0,
+                        vendorIds: [],
+                        qrCode: `TEMP-LUIS-${Date.now()}`,
+                        timestamp: serverTimestamp()
+                      });
+                      toast.success('Luis pré-cadastrado!');
+                    }
+                  } catch (e) {
+                    toast.error('Erro na configuração rápida');
+                  }
+                }}
+                className="bg-orange-500 hover:bg-orange-600 text-white font-bold"
+              >
+                Configuração Rápida (Denis e Luis)
+              </Button>
             </header>
 
             {/* Quick Add User Form */}
