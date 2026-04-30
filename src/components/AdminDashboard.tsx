@@ -4,7 +4,7 @@ import { collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc, order
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Stall, Product, UserProfile, Withdrawal, Order, Transaction } from '../types';
+import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole } from '../types';
 import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
@@ -147,6 +147,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserName, setNewUserName] = useState('');
+  const [newUserRole, setNewUserRole] = useState<UserRole>('student');
   
   const [batchSize, setBatchSize] = useState(24);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -170,7 +171,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       await addDoc(collection(db, 'users'), {
         name: newUserName,
         email: newUserEmail.toLowerCase(),
-        role: 'student',
+        role: newUserRole,
         balance: 0,
         vendorIds: [],
         qrCode: `TEMP-${Date.now()}`,

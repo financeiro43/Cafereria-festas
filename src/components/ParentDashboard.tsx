@@ -405,5 +405,6 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           <span className="text-[9px] font-bold uppercase tracking-widest">Sair</span>
         </button>
       </nav>
+    </div>
   );
 }
