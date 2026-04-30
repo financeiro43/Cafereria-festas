@@ -196,20 +196,36 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                 </Button>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 px-4 md:px-6 pb-4">
-              <div className="flex gap-2">
+            <CardContent className="space-y-4 px-4 md:px-6 pb-6">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <div className="relative flex-1">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">R$</span>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-black text-lg">R$</span>
                   <Input 
                     type="number" 
                     value={rechargeAmount}
                     onChange={(e) => setRechargeAmount(e.target.value)}
-                    className="pl-8 h-10 text-sm font-bold bg-slate-50 border-slate-100"
+                    className="pl-12 h-14 text-xl font-black bg-slate-50 border-slate-100 rounded-2xl focus:ring-slate-900"
                   />
                 </div>
-                <Button onClick={handleRecharge} disabled={loading} className="bg-slate-900 hover:bg-slate-800 h-10 px-4 text-xs font-bold">
-                  Recarregar
+                <Button 
+                  onClick={handleRecharge} 
+                  disabled={loading} 
+                  className="bg-slate-900 hover:bg-slate-800 h-14 md:px-10 px-4 text-sm font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <PlusCircle className="h-5 w-5" />
+                  RECARREGAR AGORA
                 </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[20, 50, 100].map(val => (
+                  <button 
+                    key={val} 
+                    onClick={() => setRechargeAmount(val.toString())}
+                    className={`h-10 rounded-xl border font-bold text-xs transition-all ${rechargeAmount === val.toString() ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200'}`}
+                  >
+                    R$ {val}
+                  </button>
+                ))}
               </div>
             </CardContent>
           </Card>

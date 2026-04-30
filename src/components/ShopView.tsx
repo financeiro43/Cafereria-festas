@@ -214,27 +214,37 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                       <span className="font-bold">Total</span>
                       <span className="text-2xl font-black">R$ {total.toFixed(2)}</span>
                     </div>
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         <Button 
-                          className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl"
+                          className="w-full h-14 bg-green-600 hover:bg-green-700 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95"
                           disabled={loading || profile.balance < total || payingWithRede}
                           onClick={handleCheckout}
                         >
-                          {loading ? 'Processando...' : profile.balance < total ? 'Saldo Insuficiente' : 'Pagar com Saldo'}
+                          {loading ? 'Processando...' : 
+                           profile.balance < total ? 'Falta Saldo' : 
+                           `Pagar com Saldo (R$ ${total.toFixed(2)})`}
                         </Button>
 
-                        <div className="space-y-2">
-                          <p className="text-[10px] text-center text-slate-400 uppercase font-black tracking-widest">Ou pague via</p>
-                          <Button 
-                            variant="outline"
-                            className="w-full h-12 border-slate-200 hover:bg-red-50 hover:text-red-600 font-bold rounded-xl flex items-center justify-center gap-2"
-                            disabled={payingWithRede || loading}
-                            onClick={handleRedePayment}
-                          >
-                            <CreditCard className="h-5 w-5" />
-                            {payingWithRede ? 'Iniciando...' : `Pagar R$ ${total.toFixed(2)} com Rede`}
-                          </Button>
+                        <div className="relative py-2">
+                          <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-100"></span></div>
+                          <div className="relative flex justify-center text-[10px] uppercase"><span className="bg-white px-3 text-slate-400 font-black tracking-widest">Ou rápido via</span></div>
                         </div>
+
+                        <Button 
+                          variant="outline"
+                          className="w-full h-14 border-slate-200 hover:bg-red-50 hover:text-red-600 font-black rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95 shadow-sm"
+                          disabled={payingWithRede || loading}
+                          onClick={handleRedePayment}
+                        >
+                          <CreditCard className="h-6 w-6" />
+                          {payingWithRede ? 'Conectando Rede...' : `Pagar R$ ${total.toFixed(2)} com Cartão`}
+                        </Button>
+                        
+                        {profile.balance < total && (
+                          <p className="text-[10px] text-center text-red-500 font-bold px-4">
+                            Seu saldo atual (R$ {profile.balance.toFixed(2)}) não é suficiente. Use o Cartão para pagar agora.
+                          </p>
+                        )}
                       </div>
                   </>
                 )}
