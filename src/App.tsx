@@ -235,7 +235,7 @@ function MainApp() {
     );
   }
 
-  if (profile.role === 'admin' && (window.location.pathname === '/' || window.location.pathname === '/admin')) {
+  if (profile.role === 'admin' && location.pathname === '/') {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
         <div className="w-full max-w-4xl grid md:grid-cols-2 gap-8 animate-in fade-in zoom-in duration-500">
@@ -246,7 +246,7 @@ function MainApp() {
           </div>
           
           <Button 
-            onClick={() => window.location.href = '/admin'}
+            onClick={() => navigate('/admin')}
             className="h-64 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-[40px] flex flex-col gap-4 text-white group shadow-2xl transition-all hover:-translate-y-2"
           >
             <div className="p-6 bg-blue-600 rounded-3xl group-hover:scale-110 transition-transform">
@@ -259,7 +259,7 @@ function MainApp() {
           </Button>
 
           <Button 
-            onClick={() => window.location.href = '/pdv'}
+            onClick={() => navigate('/pdv')}
             className="h-64 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-[40px] flex flex-col gap-4 text-white group shadow-2xl transition-all hover:-translate-y-2"
           >
             <div className="p-6 bg-green-600 rounded-3xl group-hover:scale-110 transition-transform">
@@ -272,7 +272,7 @@ function MainApp() {
           </Button>
 
           <Button 
-            onClick={() => window.location.href = '/portal'}
+            onClick={() => navigate('/portal')}
             className="h-24 md:col-span-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-[32px] flex items-center justify-center gap-4 text-white transition-all"
           >
             <UserIcon className="h-6 w-6 text-slate-400" />
