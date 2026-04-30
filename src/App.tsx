@@ -1,22 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot, collection, query, where, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { UserProfile } from './types';
-import ParentDashboard from './components/ParentDashboard';
-import VendorDashboard from './components/VendorDashboard';
-import AdminDashboard from './components/AdminDashboard';
-import MockPayment from './components/MockPayment';
 import { Toaster } from './components/ui/sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Coffee, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDashboard, User as UserIcon, LogOut, Store } from 'lucide-react';
+import { Coffee, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDashboard, User as UserIcon, LogOut, Store, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+
+// Lazy load components for performance
+const ParentDashboard = lazy(() => import('./components/ParentDashboard'));
+const VendorDashboard = lazy(() => import('./components/VendorDashboard'));
+const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
+const MockPayment = lazy(() => import('./components/MockPayment'));
+
+function LoadingFallback() {
+  return (
+    <div className="h-screen w-full flex items-center justify-center bg-slate-50">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 className="h-10 w-10 text-slate-400 animate-spin" />
+        <p className="text-slate-400 font-black uppercase text-[10px] tracking-widest">Carregando Módulo...</p>
+      </div>
+    </div>
+  );
+}
 
 function ProtectedRoute({ 
   children, 
@@ -276,16 +289,18 @@ function MainApp() {
   }
 
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/vendor' : profile.role === 'recharge' ? '/pdv' : '/portal'} replace />} />
-      <Route path="/admin/*" element={<ProtectedRoute allowedRoles={['admin']} profile={profile}><AdminDashboard profile={profile} /></ProtectedRoute>} />
-      <Route path="/vendor/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin']} profile={profile}><VendorDashboard profile={profile} /></ProtectedRoute>} />
-      <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin', 'recharge']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />
-      <Route path="/recharge/*" element={<ProtectedRoute allowedRoles={['recharge', 'admin']} profile={profile}><AdminDashboard profile={profile} forcedTab="recharge_pos" /></ProtectedRoute>} />
-      <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student', 'admin']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
-      <Route path="/mock-payment" element={<MockPayment />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={<LoadingFallback />}>
+      <Routes>
+        <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/vendor' : profile.role === 'recharge' ? '/pdv' : '/portal'} replace />} />
+        <Route path="/admin/*" element={<ProtectedRoute allowedRoles={['admin']} profile={profile}><AdminDashboard profile={profile} /></ProtectedRoute>} />
+        <Route path="/vendor/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin']} profile={profile}><VendorDashboard profile={profile} /></ProtectedRoute>} />
+        <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin', 'recharge']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />
+        <Route path="/recharge/*" element={<ProtectedRoute allowedRoles={['recharge', 'admin']} profile={profile}><AdminDashboard profile={profile} forcedTab="recharge_pos" /></ProtectedRoute>} />
+        <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student', 'admin']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
+        <Route path="/mock-payment" element={<MockPayment />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 
