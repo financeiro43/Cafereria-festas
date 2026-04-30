@@ -1254,11 +1254,12 @@ function RechargePortal() {
         handleFirestoreError(err, OperationType.CREATE, txPath);
       }
 
-      toast.success(`Carga de R$ ${val.toFixed(2)} realizada para ${scannedUser.name}`);
-      setScannedUser(null);
+      // Update local state to reflect new balance immediately
+      setScannedUser(prev => prev ? { ...prev, balance: prev.balance + val } : null);
       setAmount('');
+      toast.success(`Carga de R$ ${val.toFixed(2)} realizada com sucesso!`);
     } catch (error) {
-      console.error(error);
+      console.error('Erro no processamento da carga:', error);
     } finally {
       setProcessing(false);
     }
@@ -1297,9 +1298,21 @@ function RechargePortal() {
                   <XCircle className="h-6 w-6" />
                 </Button>
               </div>
-              <div className="pt-4 border-t border-blue-500/10">
-                 <p className="text-xs text-slate-400 uppercase font-bold">Saldo Atual</p>
-                 <p className="text-3xl font-black text-green-400">R$ {scannedUser.balance.toFixed(2)}</p>
+              <div className="pt-4 border-t border-blue-500/10 flex items-center justify-between">
+                <div>
+                   <p className="text-xs text-slate-400 uppercase font-bold">Saldo Atual</p>
+                   <p className="text-3xl font-black text-green-400">R$ {scannedUser.balance.toFixed(2)}</p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setScannedUser(null);
+                    setAmount('');
+                  }}
+                  className="bg-slate-700/50 border-slate-600 text-slate-300 hover:text-white hover:bg-slate-700 rounded-xl"
+                >
+                  Próximo Aluno
+                </Button>
               </div>
             </div>
           ) : null}
