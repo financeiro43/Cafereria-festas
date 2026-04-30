@@ -107,7 +107,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       setWithdrawalAmount('');
       toast.success('Retirada registrada com sucesso!');
     } catch (error) {
-      toast.error('Erro ao registrar retirada');
+      handleFirestoreError(error, OperationType.CREATE, 'withdrawals');
     }
   };
 
@@ -121,7 +121,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       setNewStallName('');
       toast.success('Barraca cadastrada com sucesso!');
     } catch (error) {
-      toast.error('Erro ao cadastrar barraca');
+      handleFirestoreError(error, OperationType.CREATE, 'stalls');
     }
   };
 
@@ -141,7 +141,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       setNewProductPrice('');
       toast.success('Produto cadastrado com sucesso!');
     } catch (error) {
-      toast.error('Erro ao cadastrar produto');
+      handleFirestoreError(error, OperationType.CREATE, 'products');
     }
   };
 
@@ -184,7 +184,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       setNewUserName('');
       toast.success('Membro pré-cadastrado com sucesso!');
     } catch (error) {
-      toast.error('Erro ao cadastrar membro');
+      handleFirestoreError(error, OperationType.CREATE, 'users');
     }
   };
 
@@ -214,7 +214,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       setRechargeAmounts(prev => ({ ...prev, [userId]: '' }));
       toast.success('Crédito adicionado com sucesso!');
     } catch (error) {
-      toast.error('Erro ao processar recarga');
+      handleFirestoreError(error, OperationType.WRITE, `users/${userId}`);
     }
   };
 
@@ -236,7 +236,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       });
       toast.success('Associações atualizadas');
     } catch (error) {
-      toast.error('Erro ao atualizar associações');
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     }
   };
 
@@ -265,7 +265,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       await Promise.all(batchPromises);
       toast.success(`${batchSize} cartões gerados!`);
     } catch (error) {
-      toast.error('Erro ao gerar cartões');
+      handleFirestoreError(error, OperationType.CREATE, 'users/batch');
     } finally {
       setIsGenerating(false);
     }
@@ -281,7 +281,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       }
       toast.success('Barraca excluída');
     } catch (error) {
-      toast.error('Erro ao excluir barraca');
+      handleFirestoreError(error, OperationType.DELETE, `stalls/${id}`);
     }
   };
 
@@ -290,7 +290,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       await deleteDoc(doc(collection(db, 'products'), id));
       toast.success('Produto excluído');
     } catch (error) {
-      toast.error('Erro ao excluir produto');
+      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
     }
   };
 

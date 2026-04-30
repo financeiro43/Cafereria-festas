@@ -81,54 +81,58 @@ function MainApp() {
       setUser(authUser);
       const userRef = doc(db, 'users', authUser.uid);
       
-      const unsubProfile = onSnapshot(userRef, async (snap) => {
-        if (snap.exists()) {
-          const data = snap.data() as UserProfile;
-          if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
-            data.role = 'admin';
-          }
-          setProfile(data);
-          setLoading(false);
-          if (location.pathname === '/') {
-            const target = data.role === 'admin' ? '/admin' : 
-                         data.role === 'vendor' ? '/vendor' : 
-                         data.role === 'recharge' ? '/pdv' : '/portal';
-            navigate(target);
-          }
-        } else {
-          // One-time attempt to find by email if document doesn't exist by UID
-          try {
-            const emailSnap = await getDocs(query(collection(db, 'users'), where('email', '==', authUser.email?.toLowerCase())));
-            if (!emailSnap.empty) {
-              const existingDoc = emailSnap.docs[0];
-              const existingData = existingDoc.data();
-              const newProfile: UserProfile = {
-                ...(existingData as any),
-                uid: authUser.uid,
-                qrCode: authUser.uid,
-                name: existingData.name || authUser.displayName || 'Estudante',
-                email: authUser.email?.toLowerCase() || existingData.email
-              };
-              await setDoc(userRef, newProfile);
-              if (existingDoc.id !== authUser.uid) await deleteDoc(existingDoc.ref);
-            } else {
-              const newProfile: UserProfile = {
-                uid: authUser.uid,
-                name: authUser.displayName || 'Estudante',
-                email: authUser.email || '',
-                balance: 0,
-                role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
-                qrCode: authUser.uid
-              };
-              await setDoc(userRef, newProfile);
+        const unsubProfile = onSnapshot(userRef, async (snap) => {
+          if (snap.exists()) {
+            const data = snap.data() as UserProfile;
+            if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
+              // Update role in DB if it's the hardcoded admin
+              await updateDoc(userRef, { role: 'admin' });
+              data.role = 'admin';
             }
-          } catch (e) {
-            console.error("Migration error:", e);
-          } finally {
+            setProfile(data);
             setLoading(false);
+            if (location.pathname === '/' || location.pathname.includes('/login')) {
+              const target = data.role === 'admin' ? '/admin' : 
+                           data.role === 'vendor' ? '/vendor' : 
+                           data.role === 'recharge' ? '/pdv' : '/portal';
+              navigate(target);
+            }
+          } else {
+            // One-time attempt to find by email if document doesn't exist by UID
+            try {
+              const emailSnap = await getDocs(query(collection(db, 'users'), where('email', '==', authUser.email?.toLowerCase())));
+              if (!emailSnap.empty) {
+                const existingDoc = emailSnap.docs[0];
+                const existingData = existingDoc.data();
+                // Persist the QR code from the existing doc if it exists, otherwise use UID
+                const newProfile: UserProfile = {
+                  ...(existingData as any),
+                  uid: authUser.uid,
+                  qrCode: existingData.qrCode || authUser.uid,
+                  name: existingData.name || authUser.displayName || 'Estudante',
+                  email: authUser.email?.toLowerCase() || existingData.email,
+                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : (existingData.role || 'student')
+                };
+                await setDoc(userRef, newProfile);
+                if (existingDoc.id !== authUser.uid) await deleteDoc(existingDoc.ref);
+              } else {
+                const newProfile: UserProfile = {
+                  uid: authUser.uid,
+                  name: authUser.displayName || 'Estudante',
+                  email: authUser.email || '',
+                  balance: 0,
+                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
+                  qrCode: authUser.uid
+                };
+                await setDoc(userRef, newProfile);
+              }
+            } catch (e) {
+              console.error("Migration error:", e);
+            } finally {
+              setLoading(false);
+            }
           }
-        }
-      });
+        });
 
       return () => unsubProfile();
     });

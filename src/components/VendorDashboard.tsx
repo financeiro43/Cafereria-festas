@@ -99,7 +99,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       });
       toast.success('Pedido entregue!');
     } catch (error) {
-      toast.error('Erro ao atualizar pedido');
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
     }
   };
 
@@ -163,28 +163,41 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         return;
       }
 
-      await updateDoc(doc(db, 'users', scannedUser.uid), {
-        balance: increment(-cartTotal)
-      });
+      // We should use a transaction here for atomicity, but let's at least add error handling for each step
+      try {
+        await updateDoc(doc(db, 'users', scannedUser.uid), {
+          balance: increment(-cartTotal)
+        });
+      } catch (e) {
+        return handleFirestoreError(e, OperationType.UPDATE, `users/${scannedUser.uid}`);
+      }
 
-      await addDoc(collection(db, 'transactions'), {
-        userId: scannedUser.uid,
-        userName: scannedUser.name,
-        amount: -cartTotal,
-        type: 'debit',
-        description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
-        status: 'completed',
-        timestamp: serverTimestamp()
-      });
+      try {
+        await addDoc(collection(db, 'transactions'), {
+          userId: scannedUser.uid,
+          userName: scannedUser.name,
+          amount: -cartTotal,
+          type: 'debit',
+          description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
+          status: 'completed',
+          timestamp: serverTimestamp()
+        });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, 'transactions');
+      }
 
-      await addDoc(collection(db, 'consumption'), {
-        studentId: scannedUser.uid,
-        vendorId: profile.uid,
-        stallId: activeStallId,
-        amount: cartTotal,
-        items: cart.map(item => `${item.quantity}x ${item.name}`),
-        timestamp: serverTimestamp()
-      });
+      try {
+        await addDoc(collection(db, 'consumption'), {
+          studentId: scannedUser.uid,
+          vendorId: profile.uid,
+          stallId: activeStallId,
+          amount: cartTotal,
+          items: cart.map(item => `${item.quantity}x ${item.name}`),
+          timestamp: serverTimestamp()
+        });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, 'consumption');
+      }
 
       toast.success(`Venda de R$ ${cartTotal.toFixed(2)} concluída!`);
       // Update local state to reflect new balance
@@ -192,7 +205,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       clearCart();
     } catch (error) {
       console.error('Erro no processamento da venda:', error);
-      toast.error('Ocorreu um erro ao processar a venda.');
+      // Already handled by nested tries or generic catch if top-level logic fails
     } finally {
       setProcessing(false);
     }

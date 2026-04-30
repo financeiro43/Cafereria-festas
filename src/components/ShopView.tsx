@@ -72,38 +72,49 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
       
       // Update balance
       const studentRef = doc(db, 'users', profile.uid);
-      await updateDoc(studentRef, {
-        balance: increment(-total)
-      });
+      try {
+        await updateDoc(studentRef, {
+          balance: increment(-total)
+        });
+      } catch (e) {
+        return handleFirestoreError(e, OperationType.UPDATE, `users/${profile.uid}`);
+      }
 
       // Create Order
-      const orderRef = await addDoc(collection(db, 'orders'), {
-        studentId: profile.uid,
-        studentName: profile.name,
-        stallId: selectedStall?.id,
-        stallName: selectedStall?.name,
-        items: cart.map(item => `${item.quantity}x ${item.product.name}`),
-        total,
-        status: 'pending',
-        timestamp: serverTimestamp()
-      });
+      try {
+        await addDoc(collection(db, 'orders'), {
+          studentId: profile.uid,
+          studentName: profile.name,
+          stallId: selectedStall?.id,
+          stallName: selectedStall?.name,
+          items: cart.map(item => `${item.quantity}x ${item.product.name}`),
+          total,
+          status: 'pending',
+          timestamp: serverTimestamp()
+        });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, 'orders');
+      }
 
       // Record transaction
-      await addDoc(collection(db, 'transactions'), {
-        userId: profile.uid,
-        amount: -total,
-        type: 'debit',
-        description: `Pedido App: ${selectedStall?.name}`,
-        status: 'completed',
-        timestamp: serverTimestamp()
-      });
+      try {
+        await addDoc(collection(db, 'transactions'), {
+          userId: profile.uid,
+          amount: -total,
+          type: 'debit',
+          description: `Pedido App: ${selectedStall?.name}`,
+          status: 'completed',
+          timestamp: serverTimestamp()
+        });
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, 'transactions');
+      }
 
       toast.success('Pedido realizado com sucesso!');
       setCart([]);
       setSelectedStall(null);
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'orders');
-      toast.error('Erro ao processar pedido');
+      console.error('Checkout error:', error);
     } finally {
       setLoading(false);
     }
@@ -319,7 +330,7 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                     const userRef = doc(db, 'users', profile.uid);
                     
                     // Approval process (Simulation)
-                    // We directly update balance and status
+                    // We directly update balance and status in the DB
                     await updateDoc(userRef, {
                       balance: increment(total)
                     });
@@ -334,12 +345,12 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                     setShowPaymentModal(false);
                     setCurrentTransactionId(null);
                     
-                    // Now they can pay with their balance automatically or they have to click again?
-                    // Let's try to complete the order automatically since they just "paid" the exact amount.
-                    handleCheckout();
+                    // Now they can pay with their balance automatically
+                    setTimeout(() => {
+                      handleCheckout();
+                    }, 500);
                   } catch (err) {
-                    console.error(err);
-                    toast.error('Erro ao processar aprovação simulada');
+                    handleFirestoreError(err, OperationType.WRITE, 'rede-callback');
                   }
                 }} className="bg-red-600 hover:bg-red-700 text-white font-bold">
                   Pagar Agora
