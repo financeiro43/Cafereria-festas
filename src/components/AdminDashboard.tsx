@@ -1215,14 +1215,11 @@ function RechargePortal() {
 
     try {
       setProcessing(true);
-      const userPath = `users/${scannedUser.uid}`;
-      
       await updateDoc(doc(db, 'users', scannedUser.uid), {
         balance: increment(val)
       });
 
-      const txPath = 'transactions';
-      await addDoc(collection(db, txPath), {
+      await addDoc(collection(db, 'transactions'), {
         userId: scannedUser.uid,
         userName: scannedUser.name,
         amount: val,
@@ -1232,135 +1229,150 @@ function RechargePortal() {
         timestamp: serverTimestamp()
       });
 
-      // Update local state to reflect new balance immediately
       setScannedUser(prev => prev ? { ...prev, balance: prev.balance + val } : null);
       setAmount('');
       toast.success(`Carga de R$ ${val.toFixed(2)} realizada com sucesso!`);
     } catch (error) {
       console.error('Erro no processamento da carga:', error);
-      toast.error('Ocorreu um erro ao processar a carga. Verifique o console.');
+      toast.error('Ocorreu um erro ao processar a carga.');
     } finally {
       setProcessing(false);
     }
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
-      <Card className="bg-slate-800 border-slate-700 text-white overflow-hidden">
-        <CardHeader>
-          <CardTitle>Identificação do Aluno</CardTitle>
-          <CardDescription className="text-slate-400">Escaneie o QR Code para carga inicial ou novas recargas</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {!isScanning && !scannedUser ? (
-            <Button 
-              onClick={() => setIsScanning(true)} 
-              className="w-full h-48 bg-slate-700 hover:bg-slate-600 border-2 border-dashed border-slate-600 flex flex-col gap-4 rounded-3xl"
-            >
-              <QrCode className="h-12 w-12 text-blue-400" />
-              <span className="font-bold text-lg">Clique para Escanear</span>
-            </Button>
-          ) : isScanning ? (
-            <div className="space-y-4">
-              <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Aluno" />
-              <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full text-slate-400">Cancelar Leitura</Button>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-6xl mx-auto pb-20">
+      <div className="space-y-6">
+        <Card className="bg-slate-800/50 backdrop-blur-md border-white/5 text-white rounded-[32px] overflow-hidden shadow-2xl">
+          <CardHeader className="p-8 pb-4">
+            <div className="flex items-center gap-3 mb-2">
+               <div className="p-2 bg-green-500/20 rounded-xl">
+                  <QrCode className="h-5 w-5 text-green-400" />
+               </div>
+               <CardTitle className="text-xl font-black uppercase tracking-tight">Identificação</CardTitle>
             </div>
-          ) : scannedUser ? (
-            <div className="p-6 bg-blue-600/10 border border-blue-500/20 rounded-3xl space-y-4">
-              <div className="flex justify-between items-start">
-                <div>
-                   <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest mb-1">Aluno Identificado</p>
-                   <h3 className="text-2xl font-black">{scannedUser.name}</h3>
-                   <p className="text-slate-400 text-sm font-medium">{scannedUser.email}</p>
+            <CardDescription className="text-slate-400 text-sm">Escaneie o cartão do aluno para iniciar a recarga</CardDescription>
+          </CardHeader>
+          <CardContent className="p-8 pt-4 space-y-6">
+            {!isScanning && !scannedUser ? (
+              <button 
+                onClick={() => setIsScanning(true)} 
+                className="w-full h-56 bg-white/[0.03] hover:bg-white/[0.05] border-2 border-dashed border-white/10 flex flex-col items-center justify-center gap-4 rounded-[40px] transition-all group active:scale-95"
+              >
+                <div className="p-5 bg-blue-600 rounded-full shadow-2xl shadow-blue-900/40 group-hover:scale-110 transition-transform">
+                   <QrCode className="h-10 w-10 text-white" />
                 </div>
-                <Button variant="ghost" onClick={() => setScannedUser(null)} className="h-10 w-10 p-0 text-slate-500 hover:text-white">
-                  <XCircle className="h-6 w-6" />
-                </Button>
+                <span className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">Toque para Escanear</span>
+              </button>
+            ) : isScanning ? (
+              <div className="space-y-4 animate-in fade-in zoom-in duration-300">
+                <div className="rounded-[32px] overflow-hidden border-2 border-blue-500/30">
+                   <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Aluno" />
+                </div>
+                <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full h-12 text-slate-500 font-bold uppercase tracking-widest rounded-xl">Cancelar Leitura</Button>
               </div>
-              <div className="pt-4 border-t border-blue-500/10 flex items-center justify-between">
-                <div>
-                   <p className="text-xs text-slate-400 uppercase font-bold">Saldo Atual</p>
-                   <p className="text-3xl font-black text-green-400">R$ {scannedUser.balance.toFixed(2)}</p>
+            ) : scannedUser ? (
+              <div className="p-8 bg-blue-600/10 border border-blue-500/20 rounded-[40px] space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="flex justify-between items-start">
+                  <div className="space-y-1">
+                     <p className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em]">Aluno Confirmado</p>
+                     <h3 className="text-3xl font-black tracking-tight">{scannedUser.name}</h3>
+                     <p className="text-slate-500 text-sm font-medium italic">{scannedUser.email}</p>
+                  </div>
+                  <button onClick={() => setScannedUser(null)} className="h-12 w-12 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 text-slate-500 hover:text-white transition-colors">
+                    <XCircle className="h-7 w-7" />
+                  </button>
                 </div>
+                
+                <div className="p-6 bg-slate-900/50 rounded-3xl border border-white/5 flex items-center justify-between">
+                  <div>
+                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Saldo Atual</p>
+                     <p className="text-4xl font-black text-green-400 tracking-tighter">R$ {scannedUser.balance.toFixed(2)}</p>
+                  </div>
+                  <div className="h-14 w-14 rounded-2xl bg-green-500/10 flex items-center justify-center text-green-400">
+                     <DollarSign className="h-8 w-8" />
+                  </div>
+                </div>
+
                 <Button 
                   variant="outline" 
                   onClick={() => {
                     setScannedUser(null);
                     setAmount('');
                   }}
-                  className="bg-slate-700/50 border-slate-600 text-slate-300 hover:text-white hover:bg-slate-700 rounded-xl"
+                  className="w-full h-14 bg-white/5 border-white/10 text-slate-300 hover:text-white hover:bg-white/10 rounded-2xl font-black uppercase tracking-widest text-[10px]"
                 >
-                  Próximo Aluno
+                  Trocar de Aluno
                 </Button>
               </div>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="space-y-6">
-        <Card className="bg-slate-800 border-slate-700 text-white">
-          <CardHeader>
-            <CardTitle>Valor da Carga</CardTitle>
+        <Card className="bg-slate-800/50 backdrop-blur-md border-white/5 text-white rounded-[32px] overflow-hidden shadow-2xl">
+          <CardHeader className="p-8 pb-4">
+             <div className="flex items-center gap-3 mb-2">
+               <div className="p-2 bg-blue-500/20 rounded-xl">
+                  <DollarSign className="h-5 w-5 text-blue-400" />
+               </div>
+               <CardTitle className="text-xl font-black uppercase tracking-tight">Valor da Carga</CardTitle>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 gap-3">
+          <CardContent className="p-8 pt-4 space-y-8">
+            <div className="grid grid-cols-2 gap-4">
               {['10', '20', '50', '100'].map(val => (
-                <Button 
+                <button 
                   key={val}
                   disabled={!scannedUser}
                   onClick={() => setAmount(val)}
-                  className={`h-16 font-black text-xl border-none transition-all ${amount === val ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-700 hover:bg-slate-600 text-slate-300'}`}
+                  className={`h-24 rounded-[24px] font-black text-2xl transition-all active:scale-95 border-2 ${
+                    amount === val 
+                      ? 'bg-blue-600 border-blue-500 text-white shadow-xl shadow-blue-900/40' 
+                      : 'bg-white/[0.03] border-white/5 hover:border-white/10 text-slate-400 disabled:opacity-20'
+                  }`}
                 >
                   R$ {val}
-                </Button>
+                </button>
               ))}
             </div>
             
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest px-1">Ou digite um valor manual</label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400">R$</span>
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] px-2 block">Valor Personalizado</label>
+              <div className="relative group">
+                <span className="absolute left-6 top-1/2 -translate-y-1/2 font-black text-2xl text-slate-600 group-focus-within:text-blue-500 transition-colors">R$</span>
                 <input 
                   type="number"
                   placeholder="0.00"
                   disabled={!scannedUser}
-                  className="w-full bg-slate-900 border-slate-700 rounded-2xl h-14 pl-12 pr-4 font-black text-xl text-white focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-30"
+                  className="w-full bg-slate-900/80 border-2 border-white/5 rounded-[24px] h-20 pl-16 pr-6 font-black text-4xl text-white outline-none focus:border-blue-600 transition-all disabled:opacity-20 tabular-nums"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                 />
               </div>
             </div>
 
-            {processing ? (
-              <Button disabled className="w-full h-20 bg-slate-700 text-slate-500 font-black text-2xl rounded-3xl">
-                Processando...
-              </Button>
-            ) : scannedUser && amount ? (
-              <Button 
-                onClick={handleRecharge}
-                className="w-full h-20 bg-green-600 hover:bg-green-500 text-white font-black text-2xl shadow-xl shadow-green-900/20 rounded-3xl transition-all"
-              >
-                Confirmar Carga
-              </Button>
-            ) : scannedUser && !amount ? (
-              <Button 
-                onClick={() => {
-                  setScannedUser(null);
-                  setAmount('');
-                }}
-                className="w-full h-20 bg-blue-600 hover:bg-blue-500 text-white font-black text-2xl rounded-3xl"
-              >
-                Próximo Aluno
-              </Button>
-            ) : (
-              <Button 
-                disabled
-                className="w-full h-20 bg-slate-700 text-slate-500 font-black text-2xl disabled:opacity-30 rounded-3xl"
-              >
-                Aguardando QR Code
-              </Button>
-            )}
+            <div className="pt-4">
+              {processing ? (
+                <Button disabled className="w-full h-24 bg-slate-800 text-slate-600 font-black text-2xl rounded-[32px] border border-white/5">
+                  <Loader2 className="h-8 w-8 animate-spin mr-3" /> PROCESSANDO
+                </Button>
+              ) : scannedUser && amount && parseFloat(amount) > 0 ? (
+                <Button 
+                  onClick={handleRecharge}
+                  className="w-full h-24 bg-blue-600 hover:bg-blue-500 text-white font-black text-2xl shadow-2xl shadow-blue-900/40 rounded-[32px] transition-all hover:-translate-y-1 active:translate-y-0"
+                >
+                  CONFIRMAR CARGA
+                </Button>
+              ) : (
+                <div className="h-24 w-full bg-white/[0.02] border-2 border-dashed border-white/5 rounded-[32px] flex items-center justify-center px-8 text-center">
+                   <p className="text-slate-500 font-black text-xs uppercase tracking-[0.2em] leading-relaxed">
+                      {!scannedUser ? 'ESCANEAR ALUNO PARA CONTINUAR' : 'SELECIONE OU DIGITE UM VALOR'}
+                   </p>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>

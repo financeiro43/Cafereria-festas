@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Coffee, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDashboard, User as UserIcon, LogOut, Store, Loader2 } from 'lucide-react';
+import { Coffee, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDashboard, User as UserIcon, LogOut, Store, Loader2, ArrowRight, Smartphone, ShoppingCart } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -175,10 +175,42 @@ function MainApp() {
 
   if (loading) {
     return (
-      <div className="h-screen w-full flex items-center justify-center bg-slate-50">
-        <motion.div animate={{ scale: [1, 1.1, 1] }} transition={{ repeat: Infinity, duration: 1.5 }} className="flex flex-col items-center gap-4">
-          <Coffee className="h-12 w-12 text-slate-900" />
-          <p className="text-slate-500 font-medium">Carregando...</p>
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-950 relative overflow-hidden">
+        {/* Decorative Background */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-blue-600/20 blur-[100px] rounded-full animate-pulse" />
+        
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="relative z-10 flex flex-col items-center gap-8"
+        >
+          <div className="relative">
+            <div className="absolute inset-0 bg-blue-600 blur-2xl opacity-20 animate-pulse" />
+            <div className="relative p-6 bg-slate-900 rounded-[32px] border border-white/10 shadow-2xl">
+              <Coffee className="h-12 w-12 text-blue-500" />
+            </div>
+          </div>
+          
+          <div className="space-y-3 text-center">
+            <h2 className="text-white font-black uppercase tracking-[0.4em] text-xs">Sistema Inteligente</h2>
+            <div className="flex items-center gap-1 justify-center">
+              {[0, 1, 2].map((i) => (
+                <motion.div
+                  key={i}
+                  animate={{ 
+                    scale: [1, 1.5, 1],
+                    opacity: [0.3, 1, 0.3] 
+                  }}
+                  transition={{ 
+                    repeat: Infinity, 
+                    duration: 1,
+                    delay: i * 0.2
+                  }}
+                  className="h-1.5 w-1.5 bg-blue-500 rounded-full"
+                />
+              ))}
+            </div>
+          </div>
         </motion.div>
       </div>
     );
@@ -241,52 +273,83 @@ function MainApp() {
 
   if (profile.role === 'admin' && location.pathname === '/') {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
-        <div className="w-full max-w-4xl grid md:grid-cols-2 gap-8 animate-in fade-in zoom-in duration-500">
-          <div className="col-span-full mb-8 text-center">
-             <Coffee className="h-16 w-16 text-blue-500 mx-auto mb-4" />
-             <h1 className="text-4xl font-black text-white uppercase tracking-tighter">Central Inteligente</h1>
-             <p className="text-slate-400 mt-2 font-medium">Bem-vindo, {profile.name}. Escolha sua estação de trabalho:</p>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
+        {/* Decorative Background */}
+        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/10 blur-[120px] -z-10 rounded-full" />
+        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-purple-600/10 blur-[120px] -z-10 rounded-full" />
+
+        <div className="w-full max-w-5xl space-y-12 animate-in fade-in zoom-in duration-500">
+          <header className="text-center space-y-4">
+             <div className="inline-flex p-4 bg-blue-600 rounded-3xl shadow-2xl shadow-blue-900/40 mb-2">
+                <Coffee className="h-10 w-10 text-white" />
+             </div>
+             <div className="space-y-1">
+                <h1 className="text-4xl md:text-6xl font-black text-white uppercase tracking-tighter leading-none">Central Inteligente</h1>
+                <p className="text-slate-500 font-bold uppercase tracking-[0.3em] text-[10px]">Bem-vindo, {profile.name}</p>
+             </div>
+          </header>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <button 
+              onClick={() => navigate('/admin')}
+              className="group relative h-72 md:h-80 bg-slate-900/50 hover:bg-slate-900 border border-white/5 hover:border-blue-500/50 rounded-[40px] p-8 text-left transition-all hover:-translate-y-2 active:translate-y-0 overflow-hidden shadow-2xl"
+            >
+              <div className="h-full flex flex-col justify-between">
+                <div className="p-4 bg-blue-600/10 rounded-2xl w-fit group-hover:bg-blue-600 group-hover:text-white transition-colors duration-300">
+                  <LayoutDashboard className="h-8 w-8 text-blue-400 group-hover:text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Gestão Central</h2>
+                  <p className="text-slate-500 text-sm font-medium leading-relaxed">Administração total de barracas, produtos, usuários e relatórios financeiros.</p>
+                </div>
+              </div>
+              <div className="absolute top-8 right-8 opacity-0 group-hover:opacity-100 group-hover:translate-x-2 transition-all">
+                 <ArrowRight className="h-6 w-6 text-blue-500" />
+              </div>
+            </button>
+
+            <button 
+              onClick={() => navigate('/pdv')}
+              className="group relative h-72 md:h-80 bg-slate-900/50 hover:bg-slate-900 border border-white/5 hover:border-green-500/50 rounded-[40px] p-8 text-left transition-all hover:-translate-y-2 active:translate-y-0 overflow-hidden shadow-2xl"
+            >
+              <div className="h-full flex flex-col justify-between">
+                <div className="p-4 bg-green-500/10 rounded-2xl w-fit group-hover:bg-green-600 group-hover:text-white transition-colors duration-300">
+                  <Store className="h-8 w-8 text-green-400 group-hover:text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Terminal PDV</h2>
+                  <p className="text-slate-500 text-sm font-medium leading-relaxed">Ponto de venda otimizado para vendas rápidas e recargas presenciais.</p>
+                </div>
+              </div>
+              <div className="absolute top-8 right-8 opacity-0 group-hover:opacity-100 group-hover:translate-x-2 transition-all">
+                 <ArrowRight className="h-6 w-6 text-green-500" />
+              </div>
+            </button>
+
+            <button 
+              onClick={() => navigate('/portal')}
+              className="group relative h-72 md:h-80 bg-slate-900/50 hover:bg-slate-900 border border-white/5 hover:border-purple-500/50 rounded-[40px] p-8 text-left transition-all hover:-translate-y-2 active:translate-y-0 overflow-hidden shadow-2xl lg:col-span-1 md:col-span-2"
+            >
+              <div className="h-full flex flex-col justify-between">
+                <div className="p-4 bg-purple-500/10 rounded-2xl w-fit group-hover:bg-purple-600 group-hover:text-white transition-colors duration-300">
+                  <UserIcon className="h-8 w-8 text-purple-400 group-hover:text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Portal do Aluno</h2>
+                  <p className="text-slate-500 text-sm font-medium leading-relaxed">Visualize a interface do aluno, acompanhe extratos e faça pedidos pelo app.</p>
+                </div>
+              </div>
+              <div className="absolute top-8 right-8 opacity-0 group-hover:opacity-100 group-hover:translate-x-2 transition-all">
+                 <ArrowRight className="h-6 w-6 text-purple-500" />
+              </div>
+            </button>
           </div>
-          
-          <Button 
-            onClick={() => navigate('/admin')}
-            className="h-64 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-[40px] flex flex-col gap-4 text-white group shadow-2xl transition-all hover:-translate-y-2"
-          >
-            <div className="p-6 bg-blue-600 rounded-3xl group-hover:scale-110 transition-transform">
-              <LayoutDashboard className="h-10 w-10" />
-            </div>
-            <div className="text-center">
-              <span className="text-2xl font-black uppercase tracking-tight">Gestão Central</span>
-              <p className="text-slate-400 text-xs mt-1">Configurações, Financeiro e Equipe</p>
-            </div>
-          </Button>
 
-          <Button 
-            onClick={() => navigate('/pdv')}
-            className="h-64 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-[40px] flex flex-col gap-4 text-white group shadow-2xl transition-all hover:-translate-y-2"
-          >
-            <div className="p-6 bg-green-600 rounded-3xl group-hover:scale-110 transition-transform">
-              <Store className="h-10 w-10" />
-            </div>
-            <div className="text-center">
-              <span className="text-2xl font-black uppercase tracking-tight">Terminal PDV</span>
-              <p className="text-slate-400 text-xs mt-1">Vendas rápidas e Carga/Recarga</p>
-            </div>
-          </Button>
-
-          <Button 
-            onClick={() => navigate('/portal')}
-            className="h-24 md:col-span-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-[32px] flex items-center justify-center gap-4 text-white transition-all"
-          >
-            <UserIcon className="h-6 w-6 text-slate-400" />
-            <span className="font-bold">Acessar Portal do Aluno (Visualização)</span>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          
-          <Button variant="ghost" onClick={() => auth.signOut()} className="md:col-span-2 text-slate-500 hover:text-white">
-            <LogOut className="h-4 w-4 mr-2" /> Encerrar Sessão
-          </Button>
+          <footer className="flex justify-center pt-8">
+             <Button variant="ghost" onClick={() => auth.signOut()} className="text-slate-500 hover:text-white h-14 px-8 rounded-2xl gap-2 font-black uppercase tracking-widest text-[10px]">
+                <LogOut className="h-5 w-5" /> Sair da Conta
+             </Button>
+          </footer>
         </div>
       </div>
     );

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserProfile, Product, Stall, Order } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck } from 'lucide-react';
+import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import QRScanner from './QRScanner';
@@ -227,189 +227,178 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
-        <header className="flex justify-between items-center bg-slate-800 p-6 rounded-2xl shadow-lg border border-slate-700">
+    <div className="min-h-screen bg-slate-900 text-white pb-24 md:pb-8">
+      <div className="max-w-7xl mx-auto px-4 py-4 md:px-8 md:py-8 space-y-6">
+        <header className="flex justify-between items-center bg-slate-800/50 backdrop-blur-md p-4 md:p-6 rounded-3xl shadow-2xl border border-white/5 sticky top-2 z-30">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-600 rounded-lg">
+            <div className="p-2.5 bg-blue-600 rounded-2xl shadow-lg shadow-blue-900/40">
               <Store className="h-6 w-6 text-white" />
             </div>
             <div>
-              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest leading-none mb-1">Terminal de Vendas</p>
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] leading-none mb-1">Terminal Ativo</p>
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-black text-white">{stall?.name || 'Selecione uma Barraca'}</h2>
+                <h2 className="text-lg md:text-xl font-black text-white truncate max-w-[150px] md:max-w-none">{stall?.name || 'Carregando...'}</h2>
                 {(profile.role === 'admin' || (profile.vendorIds && profile.vendorIds.length > 1)) && (
                   <select 
-                    className="bg-slate-700 text-[10px] p-1 rounded border-none font-bold text-blue-400 uppercase cursor-pointer ml-2"
+                    className="bg-white/5 hover:bg-white/10 text-[10px] px-2 py-1 rounded-lg border border-white/10 font-bold text-blue-400 uppercase cursor-pointer transition-colors"
                     value={activeStallId || ''}
                     onChange={(e) => setActiveStallId(e.target.value)}
                   >
-                    {profile.role === 'admin' && <option value="">Selecionar...</option>}
-                    {availableStalls.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    {profile.role === 'admin' && <option value="" className="bg-slate-900">Selecionar...</option>}
+                    {availableStalls.map(s => <option key={s.id} value={s.id} className="bg-slate-900">{s.name}</option>)}
                   </select>
                 )}
               </div>
             </div>
           </div>
-          <Button variant="ghost" onClick={() => auth.signOut()} className="text-slate-400 hover:text-white hover:bg-slate-700 h-10 w-10 p-0">
-            <LogOut className="h-5 w-5" />
+          <Button variant="ghost" onClick={() => auth.signOut()} className="text-slate-500 hover:text-white hover:bg-white/5 h-12 w-12 rounded-2xl">
+            <LogOut className="h-6 w-6" />
           </Button>
         </header>
 
         <Tabs defaultValue="pos" className="w-full">
-          <TabsList className="bg-slate-800 border border-slate-700 shadow-sm mb-6">
-            <TabsTrigger value="pos" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-slate-400">
+          <TabsList className="bg-slate-800/50 p-1.5 rounded-2xl border border-white/5 shadow-inner mb-6 w-full flex h-auto">
+            <TabsTrigger value="pos" className="flex-1 py-3 data-[state=active]:bg-blue-600 data-[state=active]:text-white text-slate-400 font-black uppercase text-[10px] tracking-widest rounded-xl transition-all">
               <ShoppingCart className="h-4 w-4 mr-2" /> Venda Balcão
             </TabsTrigger>
-            <TabsTrigger value="orders" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white text-slate-400">
-              <Clock className="h-4 w-4 mr-2" /> Pedidos App ({orders.length})
+            <TabsTrigger value="orders" className="flex-1 py-3 data-[state=active]:bg-blue-600 data-[state=active]:text-white text-slate-400 font-black uppercase text-[10px] tracking-widest rounded-xl transition-all relative">
+              <Clock className="h-4 w-4 mr-2" /> Pedidos App
+              {orders.length > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black h-5 px-1.5 flex items-center justify-center rounded-full border-2 border-slate-900 animate-pulse">
+                  {orders.length}
+                </span>
+              )}
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="pos">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <TabsContent value="pos" className="mt-0 focus-visible:outline-none">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
               {/* Product Selection */}
               <div className="lg:col-span-2 space-y-6">
-                <Card className="bg-slate-800 border-slate-700 text-white">
-                  <CardHeader>
-                    <CardTitle>Produtos da {stall?.name || 'Barraca'}</CardTitle>
-                    <CardDescription className="text-slate-400">Clique para adicionar ao carrinho</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {products.length === 0 ? (
-                      <div className="py-20 text-center text-slate-500 border-2 border-dashed border-slate-700 rounded-2xl">
-                        Nenhum produto cadastrado para esta barraca.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                        {products.map(product => (
-                          <Button
-                            key={product.id}
-                            onClick={() => addToCart(product)}
-                            className="h-24 flex flex-col items-center justify-center gap-1 bg-slate-700 hover:bg-slate-600 border-none transition-all active:scale-95"
-                          >
-                            <span className="text-sm font-medium text-center leading-tight">{product.name}</span>
-                            <span className="text-blue-400 font-bold">R$ {product.price.toFixed(2)}</span>
-                          </Button>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {products.length === 0 ? (
+                    <div className="col-span-full py-20 text-center text-slate-500 border-2 border-dashed border-white/5 rounded-3xl bg-white/[0.02]">
+                      Nenhum produto cadastrado.
+                    </div>
+                  ) : (
+                    products.map(product => {
+                      const count = cart.find(i => i.id === product.id)?.quantity || 0;
+                      return (
+                        <button
+                          key={product.id}
+                          onClick={() => addToCart(product)}
+                          className={`h-32 md:h-36 flex flex-col items-center justify-center gap-2 p-4 rounded-[32px] border-2 transition-all active:scale-95 text-left relative overflow-hidden group ${
+                            count > 0 
+                              ? 'bg-blue-600/10 border-blue-600/50 shadow-lg shadow-blue-900/20' 
+                              : 'bg-slate-800/40 border-white/5 hover:border-white/10 hover:bg-slate-800/60'
+                          }`}
+                        >
+                          {count > 0 && (
+                            <div className="absolute top-3 right-3 bg-blue-600 text-white text-[10px] font-black h-6 w-6 flex items-center justify-center rounded-full shadow-lg">
+                              {count}
+                            </div>
+                          )}
+                          <span className="text-sm md:text-base font-black text-center leading-tight uppercase tracking-tight line-clamp-2">{product.name}</span>
+                          <span className="text-blue-400 font-black text-lg">R$ {product.price.toFixed(2)}</span>
+                          
+                          {/* Feedback de hover animado */}
+                          <div className="absolute inset-0 bg-blue-600/0 group-hover:bg-blue-600/5 pointer-events-none transition-colors" />
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
               </div>
 
-              {/* Cart & Checkout */}
+              {/* Cart & Checkout - Hidden on desktop sidebar if we want mobile-only sticky, but here we keep it for both */}
               <div className="space-y-6">
-                <Card className="bg-slate-800 border-slate-700 text-white">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center justify-between">
-                      <span>Pedido Atual</span>
-                      {cart.length > 0 && (
-                        <Button variant="ghost" size="sm" onClick={clearCart} className="text-slate-400 hover:text-red-400">
-                          Limpar
-                        </Button>
-                      )}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
+                <Card className="bg-slate-800/40 backdrop-blur-sm border-white/5 text-white rounded-[32px] overflow-hidden shadow-2xl hidden lg:block">
+                  <header className="p-6 pb-2 flex items-center justify-between">
+                    <h3 className="font-black uppercase text-[10px] tracking-[0.2em] text-slate-500">RESUMO DO PEDIDO</h3>
+                    {cart.length > 0 && (
+                      <Button variant="ghost" size="sm" onClick={clearCart} className="text-red-400 hover:text-red-300 hover:bg-red-500/10">
+                        LIMPAR
+                      </Button>
+                    )}
+                  </header>
+                  <CardContent className="p-6 space-y-6">
                     {cart.length === 0 ? (
-                      <div className="py-8 text-center text-slate-500 border-2 border-dashed border-slate-700 rounded-xl">
-                        Carrinho vazio
+                      <div className="py-12 text-center text-slate-500 border-2 border-dashed border-white/5 rounded-[24px] bg-white/[0.01]">
+                        <ShoppingCart className="h-10 w-10 mx-auto mb-3 opacity-20" />
+                        <p className="text-xs font-bold uppercase tracking-widest">Carrinho Vazio</p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        <div className="max-h-[200px] overflow-y-auto space-y-2 pr-2">
+                      <div className="space-y-4">
+                        <div className="max-h-[300px] overflow-y-auto space-y-3 pr-2 custom-scrollbar">
                           {cart.map(item => (
-                            <div key={item.id} className="flex items-center justify-between bg-slate-700/50 p-3 rounded-lg">
+                            <div key={item.id} className="flex items-center justify-between bg-white/[0.03] p-4 rounded-2xl border border-white/5">
                               <div className="flex-1">
-                                <p className="font-medium text-sm">{item.name}</p>
-                                <p className="text-xs text-blue-400">R$ {(item.price * item.quantity).toFixed(2)}</p>
+                                <p className="font-black text-xs uppercase tracking-tight">{item.name}</p>
+                                <p className="text-[10px] text-blue-400 font-bold uppercase mt-0.5">R$ {(item.price * item.quantity).toFixed(2)}</p>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <Button variant="secondary" size="icon" className="h-7 w-7 rounded-full bg-slate-600 border-none" onClick={() => removeFromCart(item.id)}>
-                                  <Minus className="h-3 w-3" />
-                                </Button>
-                                <span className="w-4 text-center text-sm font-bold">{item.quantity}</span>
-                                <Button variant="secondary" size="icon" className="h-7 w-7 rounded-full bg-slate-600 border-none" onClick={() => addToCart(item)}>
-                                  <Plus className="h-3 w-3" />
-                                </Button>
+                              <div className="flex items-center gap-3 bg-slate-900/50 rounded-xl p-1">
+                                <button onClick={() => removeFromCart(item.id)} className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/10 active:scale-90 transition-all">
+                                  <Minus className="h-4 w-4" />
+                                </button>
+                                <span className="w-4 text-center text-xs font-black">{item.quantity}</span>
+                                <button onClick={() => addToCart(item)} className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/10 active:scale-90 transition-all text-blue-400">
+                                  <Plus className="h-4 w-4" />
+                                </button>
                               </div>
                             </div>
                           ))}
                         </div>
-                        <div className="pt-3 border-t border-slate-700 flex justify-between items-center text-lg">
-                          <span className="font-medium">Total</span>
-                          <span className="font-bold text-white text-2xl">R$ {cartTotal.toFixed(2)}</span>
+                        <div className="pt-6 border-t border-white/5 flex justify-between items-end">
+                          <div>
+                            <p className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] mb-1">TOTAL A PAGAR</p>
+                            <span className="text-3xl font-black text-white">R$ {cartTotal.toFixed(2)}</span>
+                          </div>
+                        </div>
+                        
+                        {/* Checkout Actions Dashboard */}
+                        <div className="space-y-4 pt-4">
+                           {!scannedUser ? (
+                              <Button 
+                                onClick={() => setIsScanning(true)} 
+                                className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest rounded-2xl shadow-xl shadow-blue-900/40 flex items-center gap-4 transition-all hover:-translate-y-1 active:translate-y-0"
+                              >
+                                <QrCode className="h-6 w-6" /> Escanear Aluno
+                              </Button>
+                           ) : (
+                              <div className="bg-slate-900/80 p-5 rounded-[24px] border border-blue-500/30 space-y-4 animate-in fade-in zoom-in duration-300">
+                                 <div className="flex justify-between items-start">
+                                    <div>
+                                       <p className="font-black text-xl uppercase tracking-tight text-white">{scannedUser.name}</p>
+                                       <div className={`mt-1 flex items-center gap-2 font-black text-xs ${scannedUser.balance < cartTotal ? 'text-red-400' : 'text-green-400'}`}>
+                                          <div className={`h-2 w-2 rounded-full ${scannedUser.balance < cartTotal ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
+                                          SALDO: R$ {scannedUser.balance.toFixed(2)}
+                                       </div>
+                                    </div>
+                                    <button onClick={() => setScannedUser(null)} className="h-10 w-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white">
+                                       <XCircle className="h-6 w-6" />
+                                    </button>
+                                 </div>
+                                 
+                                 <Button 
+                                   onClick={handleSale}
+                                   disabled={processing || scannedUser.balance < cartTotal || cart.length === 0}
+                                   className="w-full h-16 bg-green-600 hover:bg-green-500 disabled:bg-slate-700 text-white font-black uppercase tracking-widest rounded-2xl shadow-lg transition-all"
+                                 >
+                                   {processing ? <Loader2 className="h-6 w-6 animate-spin" /> : 
+                                    scannedUser.balance < cartTotal ? 'SALDO INSUFICIENTE' : 'CONFIRMAR PAGAMENTO'}
+                                 </Button>
+                              </div>
+                           )}
                         </div>
                       </div>
                     )}
-
-                        <div className="space-y-4 pt-4 border-t border-slate-700">
-                          <div className="space-y-2">
-                            <label className="text-xs text-slate-400 font-bold uppercase tracking-widest">Identificação do Aluno</label>
-                            {!isScanning && !scannedUser ? (
-                              <Button onClick={() => setIsScanning(true)} className="w-full h-14 bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-2 rounded-xl transition-all shadow-lg shadow-blue-900/40">
-                                <QrCode className="h-5 w-5" /> Escanear QR Code
-                              </Button>
-                            ) : isScanning ? (
-                              <div className="space-y-2">
-                                <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Identificar Aluno" />
-                                <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full text-slate-400">Cancelar</Button>
-                              </div>
-                            ) : scannedUser ? (
-                              <div className="bg-green-500/10 border border-green-500/20 p-4 rounded-xl flex items-center justify-between">
-                                <div>
-                                  <p className="text-xl font-bold">{scannedUser.name}</p>
-                                  <p className={`font-mono text-sm ${scannedUser.balance < cartTotal ? 'text-red-400' : 'text-green-400'}`}>
-                                    Saldo: R$ {scannedUser.balance.toFixed(2)}
-                                  </p>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                  <Button variant="ghost" onClick={() => setScannedUser(null)} className="h-10 w-10 p-0 text-slate-400 hover:text-white">
-                                    <XCircle className="h-6 w-6" />
-                                  </Button>
-                                  {cart.length === 0 && (
-                                    <Button size="sm" variant="outline" onClick={() => setScannedUser(null)} className="text-[10px] h-6 bg-slate-700 border-slate-600">
-                                      PRÓXIMO
-                                    </Button>
-                                  )}
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-
-      {processing ? (
-        <Button disabled className="w-full h-20 bg-slate-700 text-slate-500 font-black text-2xl rounded-2xl">
-          Processando...
-        </Button>
-      ) : cart.length > 0 ? (
-        <Button 
-          onClick={handleSale} 
-          disabled={!scannedUser || scannedUser.balance < cartTotal}
-          className="w-full h-20 bg-white text-slate-900 hover:bg-slate-200 font-black text-2xl shadow-xl shadow-white/5 disabled:opacity-30 rounded-2xl transition-all"
-        >
-          {scannedUser && scannedUser.balance < cartTotal ? 'Saldo Insuficiente' : 'PAGAR AGORA'}
-        </Button>
-      ) : scannedUser ? (
-        <Button 
-          onClick={() => setScannedUser(null)}
-          className="w-full h-20 bg-blue-600 hover:bg-blue-500 text-white font-black text-xl rounded-2xl"
-        >
-          PRÓXIMO ALUNO
-        </Button>
-      ) : (
-        <div className="h-20 flex items-center justify-center text-slate-500 font-medium italic border-2 border-dashed border-slate-700 rounded-2xl">
-          Aguardando Itens e QR Code
-        </div>
-      )}
-                    </div>
                   </CardContent>
                 </Card>
               </div>
             </div>
           </TabsContent>
 
-          <TabsContent value="orders">
+          <TabsContent value="orders" className="mt-0 focus-visible:outline-none">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {orders.length === 0 ? (
                 <div className="lg:col-span-3 py-20 text-center text-slate-500 border-2 border-dashed border-slate-700 rounded-3xl">
@@ -455,6 +444,51 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
             </div>
           </TabsContent>
         </Tabs>
+      </div>
+
+      {/* Mobile Sticky Footer */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/80 backdrop-blur-xl border-t border-white/5 p-4 lg:hidden safe-area-bottom">
+        <div className="max-w-md mx-auto flex items-center justify-between gap-4">
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1">Total Pedido</span>
+            <span className="text-xl font-black text-white">R$ {cartTotal.toFixed(2)}</span>
+          </div>
+          <div className="flex gap-2">
+            {cart.length > 0 && !scannedUser && (
+              <Button 
+                onClick={() => setIsScanning(true)} 
+                className="bg-blue-600 hover:bg-blue-500 text-white font-black uppercase px-6 h-14 rounded-2xl shadow-xl shadow-blue-900/40"
+              >
+                <QrCode className="h-5 w-5 mr-2" /> Pagar
+              </Button>
+            )}
+            {scannedUser && (
+              <Button 
+                onClick={handleSale}
+                disabled={processing || scannedUser.balance < cartTotal || cart.length === 0}
+                className="bg-green-600 hover:bg-green-500 text-white font-black uppercase px-6 h-14 rounded-2xl"
+              >
+                {processing ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Confirmar'}
+              </Button>
+            )}
+            {!cart.length && scannedUser && (
+              <Button 
+                onClick={() => setScannedUser(null)}
+                className="bg-slate-800 text-white font-black uppercase px-6 h-14 rounded-2xl"
+              >
+                Próximo
+              </Button>
+            )}
+            {!cart.length && !scannedUser && (
+              <Button 
+                onClick={() => setIsScanning(true)}
+                className="bg-blue-600 text-white font-black uppercase px-8 h-14 rounded-2xl"
+              >
+                <QrCode className="h-5 w-5 mr-2" /> Escanear
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -22,15 +22,20 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         html5QrCodeRef.current = scanner;
 
         await scanner.start(
-          { facingMode: "environment" }, // Força a câmera traseira
+          { facingMode: "environment" },
           {
             fps: 15,
             qrbox: (viewfinderWidth, viewfinderHeight) => {
               const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-              const qrboxSize = Math.floor(minEdgeSize * 0.7);
+              const qrboxSize = Math.floor(minEdgeSize * 0.85); // Increased for mobile
               return { width: qrboxSize, height: qrboxSize };
             },
-            aspectRatio: 1.0
+            aspectRatio: 1.0,
+            videoConstraints: {
+              facingMode: "environment",
+              width: { min: 640, ideal: 1280, max: 1920 },
+              height: { min: 480, ideal: 720, max: 1080 }
+            }
           },
           (decodedText) => {
             onScan(decodedText);
@@ -42,7 +47,11 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         setIsInitializing(false);
       } catch (e: any) {
         console.error("Scanner init error:", e);
-        setError("Erro ao acessar a câmera principal. Verifique as permissões.");
+        if (e.toString().includes("NotAllowedError") || e.toString().includes("Permission denied")) {
+          setError("Acesso à câmera negado. Por favor, libere a permissão nas configurações do seu navegador.");
+        } else {
+          setError("Erro ao acessar a câmera principal. Tente recarregar a página.");
+        }
         setIsInitializing(false);
       }
     };
