@@ -40,16 +40,24 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         await scanner.start(
           { facingMode: "environment" },
           {
-            fps: 25,
+            fps: 30,
             qrbox: (viewfinderWidth, viewfinderHeight) => {
               const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-              const qrboxSize = Math.floor(minEdge * 0.7);
+              const qrboxSize = Math.floor(minEdge * 0.82); // Maior área de captura
               return { width: qrboxSize, height: qrboxSize };
             },
             aspectRatio: 1.0,
+            // Adicionando configurações de vídeo para melhor foco
+            videoConstraints: {
+              facingMode: "environment",
+              //@ts-ignore
+              focusMode: "continuous",
+              //@ts-ignore
+              whiteBalanceMode: "continuous"
+            }
           },
           (decodedText) => {
-            if (navigator.vibrate) try { navigator.vibrate(100); } catch(e){} 
+            if (navigator.vibrate) try { navigator.vibrate([100, 50, 100]); } catch(e){} 
             onScan(decodedText);
           },
           () => {}
