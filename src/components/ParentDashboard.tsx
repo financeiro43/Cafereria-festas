@@ -15,6 +15,8 @@ import { toast } from 'sonner';
 import ShopView from './ShopView';
 import { Order } from '../types';
 
+import QRScanner from './QRScanner';
+
 export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [rechargeAmount, setRechargeAmount] = useState<string>('50');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -25,30 +27,6 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
   const [pendingAmount, setPendingAmount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState('shop');
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
-
-  useEffect(() => {
-    if (isScanning && !scannerRef.current) {
-      setTimeout(() => {
-        const readerElement = document.getElementById("qr-reader-parent");
-        if (readerElement) {
-          scannerRef.current = new Html5QrcodeScanner(
-            "qr-reader-parent",
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-            false
-          );
-          scannerRef.current.render(onScanSuccess, (error) => {});
-        }
-      }, 100);
-    }
-
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(console.error);
-        scannerRef.current = null;
-      }
-    };
-  }, [isScanning]);
 
   const onScanSuccess = async (decodedText: string) => {
     try {
@@ -381,19 +359,11 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       </div>
 
       {isScanning && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <Card className="w-full max-w-sm bg-slate-900 border-slate-800">
-            <CardHeader>
-              <CardTitle className="text-white text-center">Escaneie o QR do seu Cartão</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div id="qr-reader-parent" className="rounded-xl overflow-hidden bg-black border border-slate-800"></div>
-              <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full text-slate-400">
-                Cancelar
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+        <QRScanner 
+          onScan={onScanSuccess} 
+          onClose={() => setIsScanning(false)} 
+          title="Escaneie seu Cartão"
+        />
       )}
 
       {/* Mobile Bottom Navigation */}

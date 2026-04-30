@@ -4,7 +4,7 @@ import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc, upd
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Stall, Product, UserProfile } from '../types';
-import { Store, ShoppingCart, ArrowLeft, CheckCircle2, Package, CreditCard } from 'lucide-react';
+import { Store, ShoppingCart, ArrowLeft, CheckCircle2, Package, CreditCard, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
@@ -214,37 +214,49 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                       <span className="font-bold">Total</span>
                       <span className="text-2xl font-black">R$ {total.toFixed(2)}</span>
                     </div>
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         <Button 
-                          className="w-full h-14 bg-green-600 hover:bg-green-700 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95"
+                          className="w-full h-16 font-black rounded-2xl shadow-lg transition-all active:scale-95 flex flex-col items-center justify-center bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
                           disabled={loading || profile.balance < total || payingWithRede}
                           onClick={handleCheckout}
                         >
-                          {loading ? 'Processando...' : 
-                           profile.balance < total ? 'Falta Saldo' : 
-                           `Pagar com Saldo (R$ ${total.toFixed(2)})`}
+                          <span className="text-lg">
+                            {loading ? 'Processando...' : profile.balance < total ? 'Saldo Insuficiente' : 'Pagar com Saldo'}
+                          </span>
+                          {!loading && profile.balance >= total && (
+                            <span className="text-[10px] opacity-70 uppercase tracking-widest">Descontar R$ {total.toFixed(2)} da sua conta</span>
+                          )}
                         </Button>
+                        
+                        {profile.balance < total && (
+                           <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl animate-pulse">
+                              <p className="text-xs text-orange-600 font-bold text-center">
+                                Seu saldo de R$ {profile.balance.toFixed(2)} não é suficiente para esta compra.
+                              </p>
+                              <p className="text-[10px] text-orange-500 text-center uppercase tracking-tight font-black mt-1">
+                                Use um cartão abaixo para pagar agora
+                              </p>
+                           </div>
+                        )}
 
-                        <div className="relative py-2">
-                          <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-100"></span></div>
-                          <div className="relative flex justify-center text-[10px] uppercase"><span className="bg-white px-3 text-slate-400 font-black tracking-widest">Ou rápido via</span></div>
+                        <div className="relative py-4">
+                          <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-200"></span></div>
+                          <div className="relative flex justify-center text-[10px] uppercase"><span className="bg-white px-4 text-slate-400 font-black tracking-widest whitespace-nowrap">OU PAGAR COM CARTÃO (REDE)</span></div>
                         </div>
 
                         <Button 
                           variant="outline"
-                          className="w-full h-14 border-slate-200 hover:bg-red-50 hover:text-red-600 font-black rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95 shadow-sm"
+                          className="w-full h-20 border-blue-200 bg-blue-50/50 hover:bg-blue-100/50 hover:border-blue-400 text-blue-700 font-black rounded-3xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95 shadow-md group relative"
                           disabled={payingWithRede || loading}
                           onClick={handleRedePayment}
                         >
-                          <CreditCard className="h-6 w-6" />
-                          {payingWithRede ? 'Conectando Rede...' : `Pagar R$ ${total.toFixed(2)} com Cartão`}
+                           <div className="flex items-center gap-3">
+                              <CreditCard className="h-6 w-6 text-blue-600 group-hover:scale-110 transition-transform" />
+                              <span className="text-xl">Cartão de Crédito</span>
+                           </div>
+                           <span className="text-[10px] text-blue-500/70 uppercase tracking-widest">Processado via Rede - R$ {total.toFixed(2)}</span>
+                           {payingWithRede && <Loader2 className="h-4 w-4 animate-spin absolute right-4" />}
                         </Button>
-                        
-                        {profile.balance < total && (
-                          <p className="text-[10px] text-center text-red-500 font-bold px-4">
-                            Seu saldo atual (R$ {profile.balance.toFixed(2)}) não é suficiente. Use o Cartão para pagar agora.
-                          </p>
-                        )}
                       </div>
                   </>
                 )}

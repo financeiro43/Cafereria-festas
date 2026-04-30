@@ -11,6 +11,8 @@ import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck } from 'lucide-react';
 import { toast } from 'sonner';
 
+import QRScanner from './QRScanner';
+
 interface CartItem extends Product {
   quantity: number;
 }
@@ -26,7 +28,6 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   const [isScanning, setIsScanning] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
   useEffect(() => {
     if (profile.role === 'admin') {
@@ -132,24 +133,6 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
 
   const clearCart = () => setCart([]);
 
-  useEffect(() => {
-    if (isScanning && !scannerRef.current) {
-      scannerRef.current = new Html5QrcodeScanner(
-        "qr-reader",
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        /* verbose= */ false
-      );
-      scannerRef.current.render(onScanSuccess, onScanFailure);
-    }
-
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(error => console.error("Failed to clear scanner", error));
-        scannerRef.current = null;
-      }
-    };
-  }, [isScanning]);
-
   const onScanSuccess = async (decodedText: string) => {
     try {
       setIsScanning(false);
@@ -167,10 +150,6 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, 'users');
     }
-  };
-
-  const onScanFailure = (error: any) => {
-    // Silently handle scan failures as they happen frequently during searching
   };
 
   const handleSale = async () => {
@@ -361,7 +340,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                               </Button>
                             ) : isScanning ? (
                               <div className="space-y-2">
-                                <div id="qr-reader" className="w-full aspect-square rounded-xl overflow-hidden bg-black border border-slate-700"></div>
+                                <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Identificar Aluno" />
                                 <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full text-slate-400">Cancelar</Button>
                               </div>
                             ) : scannedUser ? (

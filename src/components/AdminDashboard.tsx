@@ -15,6 +15,8 @@ import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
+import QRScanner from './QRScanner';
+
 type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app_view' | 'recharge_pos' | 'transactions' | 'card_printer';
 
 export default function AdminDashboard({ profile, forcedTab }: { profile: UserProfile, forcedTab?: AdminTab }) {
@@ -1189,46 +1191,23 @@ function RechargePortal() {
   const [isScanning, setIsScanning] = useState(false);
   const [amount, setAmount] = useState<string>('');
   const [processing, setProcessing] = useState(false);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 
-  useEffect(() => {
-    if (isScanning && !scannerRef.current) {
-      scannerRef.current = new Html5QrcodeScanner(
-        "recharge-qr-reader",
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        false
-      );
-      
-      scannerRef.current.render(async (decodedText) => {
-        try {
-          const q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            const userData = snap.docs[0].data() as UserProfile;
-            setScannedUser({ ...userData, uid: snap.docs[0].id });
-            setIsScanning(false);
-            if (scannerRef.current) {
-              await scannerRef.current.clear();
-              scannerRef.current = null;
-            }
-          } else {
-            toast.error('QR Code inválido ou usuário não encontrado');
-          }
-        } catch (error) {
-          toast.error('Erro ao ler QR Code');
-        }
-      }, (error) => {
-        // console.warn(error);
-      });
-    }
-
-    return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(console.error);
-        scannerRef.current = null;
+  const onScanSuccess = async (decodedText: string) => {
+    try {
+      const q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const userData = snap.docs[0].data() as UserProfile;
+        setScannedUser({ ...userData, uid: snap.docs[0].id });
+        setIsScanning(false);
+        toast.success(`Identificado: ${userData.name}`);
+      } else {
+        toast.error('QR Code inválido ou usuário não encontrado');
       }
-    };
-  }, [isScanning]);
+    } catch (error) {
+      toast.error('Erro ao ler QR Code');
+    }
+  };
 
   const handleRecharge = async () => {
     const val = parseFloat(amount);
@@ -1283,7 +1262,7 @@ function RechargePortal() {
             </Button>
           ) : isScanning ? (
             <div className="space-y-4">
-              <div id="recharge-qr-reader" className="w-full aspect-square rounded-2xl overflow-hidden bg-black border border-slate-700 shadow-inner"></div>
+              <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Aluno" />
               <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full text-slate-400">Cancelar Leitura</Button>
             </div>
           ) : scannedUser ? (

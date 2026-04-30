@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Coffee, ShieldCheck, CreditCard, ChevronRight, Mail, Lock } from 'lucide-react';
+import { Coffee, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDashboard, User as UserIcon, LogOut, Store } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -57,68 +57,70 @@ function MainApp() {
   const location = useLocation();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      if (user) {
-        const userRef = doc(collection(db, 'users'), user.uid);
-        
-        const unsubProfile = onSnapshot(userRef, (snap) => {
-          if (snap.exists()) {
-            const data = snap.data() as UserProfile;
-            if (user.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
-              data.role = 'admin';
-            }
-            setProfile(data);
-            setLoading(false);
-            
-            // Redirect if at root and logged in
-            if (location.pathname === '/') {
-              const target = data.role === 'admin' ? '/admin' : 
-                           data.role === 'vendor' ? '/vendor' : 
-                           data.role === 'recharge' ? '/pdv' : '/portal';
-              navigate(target);
-            }
-          } else {
-            getDocs(query(collection(db, 'users'), where('email', '==', user.email?.toLowerCase())))
-              .then(async (emailSnap) => {
-                if (!emailSnap.empty) {
-                  const existingDoc = emailSnap.docs[0];
-                  const existingData = existingDoc.data();
-                  const newProfile: UserProfile = {
-                    ...(existingData as any),
-                    uid: user.uid,
-                    qrCode: user.uid,
-                    name: existingData.name || user.displayName || 'Estudante',
-                    email: user.email?.toLowerCase() || existingData.email
-                  };
-                  await setDoc(userRef, newProfile);
-                  if (existingDoc.id !== user.uid) await deleteDoc(existingDoc.ref);
-                  setProfile(newProfile);
-                  setLoading(false);
-                } else {
-                  const newProfile: UserProfile = {
-                    uid: user.uid,
-                    name: user.displayName || 'Estudante',
-                    email: user.email || '',
-                    balance: 0,
-                    role: user.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
-                    qrCode: user.uid
-                  };
-                  await setDoc(userRef, newProfile);
-                  setProfile(newProfile);
-                  setLoading(false);
-                }
-              });
-          }
-        });
-        return () => unsubProfile();
-      } else {
+    const unsubAuth = onAuthStateChanged(auth, async (authUser) => {
+      if (!authUser) {
+        setUser(null);
         setProfile(null);
         setLoading(false);
+        return;
       }
+
+      setUser(authUser);
+      const userRef = doc(db, 'users', authUser.uid);
+      
+      const unsubProfile = onSnapshot(userRef, async (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as UserProfile;
+          if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
+            data.role = 'admin';
+          }
+          setProfile(data);
+          setLoading(false);
+          if (location.pathname === '/') {
+            const target = data.role === 'admin' ? '/admin' : 
+                         data.role === 'vendor' ? '/vendor' : 
+                         data.role === 'recharge' ? '/pdv' : '/portal';
+            navigate(target);
+          }
+        } else {
+          // One-time attempt to find by email if document doesn't exist by UID
+          try {
+            const emailSnap = await getDocs(query(collection(db, 'users'), where('email', '==', authUser.email?.toLowerCase())));
+            if (!emailSnap.empty) {
+              const existingDoc = emailSnap.docs[0];
+              const existingData = existingDoc.data();
+              const newProfile: UserProfile = {
+                ...(existingData as any),
+                uid: authUser.uid,
+                qrCode: authUser.uid,
+                name: existingData.name || authUser.displayName || 'Estudante',
+                email: authUser.email?.toLowerCase() || existingData.email
+              };
+              await setDoc(userRef, newProfile);
+              if (existingDoc.id !== authUser.uid) await deleteDoc(existingDoc.ref);
+            } else {
+              const newProfile: UserProfile = {
+                uid: authUser.uid,
+                name: authUser.displayName || 'Estudante',
+                email: authUser.email || '',
+                balance: 0,
+                role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
+                qrCode: authUser.uid
+              };
+              await setDoc(userRef, newProfile);
+            }
+          } catch (e) {
+            console.error("Migration error:", e);
+          } finally {
+            setLoading(false);
+          }
+        }
+      });
+
+      return () => unsubProfile();
     });
 
-    return () => unsubscribe();
+    return () => unsubAuth();
   }, [navigate]);
 
   const handleGoogleLogin = async () => {
@@ -216,6 +218,59 @@ function MainApp() {
           </DialogContent>
         </Dialog>
         <Toaster />
+      </div>
+    );
+  }
+
+  if (profile.role === 'admin' && (window.location.pathname === '/' || window.location.pathname === '/admin')) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6">
+        <div className="w-full max-w-4xl grid md:grid-cols-2 gap-8 animate-in fade-in zoom-in duration-500">
+          <div className="col-span-full mb-8 text-center">
+             <Coffee className="h-16 w-16 text-blue-500 mx-auto mb-4" />
+             <h1 className="text-4xl font-black text-white uppercase tracking-tighter">Central Inteligente</h1>
+             <p className="text-slate-400 mt-2 font-medium">Bem-vindo, {profile.name}. Escolha sua estação de trabalho:</p>
+          </div>
+          
+          <Button 
+            onClick={() => window.location.href = '/admin'}
+            className="h-64 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-[40px] flex flex-col gap-4 text-white group shadow-2xl transition-all hover:-translate-y-2"
+          >
+            <div className="p-6 bg-blue-600 rounded-3xl group-hover:scale-110 transition-transform">
+              <LayoutDashboard className="h-10 w-10" />
+            </div>
+            <div className="text-center">
+              <span className="text-2xl font-black uppercase tracking-tight">Gestão Central</span>
+              <p className="text-slate-400 text-xs mt-1">Configurações, Financeiro e Equipe</p>
+            </div>
+          </Button>
+
+          <Button 
+            onClick={() => window.location.href = '/pdv'}
+            className="h-64 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-[40px] flex flex-col gap-4 text-white group shadow-2xl transition-all hover:-translate-y-2"
+          >
+            <div className="p-6 bg-green-600 rounded-3xl group-hover:scale-110 transition-transform">
+              <Store className="h-10 w-10" />
+            </div>
+            <div className="text-center">
+              <span className="text-2xl font-black uppercase tracking-tight">Terminal PDV</span>
+              <p className="text-slate-400 text-xs mt-1">Vendas rápidas e Carga/Recarga</p>
+            </div>
+          </Button>
+
+          <Button 
+            onClick={() => window.location.href = '/portal'}
+            className="h-24 md:col-span-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-[32px] flex items-center justify-center gap-4 text-white transition-all"
+          >
+            <UserIcon className="h-6 w-6 text-slate-400" />
+            <span className="font-bold">Acessar Portal do Aluno (Visualização)</span>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+          
+          <Button variant="ghost" onClick={() => auth.signOut()} className="md:col-span-2 text-slate-500 hover:text-white">
+            <LogOut className="h-4 w-4 mr-2" /> Encerrar Sessão
+          </Button>
+        </div>
       </div>
     );
   }
