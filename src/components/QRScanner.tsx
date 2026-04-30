@@ -32,36 +32,55 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
   };
 
   useEffect(() => {
+    let scanner: Html5Qrcode | null = null;
+    let isMounted = true;
+
     const startScanner = async () => {
+      if (!isMounted) return;
+      
       try {
-        const scanner = new Html5Qrcode(elementId);
+        scanner = new Html5Qrcode(elementId);
         html5QrCodeRef.current = scanner;
 
-        await scanner.start(
-          { facingMode: "environment" },
-          {
-            fps: 30,
-            qrbox: (viewfinderWidth, viewfinderHeight) => {
-              const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-              const qrboxSize = Math.floor(minEdge * 0.82); // Maior área de captura
-              return { width: qrboxSize, height: qrboxSize };
+        // Tentar primeiro com configurações otimizadas
+        const config = {
+          fps: 25,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const qrboxSize = Math.floor(minEdge * 0.8);
+            return { width: qrboxSize, height: qrboxSize };
+          },
+          aspectRatio: 1.0,
+        };
+
+        try {
+          await scanner.start(
+            { facingMode: "environment" },
+            config,
+            (decodedText) => {
+              if (navigator.vibrate) try { navigator.vibrate(100); } catch(e){} 
+              onScan(decodedText);
             },
-            aspectRatio: 1.0,
-            // Adicionando configurações de vídeo para melhor foco
-            videoConstraints: {
-              facingMode: "environment",
-              //@ts-ignore
-              focusMode: "continuous",
-              //@ts-ignore
-              whiteBalanceMode: "continuous"
-            }
-          },
-          (decodedText) => {
-            if (navigator.vibrate) try { navigator.vibrate([100, 50, 100]); } catch(e){} 
-            onScan(decodedText);
-          },
-          () => {}
-        );
+            () => {}
+          );
+        } catch (initialError) {
+          console.warn("Initial scanner start failed, trying basic config...", initialError);
+          // Fallback para uma configuração mais básica se a primeira falhar
+          await scanner.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: 250 },
+            (decodedText) => {
+              if (navigator.vibrate) try { navigator.vibrate(100); } catch(e){} 
+              onScan(decodedText);
+            },
+            () => {}
+          );
+        }
+
+        if (!isMounted) {
+          if (scanner.isScanning) await scanner.stop();
+          return;
+        }
 
         // Capability check for torch
         try {
@@ -76,21 +95,29 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
 
         setIsInitializing(false);
       } catch (e: any) {
-        console.error("Scanner init error:", e);
-        setError("Erro ao acessar a câmera. Verifique as permissões do navegador.");
-        setIsInitializing(false);
+        if (isMounted) {
+          console.error("Scanner init error:", e);
+          setError("Não foi possível acessar a câmera. Verifique se deu permissão e se nenhuma outra aba está usando a câmera.");
+          setIsInitializing(false);
+        }
       }
     };
 
-    const timer = setTimeout(startScanner, 1000); 
+    const timer = setTimeout(startScanner, 500); 
 
     return () => {
+      isMounted = false;
       clearTimeout(timer);
       if (html5QrCodeRef.current) {
-        if (html5QrCodeRef.current.isScanning) {
-          html5QrCodeRef.current.stop().then(() => {
-            html5QrCodeRef.current?.clear();
-          }).catch(console.warn);
+        const currentScanner = html5QrCodeRef.current;
+        if (currentScanner.isScanning) {
+          currentScanner.stop()
+            .then(() => {
+              currentScanner.clear();
+            })
+            .catch(console.warn);
+        } else {
+          try { currentScanner.clear(); } catch(e) {}
         }
       }
     };

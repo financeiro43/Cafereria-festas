@@ -1265,11 +1265,8 @@ function RechargePortal() {
                 <span className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">Toque para Escanear</span>
               </button>
             ) : isScanning ? (
-              <div className="space-y-4 animate-in fade-in zoom-in duration-300">
-                <div className="rounded-[32px] overflow-hidden border-2 border-blue-500/30">
-                   <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Aluno" />
-                </div>
-                <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full h-12 text-slate-500 font-bold uppercase tracking-widest rounded-xl">Cancelar Leitura</Button>
+              <div className="h-56 flex items-center justify-center bg-slate-900 rounded-[40px] border-2 border-dashed border-white/5">
+                 <Loader2 className="h-10 w-10 text-blue-500 animate-spin" />
               </div>
             ) : scannedUser ? (
               <div className="p-8 bg-blue-600/10 border border-blue-500/20 rounded-[40px] space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -1376,6 +1373,10 @@ function RechargePortal() {
           </CardContent>
         </Card>
       </div>
+      
+      {isScanning && (
+        <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Aluno" />
+      )}
     </div>
   );
 }
