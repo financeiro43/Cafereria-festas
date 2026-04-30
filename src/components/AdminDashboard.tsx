@@ -1056,25 +1056,18 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                         margin: 10mm;
                       }
                       
-                      /* Garantir cores e fundos */
                       * {
                         -webkit-print-color-adjust: exact !important;
                         print-color-adjust: exact !important;
                         color-adjust: exact !important;
                       }
 
-                      /* Esconder tudo que não é o container de impressão */
-                      body > div:not(#root), 
-                      header, 
-                      aside, 
-                      nav, 
-                      button:not(.print-only) {
-                        display: none !important;
+                      body {
+                        visibility: hidden !important;
                       }
 
-                      #root > div > div > main > div > section:not(.print-view-section),
-                      #root > div > div > main > div > header {
-                        display: none !important;
+                      #printable-cards, #printable-cards * {
+                        visibility: visible !important;
                       }
 
                       #printable-cards {
@@ -1083,12 +1076,10 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                         left: 0 !important;
                         top: 0 !important;
                         width: 100% !important;
-                        visibility: visible !important;
                         background: white !important;
                       }
 
                       .print-card {
-                        visibility: visible !important;
                         break-inside: avoid !important;
                         page-break-inside: avoid !important;
                         width: 85.6mm !important;
@@ -1096,17 +1087,14 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                         margin: 2mm !important;
                         display: inline-block !important;
                         position: relative !important;
+                        border: 0.1mm solid #ddd !important;
                       }
 
                       .print-card img {
-                        visibility: visible !important;
                         display: block !important;
                         width: 100% !important;
                         height: 100% !important;
-                      }
-
-                      #printable-cards * {
-                        visibility: visible !important;
+                        object-fit: cover !important;
                       }
                     }
                   `}</style>
@@ -1231,28 +1219,20 @@ function RechargePortal() {
       setProcessing(true);
       const userPath = `users/${scannedUser.uid}`;
       
-      try {
-        await updateDoc(doc(db, 'users', scannedUser.uid), {
-          balance: increment(val)
-        });
-      } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, userPath);
-      }
+      await updateDoc(doc(db, 'users', scannedUser.uid), {
+        balance: increment(val)
+      });
 
       const txPath = 'transactions';
-      try {
-        await addDoc(collection(db, txPath), {
-          userId: scannedUser.uid,
-          userName: scannedUser.name,
-          amount: val,
-          type: 'credit',
-          description: 'Carga/Recarga no Ponto de Venda',
-          status: 'completed',
-          timestamp: serverTimestamp()
-        });
-      } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, txPath);
-      }
+      await addDoc(collection(db, txPath), {
+        userId: scannedUser.uid,
+        userName: scannedUser.name,
+        amount: val,
+        type: 'credit',
+        description: 'Carga/Recarga no Ponto de Venda',
+        status: 'completed',
+        timestamp: serverTimestamp()
+      });
 
       // Update local state to reflect new balance immediately
       setScannedUser(prev => prev ? { ...prev, balance: prev.balance + val } : null);
@@ -1260,6 +1240,7 @@ function RechargePortal() {
       toast.success(`Carga de R$ ${val.toFixed(2)} realizada com sucesso!`);
     } catch (error) {
       console.error('Erro no processamento da carga:', error);
+      toast.error('Ocorreu um erro ao processar a carga. Verifique o console.');
     } finally {
       setProcessing(false);
     }

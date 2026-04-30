@@ -184,43 +184,28 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         return;
       }
 
-      const userPath = `users/${scannedUser.uid}`;
-      try {
-        await updateDoc(doc(db, 'users', scannedUser.uid), {
-          balance: increment(-cartTotal)
-        });
-      } catch (err) {
-        handleFirestoreError(err, OperationType.UPDATE, userPath);
-      }
+      await updateDoc(doc(db, 'users', scannedUser.uid), {
+        balance: increment(-cartTotal)
+      });
 
-      const txPath = 'transactions';
-      try {
-        await addDoc(collection(db, txPath), {
-          userId: scannedUser.uid,
-          userName: scannedUser.name,
-          amount: -cartTotal,
-          type: 'debit',
-          description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
-          status: 'completed',
-          timestamp: serverTimestamp()
-        });
-      } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, txPath);
-      }
+      await addDoc(collection(db, 'transactions'), {
+        userId: scannedUser.uid,
+        userName: scannedUser.name,
+        amount: -cartTotal,
+        type: 'debit',
+        description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
+        status: 'completed',
+        timestamp: serverTimestamp()
+      });
 
-      const consPath = 'consumption';
-      try {
-        await addDoc(collection(db, consPath), {
-          studentId: scannedUser.uid,
-          vendorId: profile.uid,
-          stallId: activeStallId,
-          amount: cartTotal,
-          items: cart.map(item => `${item.quantity}x ${item.name}`),
-          timestamp: serverTimestamp()
-        });
-      } catch (err) {
-        handleFirestoreError(err, OperationType.CREATE, consPath);
-      }
+      await addDoc(collection(db, 'consumption'), {
+        studentId: scannedUser.uid,
+        vendorId: profile.uid,
+        stallId: activeStallId,
+        amount: cartTotal,
+        items: cart.map(item => `${item.quantity}x ${item.name}`),
+        timestamp: serverTimestamp()
+      });
 
       toast.success(`Venda de R$ ${cartTotal.toFixed(2)} concluída!`);
       // Update local state to reflect new balance
@@ -228,6 +213,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       clearCart();
     } catch (error) {
       console.error('Erro no processamento da venda:', error);
+      toast.error('Ocorreu um erro ao processar a venda.');
     } finally {
       setProcessing(false);
     }
