@@ -1020,7 +1020,7 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                 </div>
               </section>
             ) : (
-              <section className="bg-slate-100 p-8 md:p-12 rounded-3xl border border-slate-200">
+              <section className="bg-slate-100 p-8 md:p-12 rounded-3xl border border-slate-200 print-view-section">
                 <div id="printable-cards" className="print:block">
                   <div className="grid grid-cols-2 gap-y-8 gap-x-8 justify-center items-center print:gap-x-4 print:gap-y-4">
                     {users.filter(u => u.isPhysicalCard).sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, batchSize).map(card => (
@@ -1052,40 +1052,56 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                     @media print {
                       @page {
                         size: A4 portrait;
-                        margin: 15mm 10mm;
+                        margin: 10mm;
                       }
                       
+                      /* Garantir cores e fundos */
                       * {
                         -webkit-print-color-adjust: exact !important;
                         print-color-adjust: exact !important;
                         color-adjust: exact !important;
                       }
 
-                      /* Ocultar elementos da interface */
-                      body > :not(#printable-cards) {
+                      /* Esconder tudo que não é o container de impressão */
+                      body > div:not(#root), 
+                      header, 
+                      aside, 
+                      nav, 
+                      button:not(.print-only) {
                         display: none !important;
                       }
-                      
+
+                      #root > div > div > main > div > section:not(.print-view-section),
+                      #root > div > div > main > div > header {
+                        display: none !important;
+                      }
+
                       #printable-cards {
-                        visibility: visible !important;
                         display: block !important;
+                        position: absolute !important;
+                        left: 0 !important;
+                        top: 0 !important;
                         width: 100% !important;
-                        margin: 0 !important;
-                        padding: 0 !important;
+                        visibility: visible !important;
+                        background: white !important;
                       }
 
                       .print-card {
                         visibility: visible !important;
                         break-inside: avoid !important;
                         page-break-inside: avoid !important;
-                        margin-bottom: 5mm !important;
-                        border: 0.1mm solid #ddd !important;
-                        background: #fff !important;
+                        width: 85.6mm !important;
+                        height: 53.98mm !important;
+                        margin: 2mm !important;
+                        display: inline-block !important;
+                        position: relative !important;
                       }
 
                       .print-card img {
                         visibility: visible !important;
                         display: block !important;
+                        width: 100% !important;
+                        height: 100% !important;
                       }
 
                       #printable-cards * {
