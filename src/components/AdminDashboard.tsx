@@ -1353,13 +1353,35 @@ function RechargePortal() {
               </div>
             </div>
 
-            <Button 
-              disabled={!scannedUser || !amount || processing}
-              onClick={handleRecharge}
-              className="w-full h-20 bg-green-600 hover:bg-green-500 text-white font-black text-2xl shadow-xl shadow-green-900/20 disabled:opacity-20 rounded-3xl transition-all"
-            >
-              {processing ? 'Processando...' : 'Confirmar Carga'}
-            </Button>
+            {processing ? (
+              <Button disabled className="w-full h-20 bg-slate-700 text-slate-500 font-black text-2xl rounded-3xl">
+                Processando...
+              </Button>
+            ) : scannedUser && amount ? (
+              <Button 
+                onClick={handleRecharge}
+                className="w-full h-20 bg-green-600 hover:bg-green-500 text-white font-black text-2xl shadow-xl shadow-green-900/20 rounded-3xl transition-all"
+              >
+                Confirmar Carga
+              </Button>
+            ) : scannedUser && !amount ? (
+              <Button 
+                onClick={() => {
+                  setScannedUser(null);
+                  setAmount('');
+                }}
+                className="w-full h-20 bg-blue-600 hover:bg-blue-500 text-white font-black text-2xl rounded-3xl"
+              >
+                Próximo Aluno
+              </Button>
+            ) : (
+              <Button 
+                disabled
+                className="w-full h-20 bg-slate-700 text-slate-500 font-black text-2xl disabled:opacity-30 rounded-3xl"
+              >
+                Aguardando QR Code
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>

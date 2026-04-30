@@ -184,25 +184,33 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         return;
       }
 
-      // Update student balance
-      const studentRef = doc(collection(db, 'users'), scannedUser.uid);
-      await updateDoc(studentRef, {
-        balance: increment(-cartTotal)
-      });
+      const userPath = `users/${scannedUser.uid}`;
+      try {
+        await updateDoc(doc(db, 'users', scannedUser.uid), {
+          balance: increment(-cartTotal)
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, userPath);
+      }
 
-      // Record transaction
-      await addDoc(collection(db, 'transactions'), {
-        userId: scannedUser.uid,
-        userName: scannedUser.name,
-        amount: -cartTotal,
-        type: 'debit',
-        description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
-        status: 'completed',
-        timestamp: serverTimestamp()
-      });
+      const txPath = 'transactions';
+      try {
+        await addDoc(collection(db, txPath), {
+          userId: scannedUser.uid,
+          userName: scannedUser.name,
+          amount: -cartTotal,
+          type: 'debit',
+          description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
+          status: 'completed',
+          timestamp: serverTimestamp()
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, txPath);
+      }
 
-        // Record consumption
-        await addDoc(collection(db, 'consumption'), {
+      const consPath = 'consumption';
+      try {
+        await addDoc(collection(db, consPath), {
           studentId: scannedUser.uid,
           vendorId: profile.uid,
           stallId: activeStallId,
@@ -210,12 +218,16 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           items: cart.map(item => `${item.quantity}x ${item.name}`),
           timestamp: serverTimestamp()
         });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, consPath);
+      }
 
-      toast.success('Venda concluída com sucesso!');
-      setScannedUser(null);
+      toast.success(`Venda de R$ ${cartTotal.toFixed(2)} concluída!`);
+      // Update local state to reflect new balance
+      setScannedUser(prev => prev ? { ...prev, balance: prev.balance - cartTotal } : null);
       clearCart();
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'sale-transaction');
+      console.error('Erro no processamento da venda:', error);
     } finally {
       setProcessing(false);
     }
@@ -354,40 +366,64 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                       </div>
                     )}
 
-                    <div className="space-y-3 pt-4">
-                      <div className="space-y-2">
-                        <label className="text-xs text-slate-400 font-bold uppercase tracking-widest">Identificação do Aluno</label>
-                        {!isScanning && !scannedUser ? (
-                          <Button onClick={() => setIsScanning(true)} className="w-full h-14 bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-2 rounded-xl transition-all shadow-lg shadow-blue-900/40">
-                            <QrCode className="h-5 w-5" /> Escanear QR Code
-                          </Button>
-                        ) : isScanning ? (
+                        <div className="space-y-4 pt-4 border-t border-slate-700">
                           <div className="space-y-2">
-                            <div id="qr-reader" className="w-full aspect-square rounded-xl overflow-hidden bg-black border border-slate-700"></div>
-                            <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full text-slate-400">Cancelar</Button>
+                            <label className="text-xs text-slate-400 font-bold uppercase tracking-widest">Identificação do Aluno</label>
+                            {!isScanning && !scannedUser ? (
+                              <Button onClick={() => setIsScanning(true)} className="w-full h-14 bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-2 rounded-xl transition-all shadow-lg shadow-blue-900/40">
+                                <QrCode className="h-5 w-5" /> Escanear QR Code
+                              </Button>
+                            ) : isScanning ? (
+                              <div className="space-y-2">
+                                <div id="qr-reader" className="w-full aspect-square rounded-xl overflow-hidden bg-black border border-slate-700"></div>
+                                <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full text-slate-400">Cancelar</Button>
+                              </div>
+                            ) : scannedUser ? (
+                              <div className="bg-green-500/10 border border-green-500/20 p-4 rounded-xl flex items-center justify-between">
+                                <div>
+                                  <p className="text-xl font-bold">{scannedUser.name}</p>
+                                  <p className={`font-mono text-sm ${scannedUser.balance < cartTotal ? 'text-red-400' : 'text-green-400'}`}>
+                                    Saldo: R$ {scannedUser.balance.toFixed(2)}
+                                  </p>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                  <Button variant="ghost" onClick={() => setScannedUser(null)} className="h-10 w-10 p-0 text-slate-400 hover:text-white">
+                                    <XCircle className="h-6 w-6" />
+                                  </Button>
+                                  {cart.length === 0 && (
+                                    <Button size="sm" variant="outline" onClick={() => setScannedUser(null)} className="text-[10px] h-6 bg-slate-700 border-slate-600">
+                                      PRÓXIMO
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
-                        ) : scannedUser ? (
-                          <div className="bg-green-500/10 border border-green-500/20 p-4 rounded-xl flex items-center justify-between">
-                            <div>
-                              <p className="text-xl font-bold">{scannedUser.name}</p>
-                              <p className={`font-mono text-sm ${scannedUser.balance < cartTotal ? 'text-red-400' : 'text-green-400'}`}>
-                                Saldo: R$ {scannedUser.balance.toFixed(2)}
-                              </p>
-                            </div>
-                            <Button variant="ghost" onClick={() => setScannedUser(null)} className="h-10 w-10 p-0 text-slate-400 hover:text-white">
-                              <XCircle className="h-6 w-6" />
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
 
-                      <Button 
-                        onClick={handleSale} 
-                        disabled={!scannedUser || cartTotal <= 0 || processing || scannedUser.balance < cartTotal}
-                        className="w-full h-20 bg-white text-slate-900 hover:bg-slate-200 font-black text-2xl shadow-xl shadow-white/5 disabled:opacity-30 rounded-2xl transition-all"
-                      >
-                        {processing ? 'Processando...' : scannedUser && scannedUser.balance < cartTotal ? 'Saldo Insuficiente' : 'PAGAR AGORA'}
-                      </Button>
+      {processing ? (
+        <Button disabled className="w-full h-20 bg-slate-700 text-slate-500 font-black text-2xl rounded-2xl">
+          Processando...
+        </Button>
+      ) : cart.length > 0 ? (
+        <Button 
+          onClick={handleSale} 
+          disabled={!scannedUser || scannedUser.balance < cartTotal}
+          className="w-full h-20 bg-white text-slate-900 hover:bg-slate-200 font-black text-2xl shadow-xl shadow-white/5 disabled:opacity-30 rounded-2xl transition-all"
+        >
+          {scannedUser && scannedUser.balance < cartTotal ? 'Saldo Insuficiente' : 'PAGAR AGORA'}
+        </Button>
+      ) : scannedUser ? (
+        <Button 
+          onClick={() => setScannedUser(null)}
+          className="w-full h-20 bg-blue-600 hover:bg-blue-500 text-white font-black text-xl rounded-2xl"
+        >
+          PRÓXIMO ALUNO
+        </Button>
+      ) : (
+        <div className="h-20 flex items-center justify-center text-slate-500 font-medium italic border-2 border-dashed border-slate-700 rounded-2xl">
+          Aguardando Itens e QR Code
+        </div>
+      )}
                     </div>
                   </CardContent>
                 </Card>
