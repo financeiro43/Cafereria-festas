@@ -4,8 +4,9 @@ import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc, upd
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Stall, Product, UserProfile } from '../types';
-import { Store, ShoppingCart, ArrowLeft, CheckCircle2, Package } from 'lucide-react';
+import { Store, ShoppingCart, ArrowLeft, CheckCircle2, Package, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
+import axios from 'axios';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 
 export default function ShopView({ profile }: { profile: UserProfile }) {
@@ -14,6 +15,7 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<{product: Product, quantity: number}[]>([]);
   const [loading, setLoading] = useState(false);
+  const [payingWithRede, setPayingWithRede] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'stalls'), (snap) => {
@@ -105,6 +107,47 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
     }
   };
 
+  const handleRedePayment = async () => {
+    if (cart.length === 0) return;
+    
+    try {
+      setPayingWithRede(true);
+      
+      // We calculate how much they need to pay. 
+      // It can be the full total or just total - balance.
+      // Usually it's cleaner to recharge the exact amount they are short, or just the full amount.
+      // The user said "pay with Rede after purchase", so we'll treat it as a direct payment.
+      const amountToPay = total;
+
+      // Create a pending transaction
+      const txnRef = await addDoc(collection(db, 'transactions'), {
+        userId: profile.uid,
+        amount: amountToPay,
+        type: 'credit',
+        status: 'pending',
+        description: `Pagamento Pedido: ${selectedStall?.name}`,
+        timestamp: serverTimestamp(),
+      });
+
+      const response = await axios.post('/api/rede/create-checkout', {
+        amount: amountToPay,
+        userId: profile.uid,
+        studentName: profile.name,
+        transactionId: txnRef.id
+      });
+
+      if (response.data.checkoutUrl) {
+        window.open(response.data.checkoutUrl, '_blank');
+        toast.info('Pague na nova aba. Seu saldo será atualizado automaticamente.');
+      }
+    } catch (error: any) {
+      console.error('Rede payment error:', error);
+      toast.error('Erro ao iniciar pagamento com Rede');
+    } finally {
+      setPayingWithRede(false);
+    }
+  };
+
   if (selectedStall) {
     return (
       <div className="space-y-6">
@@ -169,13 +212,30 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                       <span className="font-bold">Total</span>
                       <span className="text-2xl font-black">R$ {total.toFixed(2)}</span>
                     </div>
-                    <Button 
-                      className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl"
-                      disabled={loading || profile.balance < total}
-                      onClick={handleCheckout}
-                    >
-                      {loading ? 'Processando...' : profile.balance < total ? 'Saldo Insuficiente' : 'Finalizar Pedido'}
-                    </Button>
+                    <div className="space-y-2">
+                      <Button 
+                        className="w-full h-12 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl"
+                        disabled={loading || profile.balance < total || payingWithRede}
+                        onClick={handleCheckout}
+                      >
+                        {loading ? 'Processando...' : profile.balance < total ? 'Saldo Insuficiente' : 'Pagar com Saldo'}
+                      </Button>
+
+                      {profile.balance < total && (
+                        <div className="space-y-2">
+                          <p className="text-[10px] text-center text-slate-400 uppercase font-black tracking-widest">Ou pague agora via</p>
+                          <Button 
+                            variant="outline"
+                            className="w-full h-12 border-slate-200 hover:bg-red-50 hover:text-red-600 font-bold rounded-xl flex items-center justify-center gap-2"
+                            disabled={payingWithRede || loading}
+                            onClick={handleRedePayment}
+                          >
+                            <CreditCard className="h-5 w-5" />
+                            {payingWithRede ? 'Iniciando...' : `Pagar R$ ${total.toFixed(2)} com Rede`}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
               </CardContent>

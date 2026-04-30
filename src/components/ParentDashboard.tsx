@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,54 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+
+  useEffect(() => {
+    if (isScanning && !scannerRef.current) {
+      setTimeout(() => {
+        const readerElement = document.getElementById("qr-reader-parent");
+        if (readerElement) {
+          scannerRef.current = new Html5QrcodeScanner(
+            "qr-reader-parent",
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            false
+          );
+          scannerRef.current.render(onScanSuccess, (error) => {});
+        }
+      }, 100);
+    }
+
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(console.error);
+        scannerRef.current = null;
+      }
+    };
+  }, [isScanning]);
+
+  const onScanSuccess = async (decodedText: string) => {
+    try {
+      setIsScanning(false);
+      const q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        toast.error('Cartão não identificado no sistema');
+        return;
+      }
+
+      const userData = querySnapshot.docs[0].data() as UserProfile;
+      if (userData.uid !== profile.uid) {
+        toast.warning(`Identificado: ${userData.name}. Você está logado como ${profile.name}.`);
+      } else {
+        toast.success('Seu cartão foi identificado!');
+      }
+      // Since it's self-service, we stay on this profile, but we've "verified" the card
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   useEffect(() => {
     if (!profile.uid) return;
@@ -137,22 +186,44 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
           <Card className="md:col-span-2 bg-white border-slate-100">
             <CardHeader>
-              <CardTitle className="text-lg">Recarga via Rede</CardTitle>
+              <CardTitle className="text-lg flex items-center justify-between">
+                <span>Recarga via Rede</span>
+                <Button variant="outline" size="sm" onClick={() => setIsScanning(true)} className="text-xs h-8">
+                  <QrCode className="h-3 w-3 mr-1" /> Ler Cartão
+                </Button>
+              </CardTitle>
               <CardDescription>Adicione saldo instantaneamente</CardDescription>
             </CardHeader>
-            <CardContent className="flex gap-4">
-              <div className="relative flex-1">
-                <span className="absolute left-3 top-2.5 text-slate-400 font-medium text-sm">R$</span>
-                <Input 
-                  type="number" 
-                  value={rechargeAmount}
-                  onChange={(e) => setRechargeAmount(e.target.value)}
-                  className="pl-10"
-                />
+            <CardContent className="space-y-4">
+              {isScanning && (
+                <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+                  <Card className="w-full max-w-sm bg-slate-900 border-slate-800">
+                    <CardHeader>
+                      <CardTitle className="text-white text-center">Escaneie o QR do seu Cartão</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div id="qr-reader-parent" className="rounded-xl overflow-hidden bg-black border border-slate-800"></div>
+                      <Button variant="ghost" onClick={() => setIsScanning(false)} className="w-full text-slate-400">
+                        Cancelar
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+              <div className="flex gap-4">
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-2.5 text-slate-400 font-medium text-sm">R$</span>
+                  <Input 
+                    type="number" 
+                    value={rechargeAmount}
+                    onChange={(e) => setRechargeAmount(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Button onClick={handleRecharge} disabled={loading} className="bg-slate-900 hover:bg-slate-800">
+                  <PlusCircle className="h-4 w-4 mr-2" /> Recarregar
+                </Button>
               </div>
-              <Button onClick={handleRecharge} disabled={loading} className="bg-slate-900 hover:bg-slate-800">
-                <PlusCircle className="h-4 w-4 mr-2" /> Recarregar
-              </Button>
             </CardContent>
           </Card>
         </div>
