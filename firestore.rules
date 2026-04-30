@@ -114,12 +114,17 @@ service cloud.firestore {
 
     // ORDERS
     match /orders/{orderId} {
-      allow get: if isSignedIn() && (resource.data.studentId == request.auth.uid || isVendor() || isAdmin());
-      allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || isVendor() || isAdmin());
+      allow get: if isSignedIn() && (resource.data.studentId == request.auth.uid || 
+                                     resource.data.stallId in (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.vendorIds || []) || 
+                                     isAdmin());
+      allow list: if isSignedIn() && (resource.data.studentId == request.auth.uid || 
+                                      isAdmin() ||
+                                      (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+                                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor'));
       
-      allow create: if isVerified() && isValidOrder(incoming()) && incoming().studentId == request.auth.uid;
+      allow create: if isSignedIn() && isValidOrder(incoming()) && incoming().studentId == request.auth.uid;
       
-      allow update: if isVerified() && (
+      allow update: if isSignedIn() && (
         isAdmin() ||
         // Vendor delivering order
         (isVendor() && incoming().diff(existing()).affectedKeys().hasOnly(['status']))
