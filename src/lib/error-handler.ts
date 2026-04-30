@@ -1,6 +1,8 @@
 
 import { auth } from './firebase';
 
+import { toast } from 'sonner';
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -10,7 +12,7 @@ export enum OperationType {
   WRITE = 'write',
 }
 
-export interface FirestoreErrorInfo {
+interface FirestoreErrorInfo {
   error: string;
   operationType: OperationType;
   path: string | null;
@@ -35,5 +37,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   }
   console.error('Firestore Error details: ', JSON.stringify(errInfo, null, 2));
+  toast.error(`Erro no banco de dados (${operationType}): ${errInfo.error.slice(0, 50)}...`);
   throw new Error(JSON.stringify(errInfo));
 }

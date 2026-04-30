@@ -11,6 +11,7 @@ import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
 import VendorDashboard from './VendorDashboard';
 import ShopView from './ShopView';
+import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -1228,26 +1229,36 @@ function RechargePortal() {
 
     try {
       setProcessing(true);
+      const userPath = `users/${scannedUser.uid}`;
       
-      await updateDoc(doc(collection(db, 'users'), scannedUser.uid), {
-        balance: increment(val)
-      });
+      try {
+        await updateDoc(doc(db, 'users', scannedUser.uid), {
+          balance: increment(val)
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, userPath);
+      }
 
-      await addDoc(collection(db, 'transactions'), {
-        userId: scannedUser.uid,
-        userName: scannedUser.name,
-        amount: val,
-        type: 'credit',
-        description: 'Carga/Recarga no Ponto de Venda',
-        status: 'completed',
-        timestamp: serverTimestamp()
-      });
+      const txPath = 'transactions';
+      try {
+        await addDoc(collection(db, txPath), {
+          userId: scannedUser.uid,
+          userName: scannedUser.name,
+          amount: val,
+          type: 'credit',
+          description: 'Carga/Recarga no Ponto de Venda',
+          status: 'completed',
+          timestamp: serverTimestamp()
+        });
+      } catch (err) {
+        handleFirestoreError(err, OperationType.CREATE, txPath);
+      }
 
       toast.success(`Carga de R$ ${val.toFixed(2)} realizada para ${scannedUser.name}`);
       setScannedUser(null);
       setAmount('');
     } catch (error) {
-      toast.error('Erro ao processar carga');
+      console.error(error);
     } finally {
       setProcessing(false);
     }
