@@ -8,7 +8,7 @@ import ParentDashboard from './components/ParentDashboard';
 import VendorDashboard from './components/VendorDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import MockPayment from './components/MockPayment';
-import { Toaster } from './components/ui/sonner-toaster';
+import { Toaster } from './components/ui/sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
