@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import { Button } from '@/components/ui/button';
-import { X, Camera, Loader2 } from 'lucide-react';
+import { X, Camera, Loader2, Zap, ZapOff } from 'lucide-react';
 
 interface QRScannerProps {
   onScan: (decodedText: string) => void;
@@ -12,8 +12,24 @@ interface QRScannerProps {
 export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" }: QRScannerProps) {
   const [error, setError] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isTorchOn, setIsTorchOn] = useState(false);
+  const [hasTorch, setHasTorch] = useState(false);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const elementId = "universal-qr-reader";
+
+  const toggleTorch = async () => {
+    if (!html5QrCodeRef.current) return;
+    try {
+      const newState = !isTorchOn;
+      await html5QrCodeRef.current.applyVideoConstraints({
+        //@ts-ignore - torch is not in standard types but supported by html5-qrcode
+        advanced: [{ torch: newState }]
+      });
+      setIsTorchOn(newState);
+    } catch (e) {
+      console.warn("Failed to toggle torch:", e);
+    }
+  };
 
   useEffect(() => {
     const startScanner = async () => {
@@ -24,10 +40,11 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         await scanner.start(
           { facingMode: "environment" },
           {
-            fps: 15,
+            fps: 25, // Aumentado para resposta mais rápida
             qrbox: (viewfinderWidth, viewfinderHeight) => {
               const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-              const qrboxSize = Math.floor(minEdgeSize * 0.85); // Increased for mobile
+              // Área maior facilita o enquadramento no celular
+              const qrboxSize = Math.floor(minEdgeSize * 0.9); 
               return { width: qrboxSize, height: qrboxSize };
             },
             aspectRatio: 1.0,
@@ -38,12 +55,24 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
             }
           },
           (decodedText) => {
+            // Vibração curta se for suportado (feedback tátil)
+            if (navigator.vibrate) navigator.vibrate(100);
             onScan(decodedText);
           },
-          () => {
-            // Ignore failure cases
-          }
+          () => {}
         );
+
+        // Verificar se a câmera suporta lanterna (torch)
+        try {
+          const track = scanner.getRunningTrackCapabilities();
+          //@ts-ignore
+          if (track?.torch) {
+            setHasTorch(true);
+          }
+        } catch (e) {
+          console.log("Torch capability check failed:", e);
+        }
+
         setIsInitializing(false);
       } catch (e: any) {
         console.error("Scanner init error:", e);
@@ -56,7 +85,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
       }
     };
 
-    const timer = setTimeout(startScanner, 500);
+    const timer = setTimeout(startScanner, 400);
 
     return () => {
       clearTimeout(timer);
@@ -88,44 +117,69 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         {!error && !isInitializing && (
           <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
             {/* Máscara de Escurecimento */}
-            <div className="absolute inset-0 bg-black/40"></div>
+            <div className="absolute inset-0 bg-black/50"></div>
             
             {/* Área de Foco */}
-            <div className="relative w-[70vw] h-[70vw] max-w-[300px] max-h-[300px] border-2 border-white/20 rounded-[40px] overflow-hidden shadow-[0_0_0_1000px_rgba(0,0,0,0.5)]">
+            <div className="relative w-[80vw] h-[80vw] max-w-[320px] max-h-[320px] border-2 border-white/20 rounded-[48px] overflow-hidden shadow-[0_0_0_1000px_rgba(0,0,0,0.6)] animate-in zoom-in duration-500">
               {/* Cantos de Foco Brilhantes */}
-              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-500 rounded-tl-xl"></div>
-              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-500 rounded-tr-xl"></div>
-              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-500 rounded-bl-xl"></div>
-              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-500 rounded-br-xl"></div>
+              <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-blue-500 rounded-tl-2xl"></div>
+              <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-blue-500 rounded-tr-2xl"></div>
+              <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-blue-500 rounded-bl-2xl"></div>
+              <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-blue-500 rounded-br-2xl"></div>
               
-              {/* Linha de Varredura Animada */}
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-[scan_2s_linear_infinite] shadow-[0_0_15px_blue]"></div>
+              {/* Linha de Varredura Animada (Mais suave) */}
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-[scan_1.5s_linear_infinite] shadow-[0_0_20px_blue]"></div>
+              
+              {/* Feedback de Mira Central */}
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 border border-white/10 rounded-full opacity-30"></div>
             </div>
             
-            <p className="absolute bottom-[20%] text-white/70 font-bold text-xs uppercase tracking-widest text-center px-10">
-              Posicione o QR Code no centro
-            </p>
+            <div className="absolute bottom-[15%] flex flex-col items-center gap-4 px-10 text-center">
+               <p className="text-white/80 font-black text-xs uppercase tracking-[0.2em] animate-pulse">
+                Aproxime o código do centro
+               </p>
+               <p className="text-white/40 text-[10px] font-bold uppercase tracking-widest max-w-[200px]">
+                Mantenha o celular firme para uma leitura instantânea
+               </p>
+            </div>
+          </div>
+        )}
+
+        {/* Botão de Lanterna Flutuante */}
+        {hasTorch && !isInitializing && !error && (
+          <div className="absolute bottom-[25%] right-8 z-20">
+             <Button 
+                onClick={toggleTorch} 
+                className={`h-16 w-16 rounded-full shadow-2xl transition-all duration-300 ${
+                  isTorchOn ? 'bg-yellow-400 text-black scale-110' : 'bg-white/10 text-white backdrop-blur-md'
+                }`}
+             >
+                {isTorchOn ? <ZapOff className="h-8 w-8" /> : <Zap className="h-8 w-8 fill-current" />}
+             </Button>
           </div>
         )}
 
         {isInitializing && (
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="h-10 w-10 text-blue-500 animate-spin" />
-            <p className="text-white/50 font-black text-[10px] tracking-widest uppercase">Ativando Câmera...</p>
+          <div className="flex flex-col items-center gap-6">
+            <div className="relative">
+               <div className="absolute inset-0 bg-blue-500 blur-2xl opacity-20 animate-pulse"></div>
+               <Loader2 className="h-12 w-12 text-blue-500 animate-spin relative" />
+            </div>
+            <p className="text-white/50 font-black text-[10px] tracking-[0.3em] uppercase">Sincronizando Óptica...</p>
           </div>
         )}
 
         {error && (
-          <div className="p-8 text-center space-y-6 max-w-xs">
+          <div className="p-8 text-center space-y-6 max-w-xs z-20">
             <div className="bg-red-500/20 p-6 rounded-full w-fit mx-auto">
               <Camera className="h-12 w-12 text-red-500" />
             </div>
             <div className="space-y-2">
-              <p className="text-lg font-black text-white">Oops!</p>
+              <p className="text-lg font-black text-white">Erro Óptico</p>
               <p className="text-sm text-slate-400 leading-relaxed font-medium">{error}</p>
             </div>
-            <Button onClick={() => window.location.reload()} className="w-full bg-white text-black font-black rounded-2xl h-14">
-              TENTAR NOVAMENTE
+            <Button onClick={() => window.location.reload()} className="w-full bg-blue-600 text-white font-black rounded-2xl h-14 shadow-xl shadow-blue-900/40">
+              REINICIAR CÂMERA
             </Button>
           </div>
         )}
@@ -134,8 +188,8 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
       <style>{`
         @keyframes scan {
           0% { top: 0%; opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
+          15% { opacity: 1; }
+          85% { opacity: 1; }
           100% { top: 100%; opacity: 0; }
         }
         #universal-qr-reader video {
