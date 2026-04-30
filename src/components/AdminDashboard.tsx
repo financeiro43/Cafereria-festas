@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
 import VendorDashboard from './VendorDashboard';
@@ -13,7 +14,7 @@ import ShopView from './ShopView';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app_view' | 'recharge_pos' | 'transactions';
+type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app_view' | 'recharge_pos' | 'transactions' | 'card_printer';
 
 export default function AdminDashboard({ profile }: { profile: UserProfile }) {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
@@ -139,6 +140,11 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
 
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserName, setNewUserName] = useState('');
+  
+  const [batchSize, setBatchSize] = useState(24);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [showPrintView, setShowPrintView] = useState(false);
+  const [cardBgUrl, setCardBgUrl] = useState('https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=1000');
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,6 +230,37 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
     }
   };
 
+  const handleGenerateCards = async () => {
+    if (batchSize > 200) {
+      toast.error('Gere no máximo 200 cartões por vez para evitar sobrecarga');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const timestamp = Date.now();
+      const batchPromises = [];
+      for (let i = 1; i <= batchSize; i++) {
+        const uniqueId = `CARD-${timestamp}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+        batchPromises.push(addDoc(collection(db, 'users'), {
+          name: `Cartão #${timestamp.toString().slice(-4)}${i.toString().padStart(3, '0')}`,
+          email: `card-${uniqueId.toLowerCase()}@maestro.internal`,
+          role: 'student',
+          balance: 0,
+          vendorIds: [],
+          qrCode: uniqueId,
+          isPhysicalCard: true,
+          timestamp: serverTimestamp()
+        }));
+      }
+      await Promise.all(batchPromises);
+      toast.success(`${batchSize} cartões gerados!`);
+    } catch (error) {
+      toast.error('Erro ao gerar cartões');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleDeleteStall = async (id: string) => {
     if (!confirm('Excluir esta barraca e todos os seus produtos?')) return;
     try {
@@ -300,6 +337,13 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                   className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'transactions' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                 >
                   <History className="h-4 w-4" /> Histórico de Vendas
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setActiveTab('card_printer')}
+                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'card_printer' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                >
+                  <Printer className="h-4 w-4" /> Impressor de Cartões
                 </Button>
               </nav>
             </section>
@@ -816,6 +860,195 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
             </Card>
           </div>
         )}
+        {activeTab === 'card_printer' && (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-200 pb-8">
+              <div>
+                <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-3">
+                  <Printer className="h-8 w-8 text-blue-600" />
+                  CARTÃO FÍSICO
+                </h2>
+                <p className="text-slate-500 mt-1">Gere cartões profissionais com QR Code para recarga e pagamentos presenciais.</p>
+              </div>
+              <div className="flex gap-3">
+                <Button 
+                  onClick={() => window.print()} 
+                  variant="outline"
+                  className="bg-white border-slate-200 text-slate-900 font-bold rounded-xl h-11"
+                >
+                  <Printer className="h-4 w-4 mr-2" /> Imprimir Agora
+                </Button>
+                <Button 
+                  onClick={() => setShowPrintView(!showPrintView)} 
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl h-11"
+                >
+                  {showPrintView ? 'Editar Lote' : 'Visualização de Impressão'}
+                </Button>
+              </div>
+            </header>
+
+            {!showPrintView ? (
+              <section className="space-y-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <Card className="bg-slate-900 border-none rounded-3xl shadow-xl overflow-hidden p-8">
+                    <div className="space-y-6">
+                      <div className="space-y-1">
+                        <h3 className="text-white font-black text-xl uppercase tracking-tight">Configurar Lote</h3>
+                        <p className="text-slate-400 text-sm">Defina a quantidade e a identidade visual dos cartões.</p>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Qtd. de Cartões</label>
+                          <Input 
+                            type="number"
+                            value={batchSize}
+                            onChange={(e) => setBatchSize(parseInt(e.target.value))}
+                            className="bg-slate-800 border-slate-700 text-white h-11 focus:ring-blue-500 rounded-xl"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">URL da Foto de Fundo</label>
+                          <Input 
+                            value={cardBgUrl}
+                            onChange={(e) => setCardBgUrl(e.target.value)}
+                            placeholder="https://imagem.com/fundo.jpg"
+                            className="bg-slate-800 border-slate-700 text-white h-11 focus:ring-blue-500 rounded-xl"
+                          />
+                        </div>
+                      </div>
+
+                      <Button 
+                        onClick={handleGenerateCards} 
+                        disabled={isGenerating}
+                        className="w-full bg-blue-600 hover:bg-blue-500 text-white h-12 font-black uppercase tracking-tight disabled:opacity-50 rounded-xl"
+                      >
+                        {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Plus className="h-4 w-4 mr-2" /> Gerar Novos Cartões</>}
+                      </Button>
+                    </div>
+                  </Card>
+
+                  <div className="flex flex-col justify-center items-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 p-8">
+                    <p className="text-[10px] font-black uppercase text-slate-400 mb-4 tracking-widest">Preview do Cartão</p>
+                    <div className="relative w-[340px] h-[215px] rounded-2xl shadow-2xl overflow-hidden border border-slate-200 bg-white">
+                      <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover opacity-80" referrerPolicy="no-referrer" />
+                      <div className="absolute inset-0 bg-gradient-to-br from-slate-900/40 to-transparent" />
+                      <div className="relative h-full p-6 flex flex-col justify-between text-white">
+                         <div className="flex justify-between items-start">
+                            <span className="text-[10px] font-black tracking-widest uppercase opacity-80">Maestro Card</span>
+                            <LayoutDashboard className="h-6 w-6 opacity-80" />
+                         </div>
+                         <div className="flex justify-between items-end">
+                            <div className="space-y-1">
+                               <p className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Portador</p>
+                               <p className="text-sm font-black uppercase tracking-tight">Nome do Aluno/Cliente</p>
+                            </div>
+                            <div className="bg-white p-2 rounded-xl border border-white/20 shadow-lg">
+                               <QRCodeSVG value="PREVIEW" size={70} />
+                            </div>
+                         </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Cartões Gerados Recentemente</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {users.filter(u => u.isPhysicalCard).sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, 50).map(card => (
+                      <Card key={card.uid} className="bg-white border-slate-200 rounded-2xl shadow-sm overflow-hidden group border">
+                        <div className="relative h-32 w-full overflow-hidden">
+                          <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 opacity-60" referrerPolicy="no-referrer" />
+                          <div className="absolute inset-0 bg-slate-900/10" />
+                          <div className="absolute inset-0 flex items-center justify-center p-4">
+                             <div className="bg-white p-2 rounded-lg border border-slate-100 shadow-sm">
+                               <QRCodeSVG value={card.qrCode} size={60} />
+                             </div>
+                          </div>
+                        </div>
+                        <div className="p-4 space-y-3">
+                          <div>
+                            <p className="font-bold text-slate-900 text-xs uppercase tracking-tight">{card.name}</p>
+                            <p className="text-[9px] text-slate-400 font-mono mt-0.5">{card.qrCode}</p>
+                          </div>
+                          <div className="flex items-center justify-between pt-3 border-t border-slate-50">
+                             <p className="text-[10px] font-black text-blue-600 uppercase">Saldo: R$ {card.balance.toFixed(2)}</p>
+                             <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={async () => {
+                                if(confirm('Excluir este cartão?')) {
+                                  await deleteDoc(doc(db, 'users', card.uid));
+                                  toast.success('Cartão excluído');
+                                }
+                              }}
+                              className="h-6 w-6 text-slate-300 hover:text-red-500"
+                             >
+                               <Trash2 className="h-3 w-3" />
+                             </Button>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            ) : (
+              <section className="bg-slate-100 p-8 md:p-12 rounded-3xl border border-slate-200">
+                <div id="printable-cards" className="print:block">
+                  <div className="grid grid-cols-2 gap-4 max-w-[800px] mx-auto">
+                    {users.filter(u => u.isPhysicalCard).sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, batchSize).map(card => (
+                      <div key={card.uid} className="relative aspect-[1.586] w-full rounded-[12px] overflow-hidden bg-white shadow-sm border border-slate-200 print:break-inside-avoid print:shadow-none print:mb-4">
+                        <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <div className="absolute inset-0 bg-slate-900/20" />
+                        <div className="relative h-full p-6 flex flex-col justify-between text-white">
+                           <div className="flex justify-between items-start">
+                              <span className="text-[10px] font-black tracking-widest uppercase mix-blend-difference">MAESTRO EVENTOS</span>
+                              <div className="h-8 w-8 bg-white/20 backdrop-blur-sm rounded-lg border border-white/20 flex items-center justify-center">
+                                 <LayoutDashboard className="h-4 w-4 text-white" />
+                              </div>
+                           </div>
+                           <div className="flex justify-between items-end">
+                              <div className="space-y-1">
+                                 <p className="text-[8px] font-bold text-white/50 uppercase tracking-[0.2em] mix-blend-difference">Identificação</p>
+                                 <p className="text-sm font-black uppercase tracking-tight drop-shadow-md">{card.name}</p>
+                                 <p className="text-[8px] font-mono text-white/50 opacity-80 uppercase tracking-tighter">{card.qrCode}</p>
+                              </div>
+                              <div className="bg-white p-3 rounded-xl border border-white/20 shadow-2xl">
+                                 <QRCodeSVG value={card.qrCode} size={85} level="M" />
+                              </div>
+                           </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <style>{`
+                    @media print {
+                      body * { visibility: hidden; }
+                      #printable-cards, #printable-cards * { visibility: visible; }
+                      #printable-cards { 
+                        position: absolute!important; 
+                        left: 0!important; 
+                        top: 0!important; 
+                        width: 100%!important;
+                        background: transparent!important;
+                        padding: 10mm!important;
+                      }
+                      .bg-slate-100 { background: transparent!important; }
+                      main, section { padding: 0 !important; overflow: visible !important; height: auto !important; margin: 0 !important; }
+                      .aspect-[1.586] { 
+                        width: 85.6mm !important; 
+                        height: 53.98mm !important; 
+                        border: 1px solid #ddd !important;
+                        -webkit-print-color-adjust: exact;
+                      }
+                    }
+                  `}</style>
+                </div>
+              </section>
+            )}
+          </div>
+        )}
         {activeTab === 'terminal' && (
             <div className="bg-slate-900 -m-8 min-h-screen p-8">
               <div className="mb-6 flex items-center justify-between border-b border-white/5 pb-6">
@@ -895,16 +1128,18 @@ function RechargePortal() {
       
       scannerRef.current.render(async (decodedText) => {
         try {
-          const snap = await getDocs(query(collection(db, 'users'), where('uid', '==', decodedText)));
+          const q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
+          const snap = await getDocs(q);
           if (!snap.empty) {
-            setScannedUser(snap.docs[0].data() as UserProfile);
+            const userData = snap.docs[0].data() as UserProfile;
+            setScannedUser({ ...userData, uid: snap.docs[0].id });
             setIsScanning(false);
             if (scannerRef.current) {
               await scannerRef.current.clear();
               scannerRef.current = null;
             }
           } else {
-            toast.error('Giro inválido ou usuário não encontrado');
+            toast.error('QR Code inválido ou usuário não encontrado');
           }
         } catch (error) {
           toast.error('Erro ao ler QR Code');
@@ -935,6 +1170,7 @@ function RechargePortal() {
 
       await addDoc(collection(db, 'transactions'), {
         userId: scannedUser.uid,
+        userName: scannedUser.name,
         amount: val,
         type: 'credit',
         description: 'Carga/Recarga no Ponto de Venda',

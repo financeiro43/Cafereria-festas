@@ -162,7 +162,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       }
 
       const userData = querySnapshot.docs[0].data() as UserProfile;
-      setScannedUser(userData);
+      setScannedUser({ ...userData, uid: querySnapshot.docs[0].id });
       toast.success(`Identificado: ${userData.name}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, 'users');
@@ -193,6 +193,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       // Record transaction
       await addDoc(collection(db, 'transactions'), {
         userId: scannedUser.uid,
+        userName: scannedUser.name,
         amount: -cartTotal,
         type: 'debit',
         description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
