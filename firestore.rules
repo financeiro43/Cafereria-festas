@@ -32,14 +32,15 @@ service cloud.firestore {
 
     // Role-based access helpers
     function isAdmin() {
-      return isVerified() && (
+      return isSignedIn() && (
         request.auth.token.email == 'financeiro@modeloalpha.com.br' ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
     }
 
     function isVendor() {
-      return isVerified() && 
+      return isSignedIn() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor';
     }
@@ -47,14 +48,12 @@ service cloud.firestore {
     // --- Validation Helpers ---
 
     function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'name', 'email', 'balance', 'role', 'qrCode']) &&
-             data.keys().size() >= 6 &&
-             data.uid is string && data.uid.size() <= 128 &&
-             data.name is string && data.name.size() <= 100 &&
-             data.email is string && data.email.size() <= 100 &&
+      return data.keys().hasAll(['name', 'email', 'balance', 'role', 'qrCode']) &&
+             data.name is string && data.name.size() <= 200 &&
+             data.email is string && data.email.size() <= 200 &&
              data.balance is number &&
-             data.role in ['student', 'vendor', 'admin', 'recharge'] &&
-             data.qrCode is string && data.qrCode.size() <= 128;
+             data.role is string &&
+             data.qrCode is string && data.qrCode.size() <= 256;
     }
 
     function isValidTransaction(data) {
@@ -84,17 +83,14 @@ service cloud.firestore {
       allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isVendor());
       allow list: if isAdmin();
       
-      allow create: if isVerified() && isValidUser(incoming()) && (
-        request.auth.uid == userId || isAdmin()
+      allow create: if isSignedIn() && (
+        isAdmin() || 
+        (request.auth.uid == userId && isVerified() && isValidUser(incoming()))
       );
       
-      allow update: if isVerified() && (
+      allow update: if isSignedIn() && (
         isAdmin() ||
-        // Profile update (name/photo only)
-        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL'])) ||
-        // Balance update (MUST be accompanied by transaction, but rules can't enforce batch atomicity across collections without existsAfter which is tricky here)
-        // We'll allow vendor/admin to update balance if it's a legitimate sale/recharge
-        (isVendor() || isAdmin())
+        (request.auth.uid == userId && isVerified() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL']))
       );
     }
 
