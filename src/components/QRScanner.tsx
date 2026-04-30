@@ -40,18 +40,13 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         await scanner.start(
           { facingMode: "environment" },
           {
-            fps: 30,
+            fps: 25,
             qrbox: (viewfinderWidth, viewfinderHeight) => {
               const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-              return { width: Math.floor(minEdge * 0.8), height: Math.floor(minEdge * 0.8) };
+              const qrboxSize = Math.floor(minEdge * 0.7);
+              return { width: qrboxSize, height: qrboxSize };
             },
             aspectRatio: 1.0,
-            showZoomSliderIfSupported: true,
-            videoConstraints: {
-              facingMode: "environment",
-              focusMode: "continuous", // Tenta forçar o foco contínuo
-              whiteBalanceMode: "continuous"
-            }
           },
           (decodedText) => {
             if (navigator.vibrate) try { navigator.vibrate(100); } catch(e){} 
@@ -60,7 +55,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
           () => {}
         );
 
-        // Verificar se a câmera suporta lanterna (torch)
+        // Capability check for torch
         try {
           const track = scanner.getRunningTrackCapabilities();
           //@ts-ignore
@@ -74,16 +69,12 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         setIsInitializing(false);
       } catch (e: any) {
         console.error("Scanner init error:", e);
-        if (e.toString().includes("NotAllowedError") || e.toString().includes("Permission denied")) {
-          setError("Acesso à câmera negado. Por favor, libere a permissão nas configurações do seu navegador.");
-        } else {
-          setError("Erro ao acessar a câmera principal. Tente recarregar a página.");
-        }
+        setError("Erro ao acessar a câmera. Verifique as permissões do navegador.");
         setIsInitializing(false);
       }
     };
 
-    const timer = setTimeout(startScanner, 400);
+    const timer = setTimeout(startScanner, 1000); 
 
     return () => {
       clearTimeout(timer);
