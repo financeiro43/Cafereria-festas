@@ -1022,26 +1022,26 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
             ) : (
               <section className="bg-slate-100 p-8 md:p-12 rounded-3xl border border-slate-200">
                 <div id="printable-cards" className="print:block">
-                  <div className="grid grid-cols-2 gap-4 max-w-[800px] mx-auto">
+                  <div className="grid grid-cols-2 gap-y-8 gap-x-8 justify-center items-center print:gap-x-4 print:gap-y-4">
                     {users.filter(u => u.isPhysicalCard).sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, batchSize).map(card => (
-                      <div key={card.uid} className="relative print-card w-full rounded-[12px] overflow-hidden bg-white shadow-sm border border-slate-200 print:break-inside-avoid print:shadow-none print:mb-4">
-                        <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        <div className="absolute inset-0 bg-slate-900/20" />
+                      <div key={card.uid} className="relative print-card w-[85.6mm] h-[53.98mm] rounded-[12px] overflow-hidden bg-white shadow-sm border border-slate-200 print:shadow-none mx-auto">
+                        <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-slate-900/10" />
                         <div className="relative h-full p-6 flex flex-col justify-between text-white">
                            <div className="flex justify-between items-start">
-                              <span className="text-[10px] font-black tracking-widest uppercase mix-blend-difference">MAESTRO EVENTOS</span>
+                              <span className="text-[10px] font-black tracking-widest uppercase drop-shadow-sm">MAESTRO EVENTOS</span>
                               <div className="h-8 w-8 bg-white/20 backdrop-blur-sm rounded-lg border border-white/20 flex items-center justify-center">
                                  <LayoutDashboard className="h-4 w-4 text-white" />
                               </div>
                            </div>
                            <div className="flex justify-between items-end">
                               <div className="space-y-1">
-                                 <p className="text-[8px] font-bold text-white/50 uppercase tracking-[0.2em] mix-blend-difference">Identificação</p>
+                                 <p className="text-[8px] font-bold text-white uppercase tracking-[0.2em] drop-shadow-sm">Identificação</p>
                                  <p className="text-sm font-black uppercase tracking-tight drop-shadow-md">{card.name}</p>
-                                 <p className="text-[8px] font-mono text-white/50 opacity-80 uppercase tracking-tighter">{card.qrCode}</p>
+                                 <p className="text-[8px] font-mono text-white/70 uppercase tracking-tighter drop-shadow-sm">{card.qrCode}</p>
                               </div>
-                              <div className="bg-white p-3 rounded-xl border border-white/20 shadow-2xl">
-                                 <QRCodeSVG value={card.qrCode} size={85} level="M" />
+                              <div className="bg-white p-3 rounded-xl border border-white/10 shadow-2xl">
+                                 <QRCodeSVG value={card.qrCode} size={80} level="M" />
                               </div>
                            </div>
                         </div>
@@ -1051,78 +1051,45 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                   <style>{`
                     @media print {
                       @page {
-                        size: A4;
-                        margin: 10mm;
+                        size: A4 portrait;
+                        margin: 15mm 10mm;
                       }
                       
-                      /* Force background colors and images */
                       * {
                         -webkit-print-color-adjust: exact !important;
                         print-color-adjust: exact !important;
                         color-adjust: exact !important;
                       }
 
-                      body {
-                        background: white !important;
+                      /* Ocultar elementos da interface */
+                      body > :not(#printable-cards) {
+                        display: none !important;
                       }
-
-                      /* Hide everything else */
-                      body * { 
-                        visibility: hidden; 
-                        transition: none !important;
-                      }
-
-                      /* Show only the print area */
-                      #printable-cards, #printable-cards * { 
-                        visibility: visible !important; 
-                      }
-
-                      #printable-cards { 
-                        position: absolute !important; 
-                        left: 0 !important; 
-                        top: 0 !important; 
-                        width: 100% !important;
-                        background: white !important;
-                        display: block !important;
-                        padding: 0 !important;
-                        margin: 0 !important;
-                      }
-
-                      .bg-slate-100 { background: white !important; }
                       
-                      main, section { 
-                        padding: 0 !important; 
-                        overflow: visible !important; 
-                        height: auto !important; 
-                        margin: 0 !important; 
-                        background: white !important;
+                      #printable-cards {
+                        visibility: visible !important;
+                        display: block !important;
+                        width: 100% !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
                       }
 
-                      /* Force card dimensions and background */
-                      .print-card { 
-                        width: 85.6mm !important; 
-                        height: 53.98mm !important; 
-                        margin-bottom: 2mm !important;
-                        border: 0.1mm solid #eee !important;
-                        box-shadow: none !important;
+                      .print-card {
+                        visibility: visible !important;
                         break-inside: avoid !important;
                         page-break-inside: avoid !important;
-                        position: relative !important;
-                        background-color: #fff !important;
-                        display: block !important;
-                        border-radius: 4mm !important;
-                        overflow: hidden !important;
+                        margin-bottom: 5mm !important;
+                        border: 0.1mm solid #ddd !important;
+                        background: #fff !important;
                       }
 
                       .print-card img {
+                        visibility: visible !important;
                         display: block !important;
-                        width: 100% !important;
-                        height: 100% !important;
-                        object-fit: cover !important;
-                        position: absolute !important;
-                        top: 0 !important;
-                        left: 0 !important;
-                        z-index: 0 !important;
+                      }
+
+                      #printable-cards * {
+                        visibility: visible !important;
                       }
                     }
                   `}</style>
