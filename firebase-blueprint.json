@@ -66,6 +66,33 @@
         "active": { "type": "boolean" }
       },
       "required": ["id", "name", "price", "vendorId", "active"]
+    },
+    "Withdrawal": {
+      "title": "Stall Withdrawal",
+      "description": "Cash withdrawal from a stall by admin",
+      "type": "object",
+      "properties": {
+        "stallId": { "type": "string" },
+        "amount": { "type": "number" },
+        "adminId": { "type": "string" },
+        "note": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["stallId", "amount", "adminId", "timestamp"]
+    },
+    "Order": {
+      "title": "In-App Order",
+      "description": "Purchase order made via mobile app",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "stallId": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "string" } },
+        "total": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "delivered", "cancelled"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentId", "stallId", "items", "total", "status", "timestamp"]
     }
   },
   "firestore": {
@@ -88,6 +115,14 @@
     "/products/{productId}": {
       "schema": "Product",
       "description": "Individual items for sale"
+    },
+    "/withdrawals/{withdrawalId}": {
+      "schema": "Withdrawal",
+      "description": "Stall cash withdrawals"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Mobile app orders"
     }
   }
 }
