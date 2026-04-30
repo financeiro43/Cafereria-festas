@@ -907,14 +907,40 @@ export default function AdminDashboard({ profile }: { profile: UserProfile }) {
                             className="bg-slate-800 border-slate-700 text-white h-11 focus:ring-blue-500 rounded-xl"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest">URL da Foto de Fundo</label>
-                          <Input 
-                            value={cardBgUrl}
-                            onChange={(e) => setCardBgUrl(e.target.value)}
-                            placeholder="https://imagem.com/fundo.jpg"
-                            className="bg-slate-800 border-slate-700 text-white h-11 focus:ring-blue-500 rounded-xl"
-                          />
+                        <div className="space-y-4">
+                          <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest block">Design do Cartão (Fundo)</label>
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                              <input 
+                                type="file" 
+                                id="card-bg-upload"
+                                className="hidden" 
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => setCardBgUrl(reader.result as string);
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                              />
+                              <label 
+                                htmlFor="card-bg-upload"
+                                className="flex-1 flex items-center justify-center gap-2 bg-slate-800 border-2 border-dashed border-slate-700 text-slate-300 hover:text-white hover:border-blue-500 transition-all h-11 px-6 rounded-xl cursor-pointer text-xs font-bold"
+                              >
+                                <Store className="h-4 w-4" /> Selecionar Foto de Fundo
+                              </label>
+                            </div>
+                            <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
+                              <p className="text-[10px] text-blue-400 font-bold uppercase tracking-tight">Medidas Recomendadas:</p>
+                              <p className="text-[9px] text-slate-400 leading-relaxed mt-1">
+                                Padrão ID-1 (CR80): <span className="text-slate-300">85.6mm x 54mm</span><br/>
+                                Proporção: <span className="text-slate-300">1.586 : 1</span><br/>
+                                Qualidade (300 DPI): <span className="text-slate-300">1011 x 638 pixels</span>
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       </div>
 
