@@ -42,7 +42,7 @@ export default function MockPayment() {
     try {
       if (isReal) {
         // CALL REAL BACKEND REDE API
-        const response = await axios.post('/rede-api/process-payment', {
+        const response = await axios.post('/api/rede/process-payment', {
           cardData,
           amount: amt,
           transactionId: tid,

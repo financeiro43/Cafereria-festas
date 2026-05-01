@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CheckCircle2, CreditCard, Loader2, ShieldCheck, Lock } from 'lucide-react';
-import { db } from '@/lib/firebase';
+import { db } from '../lib/firebase';
 import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { toast } from 'sonner';
 import axios from 'axios';
@@ -41,7 +41,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       // Check if real credentials exist (server-side check happened in create-checkout, 
       // but let's just call process-payment and it will fail if not set)
       
-      const response = await axios.post('/rede-api/process-payment', {
+      const response = await axios.post('/api/rede/process-payment', {
         cardData,
         amount: amount.toString(),
         transactionId: tid,

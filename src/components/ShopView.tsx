@@ -7,7 +7,7 @@ import { Stall, Product, UserProfile } from '../types';
 import { Store, ShoppingCart, ArrowLeft, CheckCircle2, Package, CreditCard, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
-import { handleFirestoreError, OperationType } from '@/lib/error-handler';
+import { handleFirestoreError, OperationType } from '../lib/error-handler';
 
 import QRScanner from './QRScanner';
 import RedePaymentForm from './RedePaymentForm';

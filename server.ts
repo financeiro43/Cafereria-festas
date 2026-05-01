@@ -56,11 +56,10 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Global Logger
+  // Global Debug Logger - Capture EVERYTHING and log to stdout
   app.use((req, res, next) => {
-    if (req.url.startsWith('/rede-api')) {
-      console.log(`[API-REDE] ${req.method} ${req.url}`);
-    }
+    const timestamp = new Date().toISOString();
+    console.log(`[REQ] ${timestamp} | ${req.method} | ${req.url}`);
     next();
   });
 
@@ -69,56 +68,45 @@ async function startServer() {
   });
 
   // --- Rede API Integration ---
-  
-  const REDE_PV = process.env.REDE_PV;
-  const REDE_TOKEN = process.env.REDE_TOKEN;
+  const API_BASE = "/api/rede";
 
-  // Endpoint to create a payment link or process real transaction
-  app.post(["/rede-api/create-checkout", "/rede-api/create-checkout/"], async (req, res) => {
-    console.log(`[REDE] Match: /rede-api/create-checkout`);
+  // Endpoint to create a checkout session
+  app.post(`${API_BASE}/create-checkout`, async (req, res) => {
+    console.log(`[REDE-API] POST /create-checkout`);
     try {
-      const { amount, userId, studentName } = req.body;
-      
+      const { amount, userId } = req.body;
       if (!amount || !userId) {
-        return res.status(400).json({ error: "Missing required fields: amount or userId" });
+        return res.status(400).json({ error: "Missing amount or userId" });
       }
 
       const transactionId = `txn_${Date.now()}`;
-      const isRealEnvironment = !!(REDE_PV && REDE_TOKEN);
+      const isReal = !!(process.env.REDE_PV && process.env.REDE_TOKEN);
+      const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}${isReal ? '&real=true' : ''}`;
       
-      console.log(`Processing recharge: amount=${amount}, userId=${userId}, studentName=${studentName}`);
-
-      // Simulation URL
-      const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}${isRealEnvironment ? '&real=true' : ''}`;
-      
-      res.json({
-        checkoutUrl,
-        transactionId,
-        isReal: isRealEnvironment
-      });
+      res.json({ checkoutUrl, transactionId, isReal });
     } catch (error: any) {
-      console.error("Unexpected error in create-checkout route:", error);
-      res.status(500).json({ 
-        error: "Internal Server Error", 
-        message: error?.message || "Unknown error"
-      });
+      console.error(`[REDE-API] Error: ${error.message}`);
+      res.status(500).json({ error: "Internal Server Error" });
     }
   });
 
   // Real Rede Payment Processing
-  app.post(["/rede-api/process-payment", "/rede-api/process-payment/"], async (req, res) => {
-    console.log(`[REDE] Match: /rede-api/process-payment`);
+  app.post(`${API_BASE}/process-payment`, async (req, res) => {
+    console.log(`[REDE-API] POST /process-payment`);
+    const REDE_PV = process.env.REDE_PV;
+    const REDE_TOKEN = process.env.REDE_TOKEN;
+
     try {
       const { cardData, amount, transactionId, userId } = req.body;
-      
-      if (!REDE_PV || !REDE_TOKEN) {
-        return res.status(400).json({ error: "Rede credentials not configured in secrets" });
+      if (!userId || !amount || !cardData) {
+          return res.status(400).json({ error: "Missing transaction data" });
       }
 
-      console.log(`Real payment processing for txn: ${transactionId}, amount: ${amount}`);
+      if (!REDE_PV || !REDE_TOKEN) {
+        return res.status(400).json({ error: "Rede credentials not configured" });
+      }
 
       const redeAmount = Math.round(parseFloat(amount) * 100);
-
       const redePayload = {
         capture: true,
         kind: "credit",
@@ -132,34 +120,16 @@ async function startServer() {
         softDescriptor: "REC ESCOLA"
       };
 
-      const axiosConfig = {
-        auth: {
-          username: REDE_PV,
-          password: REDE_TOKEN
-        }
-      };
-
+      const axiosConfig = { auth: { username: REDE_PV, password: REDE_TOKEN } };
       const isSandbox = process.env.REDE_SANDBOX !== 'false';
-      const redeUrl = isSandbox 
-        ? "https://sandbox-erede.useredecloud.com.br/v1/transactions"
-        : "https://api.userede.com.br/v1/transactions";
+      const redeUrl = isSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
 
-      console.log(`Processing ${isSandbox ? 'SANDBOX' : 'PRODUCTION'} payment via Rede. URL: ${redeUrl}`);
-
-      const response = await axios.post(
-        redeUrl,
-        redePayload,
-        axiosConfig
-      );
-
-      console.log("Rede Response:", response.data);
+      const response = await axios.post(redeUrl, redePayload, axiosConfig);
 
       if (response.data.returnCode === "00") {
-        // Success
         if (db) {
           const userRef = db.collection("users").doc(userId);
           const txnRef = db.collection("transactions").doc(transactionId);
-          
           await db.runTransaction(async (t) => {
             const userDoc = await t.get(userRef);
             const currentBalance = userDoc.data()?.balance || 0;
@@ -177,54 +147,45 @@ async function startServer() {
         }
         return res.json({ success: true, tid: response.data.tid });
       } else {
-        return res.status(400).json({ 
-          error: "Pagamento negado", 
-          message: response.data.returnMessage,
-          code: response.data.returnCode
-        });
+        return res.status(400).json({ error: "Pagamento negado", message: response.data.returnMessage });
       }
     } catch (error: any) {
-      console.error("Rede API Error Detail:", error.response?.data || error.message);
-      res.status(500).json({ 
-        error: "Erro no Gateway Rede", 
-        message: error.response?.data?.returnMessage || error.message 
-      });
+      console.error(`[REDE-API] Error: ${error.response?.data || error.message}`);
+      res.status(500).json({ error: "Erro no Gateway Rede", message: error.response?.data?.returnMessage || error.message });
     }
   });
 
-  // Mock Payment Webhook (Simulation)
-  app.post("/rede-api/webhook", async (req, res) => {
+  // Webhook
+  app.post(`${API_BASE}/webhook`, async (req, res) => {
     try {
       const { transactionId, status } = req.body;
-      if (!db) return res.status(500).json({ error: "Database not available" });
-
+      if (!db) return res.status(500).json({ error: "DB error" });
       if (status === "approved") {
         const txnRef = db.collection("transactions").doc(transactionId);
         const txnDoc = await txnRef.get();
-
         if (txnDoc.exists && txnDoc.data()?.status === "pending") {
           const { userId, amount } = txnDoc.data()!;
-          
           await db.runTransaction(async (t) => {
             const userRef = db.collection("users").doc(userId);
             const userDoc = await t.get(userRef);
-            
             if (userDoc.exists) {
               const currentBalance = userDoc.data()?.balance || 0;
               t.update(userRef, { balance: currentBalance + amount });
               t.update(txnRef, { status: "completed", updatedAt: FieldValue.serverTimestamp() });
             }
           });
-          
           return res.json({ success: true });
         }
       }
-      
-      res.json({ success: false, message: "Transaction not found or already processed" });
+      res.json({ success: false });
     } catch (error) {
-      console.error("Webhook Error:", error);
-      res.status(500).json({ error: "Webhook processing failed" });
+      res.status(500).json({ error: "Webhook error" });
     }
+  });
+
+  // Diagnostic GET route
+  app.get(`${API_BASE}/ping`, (req, res) => {
+    res.send("PONG - Rede API is up");
   });
 
   // --- Vite / Static Assets ---

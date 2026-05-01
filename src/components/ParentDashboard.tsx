@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
-import { handleFirestoreError, OperationType } from '@/lib/error-handler';
+import { handleFirestoreError, OperationType } from '../lib/error-handler';
 import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
