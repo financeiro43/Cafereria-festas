@@ -1,3 +1,6 @@
+/**
+ * Rede API Integration - Environment Sync Ver: 1.0.4
+ */
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -128,16 +131,19 @@ async function startServer() {
         .replace(/[^A-Z0-9 ]/g, "")
         .substring(0, 30);
 
+      // Force unique and valid reference (alphanumeric, <16 chars)
+      const secureRef = String(transactionId || `R${Date.now()}`).replace(/[^a-zA-Z0-9]/g, "").substring(0, 16);
+
       const redePayload = {
         capture: true,
         kind: "credit",
-        reference: transactionId,
+        reference: secureRef,
         amount: redeAmount,
         cardholderName: sanitizedName,
         cardNumber: cardData.number.replace(/\s/g, ""),
         expirationMonth: month.padStart(2, '0'),
-        expirationYear: "20" + year,
-        securityCode: cardData.cvv,
+        expirationYear: "20" + year.trim(),
+        securityCode: cardData.securityCode || cardData.cvv,
         softDescriptor: "RECESCOLA"
       };
 
@@ -146,6 +152,8 @@ async function startServer() {
       const redeUrl = isSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
 
       console.log(`[REDE-API] Calling URL: ${redeUrl} (Sandbox: ${isSandbox})`);
+      console.log(`[REDE-API] Payload:`, JSON.stringify({ ...redePayload, cardNumber: "****", securityCode: "***" }));
+      
       const response = await axios.post(redeUrl, redePayload, axiosConfig);
       console.log(`[REDE-API] Response Code: ${response.data.returnCode}`);
 
