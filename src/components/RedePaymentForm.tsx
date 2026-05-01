@@ -56,19 +56,11 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     } catch (error: any) {
       console.error('Payment processing error:', error);
       
-      // Fallback for demo/dev if REDE_PV is not set: simulate success IF in development
-      // But user said "ambiente real", so we should show the error.
-      const errorMsg = error.response?.data?.message || error.message;
+      const errorData = error.response?.data;
+      const errorMsg = errorData?.message || errorData?.error || error.message;
       
-      if (error.response?.data?.error === "Rede credentials not configured in secrets") {
-         // This is a special case for AI Studio preview if user didn't add secrets yet
-         // We'll show a helpful UI for it
-         setStatus('error');
-         toast.error("Gateway não configurado em 'Secrets'");
-      } else {
-         setStatus('error');
-         toast.error(`Erro: ${errorMsg}`);
-      }
+      setStatus('error');
+      toast.error(`Erro: ${errorMsg}`);
     } finally {
       setLoading(false);
     }

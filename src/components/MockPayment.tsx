@@ -93,7 +93,8 @@ export default function MockPayment() {
     } catch (error: any) {
       console.error('Payment processing error:', error);
       setStatus('error');
-      const errorMsg = error.response?.data?.message || error.message;
+      const errorData = error.response?.data;
+      const errorMsg = errorData?.message || errorData?.error || error.message;
       toast.error(`Erro no processamento: ${errorMsg}`);
     }
   };

@@ -106,24 +106,28 @@ async function startServer() {
 
     try {
       const { cardData, amount, transactionId, userId } = req.body;
+      console.log(`[REDE-API] Data: uid=${userId}, amt=${amount}, tid=${transactionId}`);
+      
       if (!userId || !amount || !cardData) {
-          return res.status(400).json({ error: "Missing transaction data" });
+          return res.status(400).json({ error: "Missing transaction data", details: { userId: !!userId, amount: !!amount, cardData: !!cardData } });
       }
 
       if (!REDE_PV || !REDE_TOKEN) {
-        return res.status(400).json({ error: "Rede credentials not configured" });
+        console.error(`[REDE-API] Credentials missing: PV=${!!REDE_PV}, Token=${!!REDE_TOKEN}`);
+        return res.status(400).json({ error: "Rede credentials not configured in environment (REDE_PV, REDE_TOKEN)" });
       }
 
       const redeAmount = Math.round(parseFloat(amount) * 100);
+      const [month, year] = cardData.expiry.split("/");
       const redePayload = {
         capture: true,
         kind: "credit",
         reference: transactionId,
         amount: redeAmount,
-        cardholderName: cardData.name,
+        cardholderName: cardData.name.substring(0, 30), // Rede has size limits
         cardNumber: cardData.number.replace(/\s/g, ""),
-        expirationMonth: cardData.expiry.split("/")[0],
-        expirationYear: "20" + cardData.expiry.split("/")[1],
+        expirationMonth: month.padStart(2, '0'),
+        expirationYear: "20" + year,
         securityCode: cardData.cvv,
         softDescriptor: "REC ESCOLA"
       };
@@ -132,7 +136,9 @@ async function startServer() {
       const isSandbox = process.env.REDE_SANDBOX !== 'false';
       const redeUrl = isSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
 
+      console.log(`[REDE-API] Calling URL: ${redeUrl} (Sandbox: ${isSandbox})`);
       const response = await axios.post(redeUrl, redePayload, axiosConfig);
+      console.log(`[REDE-API] Response Code: ${response.data.returnCode}`);
 
       if (response.data.returnCode === "00") {
         if (db) {
@@ -158,8 +164,14 @@ async function startServer() {
         return res.status(400).json({ error: "Pagamento negado", message: response.data.returnMessage });
       }
     } catch (error: any) {
-      console.error(`[REDE-API] Error: ${error.response?.data || error.message}`);
-      res.status(500).json({ error: "Erro no Gateway Rede", message: error.response?.data?.returnMessage || error.message });
+      const respData = error.response?.data;
+      const errorMsg = respData?.[0]?.message || respData?.returnMessage || respData?.error || error.message;
+      console.error(`[REDE-API] Error Detail:`, JSON.stringify(respData || error.message));
+      res.status(error.response?.status || 500).json({ 
+        error: "Erro no Gateway Rede", 
+        message: errorMsg,
+        details: respData
+      });
     }
   });
 
