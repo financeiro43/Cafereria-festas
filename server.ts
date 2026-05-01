@@ -87,7 +87,7 @@ async function startServer() {
         return res.status(400).json({ error: "Missing amount or userId" });
       }
 
-      const transactionId = `txn_${Date.now()}`;
+      const transactionId = `txn${Date.now()}`;
       const isReal = !!(process.env.REDE_PV && process.env.REDE_TOKEN);
       const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}${isReal ? '&real=true' : ''}`;
       
