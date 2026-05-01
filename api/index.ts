@@ -1,0 +1,186 @@
+import express from "express";
+import path from "path";
+import cors from "cors";
+import { initializeApp, getApps, App } from "firebase-admin/app";
+import { getFirestore, Firestore, FieldValue } from "firebase-admin/firestore";
+import fs from "fs";
+import dotenv from "dotenv";
+import axios from "axios";
+
+dotenv.config();
+
+const app = express();
+
+// Initialize Firebase Admin
+let db: Firestore | null = null;
+try {
+  const configPath = path.resolve(process.cwd(), "firebase-applet-config.json");
+  const apps = getApps();
+  
+  let firebaseApp: App;
+  if (apps.length === 0) {
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      firebaseApp = initializeApp({ projectId: config.projectId });
+    } else {
+      firebaseApp = initializeApp();
+    }
+  } else {
+    firebaseApp = apps[0];
+  }
+
+  if (fs.existsSync(configPath)) {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    if (config.firestoreDatabaseId) {
+      try {
+        db = getFirestore(firebaseApp, config.firestoreDatabaseId);
+      } catch (fError: any) {
+        db = getFirestore(firebaseApp);
+      }
+    } else {
+      db = getFirestore(firebaseApp);
+    }
+  } else {
+    db = getFirestore(firebaseApp);
+  }
+} catch (error: any) {
+  console.error("Firebase Admin initialization failed:", error?.message);
+}
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Global Logger - Filtered to reduce noise
+app.use((req, res, next) => {
+  const isStaticAsset = req.url.match(/\.(ts|tsx|js|css|json|svg|png|jpg|jpeg|gif|webp|woff|woff2)$/);
+  const isViteInternal = req.url.includes('node_modules') || req.url.includes('@vite') || req.url.startsWith('/src/');
+
+  if (!isStaticAsset && !isViteInternal) {
+    const timestamp = new Date().toISOString();
+    res.on('finish', () => {
+      console.log(`[API] ${timestamp} | ${res.statusCode} | ${req.method} | ${req.url}`);
+    });
+  }
+  next();
+});
+
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", dbInitialized: !!db });
+});
+
+// --- Rede API Integration ---
+const API_BASE = "/api/rede";
+
+app.post(`${API_BASE}/create-checkout`, async (req, res) => {
+  try {
+    const { amount, userId } = req.body;
+    if (!amount || !userId) {
+      return res.status(400).json({ error: "Missing amount or userId" });
+    }
+
+    const transactionId = `txn_${Date.now()}`;
+    const isReal = !!(process.env.REDE_PV && process.env.REDE_TOKEN);
+    const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}${isReal ? '&real=true' : ''}`;
+    
+    res.json({ checkoutUrl, transactionId, isReal });
+  } catch (error: any) {
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+app.post(`${API_BASE}/process-payment`, async (req, res) => {
+  const REDE_PV = process.env.REDE_PV;
+  const REDE_TOKEN = process.env.REDE_TOKEN;
+
+  try {
+    const { cardData, amount, transactionId, userId } = req.body;
+    if (!userId || !amount || !cardData) {
+        return res.status(400).json({ error: "Missing transaction data" });
+    }
+
+    if (!REDE_PV || !REDE_TOKEN) {
+      return res.status(400).json({ error: "Rede credentials not configured" });
+    }
+
+    const redeAmount = Math.round(parseFloat(amount) * 100);
+    const redePayload = {
+      capture: true,
+      kind: "credit",
+      reference: transactionId,
+      amount: redeAmount,
+      cardholderName: cardData.name,
+      cardNumber: cardData.number.replace(/\s/g, ""),
+      expirationMonth: cardData.expiry.split("/")[0],
+      expirationYear: "20" + cardData.expiry.split("/")[1],
+      securityCode: cardData.cvv,
+      softDescriptor: "REC ESCOLA"
+    };
+
+    const axiosConfig = { auth: { username: REDE_PV, password: REDE_TOKEN } };
+    const isSandbox = process.env.REDE_SANDBOX !== 'false';
+    const redeUrl = isSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
+
+    const response = await axios.post(redeUrl, redePayload, axiosConfig);
+
+    if (response.data.returnCode === "00") {
+      if (db) {
+        const userRef = db.collection("users").doc(userId);
+        const txnRef = db.collection("transactions").doc(transactionId);
+        await db.runTransaction(async (t) => {
+          const userDoc = await t.get(userRef);
+          const currentBalance = userDoc.data()?.balance || 0;
+          t.update(userRef, { balance: currentBalance + parseFloat(amount) });
+          t.set(txnRef, {
+            userId,
+            amount: parseFloat(amount),
+            type: "credit",
+            status: "completed",
+            description: "Recarga Real via Rede",
+            timestamp: FieldValue.serverTimestamp(),
+            redeTid: response.data.tid
+          });
+        });
+      }
+      return res.json({ success: true, tid: response.data.tid });
+    } else {
+      return res.status(400).json({ error: "Pagamento negado", message: response.data.returnMessage });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: "Erro no Gateway Rede", message: error.response?.data?.returnMessage || error.message });
+  }
+});
+
+app.post(`${API_BASE}/webhook`, async (req, res) => {
+  try {
+    const { transactionId, status } = req.body;
+    if (!db) return res.status(500).json({ error: "DB error" });
+    if (status === "approved") {
+      const txnRef = db.collection("transactions").doc(transactionId);
+      const txnDoc = await txnRef.get();
+      if (txnDoc.exists && txnDoc.data()?.status === "pending") {
+        const { userId, amount } = txnDoc.data()!;
+        await db.runTransaction(async (t) => {
+          const userRef = db.collection("users").doc(userId);
+          const userDoc = await t.get(userRef);
+          if (userDoc.exists) {
+            const currentBalance = userDoc.data()?.balance || 0;
+            t.update(userRef, { balance: currentBalance + amount });
+            t.update(txnRef, { status: "completed", updatedAt: FieldValue.serverTimestamp() });
+          }
+        });
+        return res.json({ success: true });
+      }
+    }
+    res.json({ success: false });
+  } catch (error) {
+    res.status(500).json({ error: "Webhook error" });
+  }
+});
+
+app.get(`${API_BASE}/ping`, (req, res) => {
+  res.send("PONG - Rede API is up");
+});
+
+export default app;
