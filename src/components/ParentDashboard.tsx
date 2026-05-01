@@ -79,12 +79,18 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
     const qTx = query(
       collection(db, 'transactions'),
       where('userId', '==', profile.uid),
-      orderBy('timestamp', 'desc'),
-      limit(20)
+      limit(50) // Increased limit since we sort on client
     );
 
     const unsubTx = onSnapshot(qTx, (snapshot) => {
-      setTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
+      const txData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
+      // Sort on client side to avoid composite index requirement
+      const sortedTx = txData.sort((a, b) => {
+        const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+        const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+        return timeB - timeA;
+      });
+      setTransactions(sortedTx);
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'transactions');
     });

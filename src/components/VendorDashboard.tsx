@@ -78,11 +78,17 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
     const qO = query(
       collection(db, 'orders'), 
       where('stallId', '==', activeStallId), 
-      where('status', '==', 'pending'),
-      orderBy('timestamp', 'asc')
+      where('status', '==', 'pending')
     );
     const unsubOrders = onSnapshot(qO, (snap) => {
-      setOrders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
+      const ordersData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+      // Sort on client side to avoid composite index requirement
+      const sortedOrders = ordersData.sort((a, b) => {
+        const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
+        const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
+        return timeA - timeB; // Oldest first for delivery queue
+      });
+      setOrders(sortedOrders);
     });
 
     return () => {
