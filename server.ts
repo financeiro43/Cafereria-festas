@@ -60,7 +60,7 @@ async function startServer() {
   const REDE_PV = process.env.REDE_PV;
   const REDE_TOKEN = process.env.REDE_TOKEN;
 
-  // Endpoint to create a payment link
+  // Endpoint to create a payment link or process real transaction
   app.post("/api/rede/create-checkout", async (req, res) => {
     console.log("Create checkout request received:", req.body);
     try {
@@ -75,27 +75,6 @@ async function startServer() {
       
       console.log(`Processing recharge: amount=${amount}, userId=${userId}, studentName=${studentName}`);
 
-      // Attempt to save to Firestore if available
-      if (db) {
-        try {
-          const docRef = db.collection("transactions").doc(transactionId);
-          await docRef.set({
-            userId,
-            amount: parseFloat(amount),
-            type: "credit",
-            status: "pending",
-            description: `Recarga de saldo para ${studentName || 'Estudante'}`,
-            timestamp: FieldValue.serverTimestamp(),
-          });
-          console.log("Firestore write success:", transactionId);
-        } catch (writeError: any) {
-          console.error("Firestore WRITE FAILED:", writeError.message);
-          // If Firestore fails here, the client-side MockPayment can manually recover it
-        }
-      } else {
-        console.warn("Firestore 'db' is null. Checkout will rely on client-side recovery.");
-      }
-
       // Simulation URL
       const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}${isRealEnvironment ? '&real=true' : ''}`;
       
@@ -109,6 +88,85 @@ async function startServer() {
       res.status(500).json({ 
         error: "Internal Server Error", 
         message: error?.message || "Unknown error"
+      });
+    }
+  });
+
+  // Real Rede Payment Processing
+  app.post("/api/rede/process-payment", async (req, res) => {
+    try {
+      const { cardData, amount, transactionId, userId } = req.body;
+      
+      if (!REDE_PV || !REDE_TOKEN) {
+        return res.status(400).json({ error: "Rede credentials not configured in secrets" });
+      }
+
+      console.log(`Real payment processing for txn: ${transactionId}, amount: ${amount}`);
+
+      const redeAmount = Math.round(parseFloat(amount) * 100);
+
+      const redePayload = {
+        capture: true,
+        kind: "credit",
+        reference: transactionId,
+        amount: redeAmount,
+        cardholderName: cardData.name,
+        cardNumber: cardData.number.replace(/\s/g, ""),
+        expirationMonth: cardData.expiry.split("/")[0],
+        expirationYear: "20" + cardData.expiry.split("/")[1],
+        securityCode: cardData.cvv,
+        softDescriptor: "REC ESCOLA"
+      };
+
+      const axiosConfig = {
+        auth: {
+          username: REDE_PV,
+          password: REDE_TOKEN
+        }
+      };
+
+      const response = await axios.post(
+        "https://sandbox-erede.useredecloud.com.br/v1/transactions",
+        redePayload,
+        axiosConfig
+      );
+
+      console.log("Rede Response:", response.data);
+
+      if (response.data.returnCode === "00") {
+        // Success
+        if (db) {
+          const userRef = db.collection("users").doc(userId);
+          const txnRef = db.collection("transactions").doc(transactionId);
+          
+          await db.runTransaction(async (t) => {
+            const userDoc = await t.get(userRef);
+            const currentBalance = userDoc.data()?.balance || 0;
+            t.update(userRef, { balance: currentBalance + parseFloat(amount) });
+            t.set(txnRef, {
+              userId,
+              amount: parseFloat(amount),
+              type: "credit",
+              status: "completed",
+              description: "Recarga Real via Rede",
+              timestamp: FieldValue.serverTimestamp(),
+              redeTid: response.data.tid
+            });
+          });
+        }
+        return res.json({ success: true, tid: response.data.tid });
+      } else {
+        return res.status(400).json({ 
+          error: "Pagamento negado", 
+          message: response.data.returnMessage,
+          code: response.data.returnCode
+        });
+      }
+    } catch (error: any) {
+      console.error("Rede API Error Detail:", error.response?.data || error.message);
+      res.status(500).json({ 
+        error: "Erro no Gateway Rede", 
+        message: error.response?.data?.returnMessage || error.message 
       });
     }
   });
