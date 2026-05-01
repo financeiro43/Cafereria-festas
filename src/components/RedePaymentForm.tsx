@@ -57,10 +57,19 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       console.error('Payment processing error:', error);
       
       const errorData = error.response?.data;
-      const errorMsg = errorData?.message || errorData?.error || error.message;
+      let errorMsg = errorData?.message || errorData?.error || error.message;
       
+      // Tradução/Melhoria de erros comuns da Rede
+      if (errorMsg.includes('Unauthorized') || errorMsg.includes('Contact issuer')) {
+        errorMsg = 'Transação negada pelo banco. Por favor, verifique seu limite ou entre em contato com a operadora do cartão.';
+      } else if (errorMsg.includes('expired')) {
+        errorMsg = 'Cartão expirado ou data de validade incorreta.';
+      } else if (errorMsg.includes('Invalid parameter format')) {
+        errorMsg = 'Dados do cartão em formato inválido. Verifique o número e CVV.';
+      }
+
       setStatus('error');
-      toast.error(`Erro: ${errorMsg}`);
+      toast.error(errorMsg, { duration: 5000 });
     } finally {
       setLoading(false);
     }
