@@ -42,20 +42,21 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         scanner = new Html5Qrcode(elementId);
         html5QrCodeRef.current = scanner;
 
-        // Tentar primeiro com configurações otimizadas
         const config = {
           fps: 25,
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            // Área de captura maior para facilitar leitura em webcams de PC
             const qrboxSize = Math.floor(minEdge * 0.8);
             return { width: qrboxSize, height: qrboxSize };
           },
           aspectRatio: 1.0,
         };
 
-        try {
-          await scanner.start(
-            { facingMode: "environment" },
+        // Função auxiliar para iniciar o scanner
+        const tryStart = async (cameraIdOrConfig: any) => {
+          return scanner?.start(
+            cameraIdOrConfig,
             config,
             (decodedText) => {
               if (navigator.vibrate) try { navigator.vibrate(100); } catch(e){} 
@@ -63,18 +64,28 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
             },
             () => {}
           );
-        } catch (initialError) {
-          console.warn("Initial scanner start failed, trying basic config...", initialError);
-          // Fallback para uma configuração mais básica se a primeira falhar
-          await scanner.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: 250 },
-            (decodedText) => {
-              if (navigator.vibrate) try { navigator.vibrate(100); } catch(e){} 
-              onScan(decodedText);
-            },
-            () => {}
-          );
+        };
+
+        try {
+          // Tentar primeiro com câmera traseira
+          await tryStart({ facingMode: "environment" });
+        } catch (e) {
+          console.warn("Could not start with environment camera, trying any available camera...", e);
+          
+          // Tentar qualquer câmera disponível
+          try {
+            const devices = await Html5Qrcode.getCameras();
+            if (devices && devices.length > 0) {
+              // Em PCs, a primeira câmera costuma ser a webcam
+              await tryStart(devices[0].id);
+            } else {
+              // Última tentativa: deixar o navegador decidir sem restrições
+              await tryStart({ facingMode: "user" });
+            }
+          } catch (fallbackError) {
+            console.error("All camera start attempts failed:", fallbackError);
+            throw fallbackError;
+          }
         }
 
         if (!isMounted) {
@@ -97,7 +108,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
       } catch (e: any) {
         if (isMounted) {
           console.error("Scanner init error:", e);
-          setError("Não foi possível acessar a câmera. Verifique se deu permissão e se nenhuma outra aba está usando a câmera.");
+          setError("Não foi possível acessar a câmera. Verifique as permissões do navegador e se nenhuma outra aba está usando a sua webcam.");
           setIsInitializing(false);
         }
       }
