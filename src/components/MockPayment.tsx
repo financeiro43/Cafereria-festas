@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CheckCircle2, CreditCard, Loader2, ShieldCheck, Lock, ChevronLeft } from 'lucide-react';
-import { db } from '../lib/firebase';
+import { db } from '@/lib/firebase';
 import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { toast } from 'sonner';
 import axios from 'axios';

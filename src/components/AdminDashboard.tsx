@@ -11,7 +11,7 @@ import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
 import VendorDashboard from './VendorDashboard';
 import ShopView from './ShopView';
-import { handleFirestoreError, OperationType } from '../lib/error-handler';
+import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 

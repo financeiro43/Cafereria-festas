@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserProfile, Product, Stall, Order } from '../types';
-import { handleFirestoreError, OperationType } from '../lib/error-handler';
+import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 

@@ -56,15 +56,17 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Global Debug Logger - Capture EVERYTHING and log to stdout
+  // Global Logger - Filtered to reduce noise
   app.use((req, res, next) => {
     const timestamp = new Date().toISOString();
-    const method = req.method;
-    const url = req.url;
-    
-    res.on('finish', () => {
-      console.log(`[HTTP] ${timestamp} | ${res.statusCode} | ${method} | ${url}`);
-    });
+    const isStaticAsset = req.url.match(/\.(ts|tsx|js|css|json|svg|png|jpg|jpeg|gif|webp|woff|woff2)$/);
+    const isViteInternal = req.url.includes('node_modules') || req.url.includes('@vite') || req.url.startsWith('/src/');
+
+    if (!isStaticAsset && !isViteInternal) {
+      res.on('finish', () => {
+        console.log(`[REQ] ${timestamp} | ${res.statusCode} | ${req.method} | ${req.url}`);
+      });
+    }
     
     next();
   });
