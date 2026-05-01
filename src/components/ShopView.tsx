@@ -9,6 +9,10 @@ import { toast } from 'sonner';
 import axios from 'axios';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 
+import QRScanner from './QRScanner';
+import RedePaymentForm from './RedePaymentForm';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+
 export default function ShopView({ profile }: { profile: UserProfile }) {
   const [stalls, setStalls] = useState<Stall[]>([]);
   const [selectedStall, setSelectedStall] = useState<Stall | null>(null);
@@ -120,48 +124,9 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
     }
   };
 
-  const handleRedePayment = async () => {
+  const handleRedePayment = () => {
     if (cart.length === 0) return;
-    
-    try {
-      setPayingWithRede(true);
-      
-      // We calculate how much they need to pay. 
-      // It can be the full total or just total - balance.
-      // Usually it's cleaner to recharge the exact amount they are short, or just the full amount.
-      // The user said "pay with Rede after purchase", so we'll treat it as a direct payment.
-      const amountToPay = total;
-
-      // Create a pending transaction
-      const txnRef = await addDoc(collection(db, 'transactions'), {
-        userId: profile.uid,
-        amount: amountToPay,
-        type: 'credit',
-        status: 'pending',
-        description: `Pagamento Pedido: ${selectedStall?.name}`,
-        timestamp: serverTimestamp(),
-      });
-
-      const response = await axios.post('/rede-api/create-checkout', {
-        amount: amountToPay,
-        userId: profile.uid,
-        studentName: profile.name,
-        transactionId: txnRef.id
-      });
-
-      if (response.data && response.data.checkoutUrl) {
-        toast.info('Redirecionando para o pagamento seguro...');
-        setTimeout(() => {
-          window.location.href = response.data.checkoutUrl;
-        }, 1200);
-      }
-    } catch (error: any) {
-      console.error('Rede payment error:', error);
-      const msg = error.response?.data?.message || error.message || 'Erro de conexão';
-      toast.error(`Erro ao iniciar pagamento com Rede: ${msg}`);
-    } finally {
-      setPayingWithRede(false);
-    }
+    setShowPaymentModal(true);
   };
 
   if (selectedStall) {
@@ -300,73 +265,23 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
         ))}
       </div>
 
-      {showPaymentModal && currentTransactionId && (
-        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
-          <Card className="w-full max-w-sm">
-            <CardHeader className="text-center pb-2">
-              <CardTitle>Pagamento com Rede</CardTitle>
-              <CardDescription>Simulação de Checkout e-Rede</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-4">
-              <div className="p-4 bg-slate-50 rounded-xl space-y-2 border border-slate-100">
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-500 uppercase font-bold">Valor do Pedido:</span>
-                  <span className="font-black text-slate-900">R$ {total.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-xs overflow-hidden">
-                  <span className="text-slate-500 uppercase font-bold shrink-0">Terminal:</span>
-                  <span className="font-mono text-slate-400 truncate">{currentTransactionId}</span>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="ghost" onClick={() => {
+      <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
+        <DialogContent className="sm:max-w-md bg-slate-900 border-white/5 rounded-[32px] p-0 overflow-hidden outline-none">
+          <div className="p-8">
+            <RedePaymentForm 
+              amount={total} 
+              uid={profile.uid} 
+              onSuccess={() => {
+                setTimeout(() => {
                   setShowPaymentModal(false);
-                  setCurrentTransactionId(null);
-                }} className="text-slate-500">
-                  Cancelar
-                </Button>
-                <Button onClick={async () => {
-                  try {
-                    // Logic to approve the transaction
-                    const txnRef = doc(db, 'transactions', currentTransactionId);
-                    const userRef = doc(db, 'users', profile.uid);
-                    
-                    // Approval process (Simulation)
-                    // We directly update balance and status in the DB
-                    await updateDoc(userRef, {
-                      balance: increment(total)
-                    });
-                    
-                    await updateDoc(txnRef, {
-                      status: 'completed',
-                      updatedAt: serverTimestamp()
-                    });
-
-                    // Success!
-                    toast.success('Crédito via Rede aprovado!');
-                    setShowPaymentModal(false);
-                    setCurrentTransactionId(null);
-                    
-                    // Now they can pay with their balance automatically
-                    setTimeout(() => {
-                      handleCheckout();
-                    }, 500);
-                  } catch (err) {
-                    handleFirestoreError(err, OperationType.WRITE, 'rede-callback');
-                  }
-                }} className="bg-red-600 hover:bg-red-700 text-white font-bold">
-                  Pagar Agora
-                </Button>
-              </div>
-              
-              <p className="text-[10px] text-center text-slate-400 leading-tight">
-                Em ambiente real, você seria redirecionado para o ambiente seguro da Rede para inserir os dados do cartão.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+                  handleCheckout(); // Automatically try to process the order once credit is added
+                }, 2000);
+              }}
+              onCancel={() => setShowPaymentModal(false)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

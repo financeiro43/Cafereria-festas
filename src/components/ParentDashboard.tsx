@@ -7,11 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 
 import QRScanner from './QRScanner';
+import RedePaymentForm from './RedePaymentForm';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [rechargeAmount, setRechargeAmount] = useState<string>('50');
@@ -19,6 +21,8 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [loading, setLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedAmount, setSelectedAmount] = useState<number>(0);
 
   const onScanSuccess = async (decodedText: string) => {
     try {
@@ -99,37 +103,13 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   }, [profile.uid]);
 
   const handleRecharge = async () => {
-    try {
-      setLoading(true);
-      const amount = parseFloat(rechargeAmount);
-      if (isNaN(amount) || amount <= 0) {
-        toast.error('Valor inválido');
-        setLoading(false);
-        return;
-      }
-
-      console.log('Initiating recharge request...');
-      const response = await axios.post('/rede-api/create-checkout', {
-        amount,
-        userId: profile.uid,
-        studentName: profile.name
-      });
-
-      if (response.data && response.data.checkoutUrl) {
-        toast.info('Redirecionando para o pagamento seguro...');
-        setTimeout(() => {
-          window.location.href = response.data.checkoutUrl;
-        }, 1200);
-      } else {
-        throw new Error('Servidor não retornou URL de pagamento');
-      }
-    } catch (error: any) {
-      console.error('Recharge error details:', error);
-      const msg = error.response?.data?.message || error.message || 'Erro de conexão';
-      toast.error(`Erro ao processar recarga: ${msg}`);
-    } finally {
-      setLoading(false);
+    const amount = parseFloat(rechargeAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Valor inválido');
+      return;
     }
+    setSelectedAmount(amount);
+    setShowPaymentModal(true);
   };
 
   return (
@@ -362,6 +342,21 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           title="Vincular Cartão Escolar"
         />
       )}
+
+      <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
+        <DialogContent className="sm:max-w-md bg-slate-900 border-white/5 rounded-[32px] p-0 overflow-hidden outline-none">
+          <div className="p-8">
+            <RedePaymentForm 
+              amount={selectedAmount} 
+              uid={profile.uid} 
+              onSuccess={() => {
+                setTimeout(() => setShowPaymentModal(false), 2000);
+              }}
+              onCancel={() => setShowPaymentModal(false)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
