@@ -19,9 +19,6 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [loading, setLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(null);
-  const [pendingAmount, setPendingAmount] = useState<number>(0);
 
   const onScanSuccess = async (decodedText: string) => {
     try {
@@ -35,17 +32,39 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       }
 
       const userData = querySnapshot.docs[0].data() as UserProfile;
+      const cardRef = doc(db, 'users', querySnapshot.docs[0].id);
+      const userRef = doc(db, 'users', profile.uid);
       
-      // Se for um cartão diferente do atual, oferecemos para vincular
+      // Se for um cartão diferente e não for o próprio
       if (userData.uid !== profile.uid) {
-        if (confirm(`Deseja vincular este novo ID de cartão (${decodedText}) à sua conta? O ID atual será substituído.`)) {
-          await updateDoc(doc(db, 'users', profile.uid), {
-            qrCode: decodedText
+        if (confirm(`Deseja vincular este cartão (${decodedText})? O saldo de R$ ${userData.balance.toFixed(2)} será transferido para sua conta digital.`)) {
+          
+          await updateDoc(userRef, {
+            balance: increment(userData.balance),
+            linkedCards: Array.from(new Set([...(profile.linkedCards || []), decodedText]))
           });
-          toast.success('Cartão vinculado com sucesso!');
+
+          // Reset do saldo do cartão vinculado para evitar duplicidade
+          await updateDoc(cardRef, {
+            balance: 0
+          });
+
+          // Registrar transação de transferência
+          if (userData.balance > 0) {
+            await addDoc(collection(db, 'transactions'), {
+              userId: profile.uid,
+              amount: userData.balance,
+              type: 'credit',
+              status: 'completed',
+              description: `Vínculo de Cartão: ${decodedText} (+ Saldo)`,
+              timestamp: serverTimestamp(),
+            });
+          }
+
+          toast.success(`Cartão ${decodedText} vinculado com sucesso! Saldo transferido.`);
         }
       } else {
-        toast.success('Seu cartão já está vinculado e verificado!');
+        toast.success('Este cartão já é o principal da sua conta.');
       }
     } catch (error) {
       console.error(error);
@@ -83,27 +102,17 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         return;
       }
 
-      const txnRef = await addDoc(collection(db, 'transactions'), {
-        userId: profile.uid,
-        amount,
-        type: 'credit',
-        status: 'pending',
-        description: `Recarga Digital - App Aluno`,
-        timestamp: serverTimestamp(),
-      });
-
+      // Agora o servidor cria a transação e retorna a URL
       const response = await axios.post('/api/rede/create-checkout', {
         amount,
         userId: profile.uid,
-        studentName: profile.name,
-        transactionId: txnRef.id
+        studentName: profile.name
       });
 
-      if (response.data.transactionId) {
-        setPendingAmount(amount);
-        setCurrentTransactionId(response.data.transactionId);
-        setShowPaymentModal(true);
-        toast.success('Pronto para pagamento!');
+      if (response.data.checkoutUrl) {
+        // Redireciona para o checkout (abre em nova aba para não perder o app)
+        window.open(response.data.checkoutUrl, '_blank');
+        toast.info('Abrindo tela de pagamento...');
       }
     } catch (error: any) {
       console.error('Recharge error:', error);
@@ -223,15 +232,36 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
               {loading ? 'Processando...' : 'Recarregar Agora'}
             </Button>
 
-            <div className="flex items-center gap-3 p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10 group cursor-pointer" onClick={() => setIsScanning(true)}>
-               <div className="h-10 w-10 bg-blue-600/10 rounded-xl flex items-center justify-center">
-                  <QrCode className="h-5 w-5 text-blue-500" />
-               </div>
-               <div className="flex-1">
-                  <p className="text-[11px] font-black uppercase text-blue-100">Vincular Cartão Físico</p>
-                  <p className="text-[9px] text-slate-500 font-bold">Use sua carteira física para recarregar</p>
-               </div>
-               <ChevronRight className="h-5 w-5 text-slate-700 group-hover:translate-x-1 transition-transform" />
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-4 bg-blue-500/5 rounded-2xl border border-blue-500/10 group cursor-pointer" onClick={() => setIsScanning(true)}>
+                <div className="h-10 w-10 bg-blue-600/10 rounded-xl flex items-center justify-center">
+                    <QrCode className="h-5 w-5 text-blue-500" />
+                </div>
+                <div className="flex-1">
+                    <p className="text-[11px] font-black uppercase text-blue-100">Vincular Novo Cartão</p>
+                    <p className="text-[9px] text-slate-500 font-bold">Adicione cartões físicos à sua conta</p>
+                </div>
+                <ChevronRight className="h-5 w-5 text-slate-700 group-hover:translate-x-1 transition-transform" />
+              </div>
+
+              {profile.linkedCards && profile.linkedCards.length > 0 && (
+                <div className="pt-2 animate-in fade-in duration-500">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-3 ml-2">Meus Cartões Vinculados</p>
+                  <div className="space-y-2">
+                    {profile.linkedCards.map(cardId => (
+                      <div key={cardId} className="flex items-center justify-between p-3.5 bg-slate-950/50 rounded-2xl border border-white/5">
+                        <div className="flex items-center gap-3">
+                           <div className="h-8 w-8 bg-blue-600/10 rounded-lg flex items-center justify-center">
+                              <CreditCard className="h-4 w-4 text-blue-500" />
+                           </div>
+                           <span className="text-xs font-black text-slate-300 font-mono">{cardId}</span>
+                        </div>
+                        <span className="text-[9px] font-black text-green-500/50 uppercase tracking-tighter bg-green-500/5 px-2 py-0.5 rounded-full border border-green-500/10">Ativo</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -288,60 +318,6 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
            </div>
         </div>
       </div>
-
-      {/* Modal Pagamento (Simulado) */}
-      {showPaymentModal && currentTransactionId && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/95 flex items-center justify-center p-6 backdrop-blur-xl animate-in fade-in duration-300">
-           <Card className="w-full max-w-sm bg-slate-900 border-white/10 rounded-[40px] shadow-2xl overflow-hidden animate-in zoom-in slide-in-from-bottom-10 duration-500">
-             <CardContent className="p-8 space-y-8">
-                <div className="text-center space-y-3">
-                   <div className="h-16 w-16 bg-blue-600 rounded-3xl mx-auto flex items-center justify-center shadow-lg shadow-blue-900/40">
-                      <CreditCard className="h-8 w-8 text-white" />
-                   </div>
-                   <div>
-                      <h3 className="text-xl font-black text-white uppercase tracking-tight">Checkout Digital</h3>
-                      <p className="text-slate-500 text-[10px] font-bold uppercase tracking-[0.2em] mt-1">Ambiente Seguro Rede</p>
-                   </div>
-                </div>
-
-                <div className="p-6 bg-slate-950 rounded-3xl border border-white/5 space-y-4">
-                   <div className="flex justify-between items-center text-xs">
-                      <span className="text-slate-500 font-bold uppercase tracking-widest">Valor:</span>
-                      <span className="text-2xl font-black text-white">R$ {pendingAmount.toFixed(2)}</span>
-                   </div>
-                   <div className="h-px bg-white/5" />
-                   <div className="flex justify-between items-center text-[10px]">
-                      <span className="text-slate-500 font-bold uppercase tracking-widest">Protocolo:</span>
-                      <span className="text-slate-400 font-mono truncate max-w-[150px]">{currentTransactionId}</span>
-                   </div>
-                </div>
-
-                <div className="space-y-3">
-                   <Button onClick={async () => {
-                      try {
-                        const txnRef = doc(db, 'transactions', currentTransactionId);
-                        const userRef = doc(db, 'users', profile.uid);
-                        await updateDoc(userRef, { balance: increment(pendingAmount) });
-                        await updateDoc(txnRef, { status: 'completed', updatedAt: serverTimestamp() });
-                        toast.success('Recarga concluída com sucesso!');
-                        setShowPaymentModal(false);
-                      } catch (err) {
-                        toast.error('Erro ao confirmar pagamento');
-                      }
-                   }} className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-widest rounded-2xl shadow-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all">
-                      Confirmar Pagamento
-                   </Button>
-                   <Button variant="ghost" onClick={() => setShowPaymentModal(false)} className="w-full text-slate-500 font-bold uppercase text-[10px] tracking-widest h-12">
-                      Cancelar Opção
-                   </Button>
-                </div>
-                <p className="text-[9px] text-center text-slate-600 leading-tight">
-                   Ambiente de simulação. Em produção, você seria redirecionado para o gateway da Rede.
-                </p>
-             </CardContent>
-           </Card>
-        </div>
-      )}
 
       {isScanning && (
         <QRScanner 

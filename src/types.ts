@@ -9,6 +9,7 @@ export interface UserProfile {
   role: UserRole;
   qrCode: string;
   vendorIds?: string[]; // Multiple stall links
+  linkedCards?: string[]; // Array of card IDs (usually the qrCode strings)
 }
 
 export interface Product {
