@@ -87,7 +87,7 @@ async function startServer() {
         return res.status(400).json({ error: "Missing amount or userId" });
       }
 
-      const transactionId = `txn${Date.now()}`;
+      const transactionId = `${Date.now()}`;
       const isReal = !!(process.env.REDE_PV && process.env.REDE_TOKEN);
       const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}${isReal ? '&real=true' : ''}`;
       
@@ -119,17 +119,26 @@ async function startServer() {
 
       const redeAmount = Math.round(parseFloat(amount) * 100);
       const [month, year] = cardData.expiry.split("/");
+
+      // Sanitize cardholder name for Rede (Remove accents, uppercase, allowed chars only)
+      const sanitizedName = cardData.name
+        .toUpperCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^A-Z0-9 ]/g, "")
+        .substring(0, 30);
+
       const redePayload = {
         capture: true,
         kind: "credit",
         reference: transactionId,
         amount: redeAmount,
-        cardholderName: cardData.name.substring(0, 30), // Rede has size limits
+        cardholderName: sanitizedName,
         cardNumber: cardData.number.replace(/\s/g, ""),
         expirationMonth: month.padStart(2, '0'),
         expirationYear: "20" + year,
         securityCode: cardData.cvv,
-        softDescriptor: "REC ESCOLA"
+        softDescriptor: "RECESCOLA"
       };
 
       const axiosConfig = { auth: { username: REDE_PV, password: REDE_TOKEN } };
