@@ -103,7 +103,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       }
 
       console.log('Initiating recharge request...');
-      const response = await axios.post('/api/rede/create-checkout', {
+      const response = await axios.post('/rede-api/create-checkout', {
         amount,
         userId: profile.uid,
         studentName: profile.name

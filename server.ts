@@ -5,6 +5,7 @@ import { initializeApp, getApps, App } from "firebase-admin/app";
 import { getFirestore, Firestore, FieldValue } from "firebase-admin/firestore";
 import fs from "fs";
 import dotenv from "dotenv";
+import axios from "axios";
 
 dotenv.config();
 
@@ -61,8 +62,8 @@ async function startServer() {
   const REDE_TOKEN = process.env.REDE_TOKEN;
 
   // Endpoint to create a payment link or process real transaction
-  app.post("/api/rede/create-checkout", async (req, res) => {
-    console.log("Create checkout request received:", req.body);
+  app.post("/rede-api/create-checkout", async (req, res) => {
+    console.log(`[${new Date().toISOString()}] POST /rede-api/create-checkout hit`);
     try {
       const { amount, userId, studentName } = req.body;
       
@@ -93,7 +94,7 @@ async function startServer() {
   });
 
   // Real Rede Payment Processing
-  app.post("/api/rede/process-payment", async (req, res) => {
+  app.post("/rede-api/process-payment", async (req, res) => {
     try {
       const { cardData, amount, transactionId, userId } = req.body;
       
@@ -179,7 +180,7 @@ async function startServer() {
   });
 
   // Mock Payment Webhook (Simulation)
-  app.post("/api/rede/webhook", async (req, res) => {
+  app.post("/rede-api/webhook", async (req, res) => {
     try {
       const { transactionId, status } = req.body;
       if (!db) return res.status(500).json({ error: "Database not available" });

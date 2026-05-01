@@ -142,20 +142,23 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
         timestamp: serverTimestamp(),
       });
 
-      const response = await axios.post('/api/rede/create-checkout', {
+      const response = await axios.post('/rede-api/create-checkout', {
         amount: amountToPay,
         userId: profile.uid,
         studentName: profile.name,
         transactionId: txnRef.id
       });
 
-      if (response.data.transactionId) {
-        setCurrentTransactionId(response.data.transactionId);
-        setShowPaymentModal(true);
+      if (response.data && response.data.checkoutUrl) {
+        toast.info('Redirecionando para o pagamento seguro...');
+        setTimeout(() => {
+          window.location.href = response.data.checkoutUrl;
+        }, 1200);
       }
     } catch (error: any) {
       console.error('Rede payment error:', error);
-      toast.error('Erro ao iniciar pagamento com Rede');
+      const msg = error.response?.data?.message || error.message || 'Erro de conexão';
+      toast.error(`Erro ao iniciar pagamento com Rede: ${msg}`);
     } finally {
       setPayingWithRede(false);
     }
