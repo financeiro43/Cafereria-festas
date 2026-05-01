@@ -125,8 +125,15 @@ async function startServer() {
         }
       };
 
+      const isSandbox = process.env.REDE_SANDBOX !== 'false';
+      const redeUrl = isSandbox 
+        ? "https://sandbox-erede.useredecloud.com.br/v1/transactions"
+        : "https://api.userede.com.br/v1/transactions";
+
+      console.log(`Processing ${isSandbox ? 'SANDBOX' : 'PRODUCTION'} payment via Rede. URL: ${redeUrl}`);
+
       const response = await axios.post(
-        "https://sandbox-erede.useredecloud.com.br/v1/transactions",
+        redeUrl,
         redePayload,
         axiosConfig
       );
