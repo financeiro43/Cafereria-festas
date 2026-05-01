@@ -1,6 +1,7 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import cors from "cors";
 import { initializeApp, getApps, App } from "firebase-admin/app";
 import { getFirestore, Firestore, FieldValue } from "firebase-admin/firestore";
 import fs from "fs";
@@ -50,7 +51,18 @@ async function startServer() {
     console.error("Firebase Admin initialization failed:", error?.message);
   }
 
+  // IMPORTANT: Middleware and API Routes FIRST
+  app.use(cors());
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+
+  // Global Logger
+  app.use((req, res, next) => {
+    if (req.url.startsWith('/rede-api')) {
+      console.log(`[API-REDE] ${req.method} ${req.url}`);
+    }
+    next();
+  });
 
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", dbInitialized: !!db });
@@ -62,8 +74,8 @@ async function startServer() {
   const REDE_TOKEN = process.env.REDE_TOKEN;
 
   // Endpoint to create a payment link or process real transaction
-  app.post("/rede-api/create-checkout", async (req, res) => {
-    console.log(`[${new Date().toISOString()}] POST /rede-api/create-checkout hit`);
+  app.post(["/rede-api/create-checkout", "/rede-api/create-checkout/"], async (req, res) => {
+    console.log(`[REDE] Match: /rede-api/create-checkout`);
     try {
       const { amount, userId, studentName } = req.body;
       
@@ -94,7 +106,8 @@ async function startServer() {
   });
 
   // Real Rede Payment Processing
-  app.post("/rede-api/process-payment", async (req, res) => {
+  app.post(["/rede-api/process-payment", "/rede-api/process-payment/"], async (req, res) => {
+    console.log(`[REDE] Match: /rede-api/process-payment`);
     try {
       const { cardData, amount, transactionId, userId } = req.body;
       
