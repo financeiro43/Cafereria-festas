@@ -59,7 +59,13 @@ async function startServer() {
   // Global Debug Logger - Capture EVERYTHING and log to stdout
   app.use((req, res, next) => {
     const timestamp = new Date().toISOString();
-    console.log(`[REQ] ${timestamp} | ${req.method} | ${req.url}`);
+    const method = req.method;
+    const url = req.url;
+    
+    res.on('finish', () => {
+      console.log(`[HTTP] ${timestamp} | ${res.statusCode} | ${method} | ${url}`);
+    });
+    
     next();
   });
 

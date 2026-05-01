@@ -2,7 +2,7 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot, collection, query, where, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
-import { handleFirestoreError, OperationType } from '@/lib/error-handler';
+import { handleFirestoreError, OperationType } from './lib/error-handler';
 import { UserProfile } from './types';
 import { Toaster } from './components/ui/sonner';
 import { Button } from '@/components/ui/button';
