@@ -104,7 +104,10 @@ app.post(`${API_BASE}/process-payment`, async (req, res) => {
 
     if (!REDE_PV || !REDE_TOKEN) {
       console.error(`[REDE-API] Credentials missing: PV=${!!REDE_PV}, Token=${!!REDE_TOKEN}`);
-      return res.status(400).json({ error: "Rede credentials not configured in environment (REDE_PV, REDE_TOKEN)" });
+      return res.status(401).json({ 
+        error: "Gateway não configurado", 
+        message: "As credenciais da Rede (REDE_PV, REDE_TOKEN) não foram encontradas nas variáveis de ambiente do Vercel." 
+      });
     }
 
     const redeAmount = Math.round(parseFloat(amount) * 100);
