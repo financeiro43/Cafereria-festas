@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 
@@ -102,23 +102,25 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         return;
       }
 
-      // Agora o servidor cria a transação e retorna a URL
+      console.log('Initiating recharge request...');
       const response = await axios.post('/api/rede/create-checkout', {
         amount,
         userId: profile.uid,
         studentName: profile.name
       });
 
-      if (response.data.checkoutUrl) {
+      if (response.data && response.data.checkoutUrl) {
         toast.info('Redirecionando para o pagamento seguro...');
-        // Pequeno delay para o usuário ler a mensagem
         setTimeout(() => {
           window.location.href = response.data.checkoutUrl;
-        }, 1000);
+        }, 1200);
+      } else {
+        throw new Error('Servidor não retornou URL de pagamento');
       }
     } catch (error: any) {
-      console.error('Recharge error:', error);
-      toast.error(`Erro ao processar recarga: ${error.message}`);
+      console.error('Recharge error details:', error);
+      const msg = error.response?.data?.message || error.message || 'Erro de conexão';
+      toast.error(`Erro ao processar recarga: ${msg}`);
     } finally {
       setLoading(false);
     }

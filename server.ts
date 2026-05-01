@@ -62,17 +62,20 @@ async function startServer() {
 
   // Endpoint to create a payment link
   app.post("/api/rede/create-checkout", async (req, res) => {
-    console.log("Create checkout request received. Body keys:", Object.keys(req.body));
+    console.log("Create checkout request received:", req.body);
     try {
-      const { amount, userId, studentName, transactionId: providedId } = req.body;
-      console.log(`Processing recharge: amount=${amount}, userId=${userId}, providedId=${providedId}`);
+      const { amount, userId, studentName } = req.body;
+      
+      if (!amount || !userId) {
+        return res.status(400).json({ error: "Missing required fields: amount or userId" });
+      }
 
-      const transactionId = providedId || `txn_${Date.now()}`;
+      const transactionId = `txn_${Date.now()}`;
       const isRealEnvironment = !!(REDE_PV && REDE_TOKEN);
       
-      // If we have real keys, we would call Rede API here
-      // For now, we always provide a checkout URL
-      // If db is not available, we warn but don't fail, as MockPayment can handle client-side fallback
+      console.log(`Processing recharge: amount=${amount}, userId=${userId}, studentName=${studentName}`);
+
+      // Attempt to save to Firestore if available
       if (db) {
         try {
           const docRef = db.collection("transactions").doc(transactionId);
@@ -81,20 +84,19 @@ async function startServer() {
             amount: parseFloat(amount),
             type: "credit",
             status: "pending",
-            description: `Recarga de saldo para ${studentName}`,
+            description: `Recarga de saldo para ${studentName || 'Estudante'}`,
             timestamp: FieldValue.serverTimestamp(),
           });
-          console.log("Firestore write success. Doc path:", docRef.path);
+          console.log("Firestore write success:", transactionId);
         } catch (writeError: any) {
-          console.error("Firestore WRITE FAILED (Server-side):", writeError.message);
-          // Don't fail the whole request, MockPayment has a client-side fallback logic potentially
+          console.error("Firestore WRITE FAILED:", writeError.message);
+          // If Firestore fails here, the client-side MockPayment can manually recover it
         }
       } else {
-        console.warn("Firestore 'db' is null. Skipping server-side transaction creation. Client will handle it.");
+        console.warn("Firestore 'db' is null. Checkout will rely on client-side recovery.");
       }
 
-      // If it were REAL Rede, we'd return their URL here. 
-      // For this app, we use our own /mock-payment route as a proxy/simulation.
+      // Simulation URL
       const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}${isRealEnvironment ? '&real=true' : ''}`;
       
       res.json({
