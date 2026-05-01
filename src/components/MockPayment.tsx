@@ -21,8 +21,7 @@ export default function MockPayment() {
 
     setStatus('processing');
     try {
-      // We do it client-side because the server-side admin SDK might have PERMISSION_DENIED
-      // until IAM is correctly configured in this environment.
+      // Create or update the transaction and user balance
       await runTransaction(db, async (transaction) => {
         const txnRef = doc(db, 'transactions', tid);
         const userRef = doc(db, 'users', uid);
@@ -30,9 +29,21 @@ export default function MockPayment() {
         const txnDoc = await transaction.get(txnRef);
         const userDoc = await transaction.get(userRef);
 
-        if (!txnDoc.exists()) throw new Error('Transação não encontrada');
         if (!userDoc.exists()) throw new Error('Usuário não encontrado');
-        if (txnDoc.data().status !== 'pending') throw new Error('Transação já processada');
+        
+        // If the server failed to create the txn doc, we create it here
+        if (!txnDoc.exists()) {
+          transaction.set(txnRef, {
+            userId: uid,
+            amount: parseFloat(amt),
+            type: 'credit',
+            status: 'pending',
+            description: 'Recarga Digital (Auto-recuperada)',
+            timestamp: serverTimestamp()
+          });
+        } else if (txnDoc.data().status !== 'pending') {
+          throw new Error('Transação já processada');
+        }
 
         const currentBalance = userDoc.data().balance || 0;
         const amount = parseFloat(amt);

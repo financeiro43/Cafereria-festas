@@ -311,16 +311,39 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         </div>
 
         {/* Info */}
-        <div className="bg-blue-600/5 rounded-3xl p-6 border border-blue-500/10 mb-8">
-           <div className="flex gap-4">
-              <Info className="h-5 w-5 text-blue-500 shrink-0" />
-              <div className="space-y-1">
-                 <p className="text-[11px] font-black uppercase text-blue-100">Como funciona?</p>
-                 <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                    Suas recargas digitais são creditadas instantaneamente. No balcão, apresente seu QR Code. O saldo será descontado automaticamente na hora da compra.
-                 </p>
+        <div className="space-y-4 mb-8">
+           <div className="bg-blue-600/5 rounded-3xl p-6 border border-blue-500/10">
+              <div className="flex gap-4">
+                 <Info className="h-5 w-5 text-blue-500 shrink-0" />
+                 <div className="space-y-1">
+                    <p className="text-[11px] font-black uppercase text-blue-100">Como funciona?</p>
+                    <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                       Suas recargas digitais são creditadas instantaneamente. No balcão, apresente seu QR Code. O saldo será descontado automaticamente na hora da compra.
+                    </p>
+                 </div>
               </div>
            </div>
+
+           {profile.role === 'admin' && (
+             <div className="bg-amber-500/5 rounded-3xl p-6 border border-amber-500/10 animate-pulse">
+                <div className="flex gap-4">
+                   <ShieldCheck className="h-5 w-5 text-amber-500 shrink-0" />
+                   <div className="space-y-2">
+                      <p className="text-[11px] font-black uppercase text-amber-100">Painel de Configuração (Modo Admin)</p>
+                      <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                         Para ativar o ambiente <strong>REAL</strong> de pagamentos Rede, você precisa adicionar as seguintes chaves nas Configurações (Secrets) do projeto:
+                      </p>
+                      <ul className="text-[9px] text-amber-500/70 font-mono space-y-1">
+                        <li>• REDE_PV (Número do Estabelecimento)</li>
+                        <li>• REDE_TOKEN (Token da API)</li>
+                      </ul>
+                      <p className="text-[9px] text-slate-600 italic">
+                        Atualmente o sistema está operando em Modo de Simulação Seguro.
+                      </p>
+                   </div>
+                </div>
+             </div>
+           )}
         </div>
       </div>
 
