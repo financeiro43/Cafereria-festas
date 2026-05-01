@@ -137,8 +137,16 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   const onScanSuccess = async (decodedText: string) => {
     try {
       setIsScanning(false);
-      const q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
-      const querySnapshot = await getDocs(q);
+      
+      // Tentar encontrar por QR Code principal
+      let q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
+      let querySnapshot = await getDocs(q);
+      
+      // Se não encontrar, tentar pelos cartões vinculados
+      if (querySnapshot.empty) {
+        q = query(collection(db, 'users'), where('linkedCards', 'array-contains', decodedText));
+        querySnapshot = await getDocs(q);
+      }
       
       if (querySnapshot.empty) {
         toast.error('Aluno não encontrado');

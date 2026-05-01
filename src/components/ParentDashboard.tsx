@@ -110,9 +110,11 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       });
 
       if (response.data.checkoutUrl) {
-        // Redireciona para o checkout (abre em nova aba para não perder o app)
-        window.open(response.data.checkoutUrl, '_blank');
-        toast.info('Abrindo tela de pagamento...');
+        toast.info('Redirecionando para o pagamento seguro...');
+        // Pequeno delay para o usuário ler a mensagem
+        setTimeout(() => {
+          window.location.href = response.data.checkoutUrl;
+        }, 1000);
       }
     } catch (error: any) {
       console.error('Recharge error:', error);
@@ -149,10 +151,13 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             <CardContent className="p-8 flex flex-col justify-between h-full min-h-[220px]">
               <div className="flex justify-between items-start">
                 <div className="space-y-1">
-                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-100/60">Saldo Digital</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-100/60">Saldo Digital Unificado</span>
                   <div className="text-5xl font-black tracking-tighter text-white">
                     R$ {profile.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </div>
+                  {profile.linkedCards && profile.linkedCards.length > 0 && (
+                    <p className="text-[9px] font-bold text-blue-200/40 uppercase mt-1">Inclui {profile.linkedCards.length} {profile.linkedCards.length === 1 ? 'cartão vinculado' : 'cartões vinculados'}</p>
+                  )}
                 </div>
                 <Zap className="h-8 w-8 text-white fill-white/20 animate-bounce" />
               </div>
