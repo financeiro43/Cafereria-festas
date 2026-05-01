@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -28,8 +28,25 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [loading, setLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<ParentTab>(ParentTab.PAYMENT);
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Meu Cartão de Acesso - Cafeteria Inteligente',
+          text: `Use este QR Code para realizar compras na cafeteria usando meu saldo unificado.`,
+          url: window.location.href,
+        });
+      } catch (err) {
+        setShowShareModal(true);
+      }
+    } else {
+      setShowShareModal(true);
+    }
+  };
 
   const onScanSuccess = async (decodedText: string) => {
     try {
@@ -200,6 +217,17 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                     <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">Pronto para uso</span>
                   </div>
                 </div>
+
+                <div className="relative z-10 px-8 pb-8">
+                  <Button 
+                    onClick={handleShare}
+                    className="w-full h-14 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black text-[10px] uppercase tracking-[0.2em] rounded-2xl gap-3"
+                  >
+                    <Share2 className="h-4 w-4 text-blue-500" />
+                    Compartilhar Acesso
+                  </Button>
+                </div>
+
                 <div className="absolute -bottom-10 -right-10 opacity-5">
                   <QrCode size={200} />
                 </div>
@@ -365,6 +393,66 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           title="Vincular Cartão Escolar"
         />
       )}
+
+      {/* Modal de Compartilhamento */}
+      <AnimatePresence>
+        {showShareModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowShareModal(false)}
+              className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-[40px] p-8 text-slate-950 overflow-hidden shadow-2xl"
+            >
+              <div className="absolute top-0 left-0 w-full h-2 bg-blue-600" />
+              
+              <div className="text-center space-y-6 pt-4">
+                <div className="space-y-1">
+                  <div className="flex justify-center mb-4">
+                    <div className="bg-blue-600 p-2 rounded-xl">
+                      <QrCode className="h-6 w-6 text-white" />
+                    </div>
+                  </div>
+                  <h3 className="text-xl font-black uppercase tracking-tighter">Cartão de Acesso</h3>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Saldo Compartilhado • {profile.name}</p>
+                </div>
+
+                <div className="bg-slate-50 p-6 rounded-[32px] border-2 border-slate-100 flex justify-center">
+                  <QRCodeSVG value={profile.qrCode} size={200} />
+                </div>
+
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl">
+                    <p className="text-[10px] text-blue-800 font-bold leading-relaxed">
+                      Este código permite que outras pessoas paguem no balcão usando seu saldo. 
+                      Pronto para enviar por print!
+                    </p>
+                  </div>
+                  
+                  <Button 
+                    onClick={() => setShowShareModal(false)}
+                    className="w-full h-14 bg-slate-950 hover:bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest rounded-2xl"
+                  >
+                    Fechar
+                  </Button>
+
+                  <p className="text-[9px] text-slate-400 font-mono text-center">ID COMPARTILHAMENTO: {profile.uid?.substring(0,8)}</p>
+                </div>
+              </div>
+
+              {/* Elementos decorativos */}
+              <div className="absolute top-10 right-[-20px] w-40 h-40 bg-blue-600/5 rounded-full blur-3xl pointer-events-none" />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="sm:max-w-md bg-slate-900 border-white/5 rounded-[32px] p-0 overflow-hidden outline-none">
