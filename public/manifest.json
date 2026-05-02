@@ -1,0 +1,17 @@
+{
+  "name": "Cafeteria Inteligente",
+  "short_name": "Cafeteria",
+  "description": "Sistema de gestão de saldo de alunos com QR Code e pagamentos via Rede.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
