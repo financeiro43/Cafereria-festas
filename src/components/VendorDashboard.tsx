@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserProfile, Product, Stall, Order } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2, Search, ChevronLeft, ChevronRight, BarChart3, TrendingUp, Package } from 'lucide-react';
+import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2, Search, ChevronLeft, ChevronRight, BarChart3, TrendingUp, Package, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -403,24 +403,16 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
               <div className="w-full space-y-8">
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-6 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
                   <div>
-                    <h3 className="text-xs font-black uppercase tracking-[0.4em] text-slate-500 mb-1">Cardápio Disponível</h3>
-                    <p className="text-xs font-bold text-slate-400">Gerencie e venda itens com um toque</p>
+                    <h3 className="text-xs font-black uppercase tracking-[0.4em] text-slate-500 mb-1">Cardápio do Evento</h3>
+                    <p className="text-xs font-bold text-slate-400">Toque para adicionar, clique longo ou botão (-) para remover</p>
                   </div>
-                  <div className="relative w-full sm:w-80">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                    <Input 
-                      placeholder="Procurar um produto..." 
-                      value={searchQuery}
-                      onChange={(e) => {
-                        setSearchQuery(e.target.value);
-                        setCurrentPage(1);
-                      }}
-                      className="bg-slate-950 border-white/10 pl-11 h-12 text-sm font-bold rounded-2xl focus:ring-blue-500/20 focus:border-blue-500/50 transition-all shadow-inner"
-                    />
+                  <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-500/10 rounded-2xl border border-blue-500/20">
+                    <Zap className="h-4 w-4 text-blue-500" />
+                    <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Atendimento Rápido</span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-3 md:gap-4 overflow-y-auto max-h-[70vh] pr-2 custom-scrollbar pb-10">
                   {paginatedProducts.length === 0 ? (
                     <motion.div 
                       initial={{ opacity: 0 }}
@@ -428,62 +420,82 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                       className="col-span-full py-40 text-center text-slate-600 bg-white/[0.02] rounded-[40px] border-4 border-dashed border-white/5"
                     >
                       <PackageCheck className="h-16 w-16 mx-auto opacity-10 mb-4" />
-                      <p className="text-lg font-black uppercase tracking-widest opacity-20">{searchQuery ? 'Sem resultados' : 'Aguardando estoque'}</p>
+                      <p className="text-lg font-black uppercase tracking-widest opacity-20">Aguardando estoque</p>
                     </motion.div>
                   ) : (
                     paginatedProducts.map((product, index) => {
                       const cartItem = cart.find(i => i.id === product.id);
                       const count = cartItem?.quantity || 0;
                       return (
-                        <motion.button
-                          key={product.id}
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          whileHover={{ scale: 1.02, y: -2 }}
-                          whileTap={{ scale: 0.95 }}
-                          transition={{ 
-                            type: 'spring', 
-                            stiffness: 400, 
-                            damping: 15,
-                            delay: index * 0.03 
-                          }}
-                          onClick={() => addToCart(product)}
-                          className={`group aspect-square h-auto flex flex-col items-start justify-end p-5 rounded-[32px] border-2 transition-all text-left relative overflow-hidden ${
-                            count > 0 
-                              ? 'bg-blue-600/90 border-blue-400 shadow-[0_20px_60px_rgba(37,99,235,0.3)] ring-4 ring-blue-500/10' 
-                              : 'bg-white/[0.03] border-white/5 hover:border-blue-500/30 hover:bg-white/[0.06]'
-                          }`}
-                        >
-                          <AnimatePresence>
-                            {count > 0 && (
-                              <motion.div 
-                                initial={{ scale: 0, rotate: -45, y: 10 }}
-                                animate={{ scale: 1, rotate: 0, y: 0 }}
-                                exit={{ scale: 0, rotate: 45, y: 10 }}
-                                transition={{ type: 'spring', stiffness: 500, damping: 15 }}
-                                className="absolute top-4 right-4 bg-white text-blue-600 text-[12px] font-black h-9 w-9 flex items-center justify-center rounded-2xl shadow-2xl z-20 border-2 border-blue-100 ring-4 ring-white/10"
-                              >
-                                {count}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
+                        <div key={product.id} className="relative group">
+                          <motion.button
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            whileHover={{ scale: 1.02, y: -2 }}
+                            whileTap={{ scale: 0.95 }}
+                            transition={{ 
+                              type: 'spring', 
+                              stiffness: 400, 
+                              damping: 15,
+                              delay: index * 0.03 
+                            }}
+                            onClick={() => addToCart(product)}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              if (count > 0) removeFromCart(product.id);
+                            }}
+                            className={`w-full aspect-square flex flex-col items-start justify-end p-5 rounded-[32px] border-2 transition-all text-left relative overflow-hidden ${
+                              count > 0 
+                                ? 'bg-blue-600 border-blue-400 shadow-[0_20px_60px_rgba(37,99,235,0.3)] ring-4 ring-blue-500/10' 
+                                : 'bg-white/[0.03] border-white/5 hover:border-blue-500/30 hover:bg-white/[0.06]'
+                            }`}
+                          >
+                            <AnimatePresence>
+                              {count > 0 && (
+                                <motion.div 
+                                  initial={{ scale: 0, rotate: -45, y: 10 }}
+                                  animate={{ scale: 1, rotate: 0, y: 0 }}
+                                  exit={{ scale: 0, rotate: 45, y: 10 }}
+                                  transition={{ type: 'spring', stiffness: 500, damping: 15 }}
+                                  className="absolute top-4 right-4 bg-white text-blue-600 text-[12px] font-black h-9 w-9 flex items-center justify-center rounded-2xl shadow-2xl z-20 border-2 border-blue-100 ring-4 ring-white/10"
+                                >
+                                  {count}
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
 
-                          <div className={`absolute inset-0 bg-gradient-to-br transition-opacity duration-500 ${count > 0 ? 'from-white/10 to-transparent' : 'from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100'}`} />
-                          
-                          <div className="relative z-10 w-full space-y-1">
-                            <span className={`block text-[10px] font-black uppercase tracking-[0.1em] line-clamp-1 leading-tight transition-all ${count > 0 ? 'text-blue-100' : 'text-slate-500 group-hover:text-blue-300'}`}>
-                              {product.category || 'Geral'}
-                            </span>
-                            <span className={`block text-[12px] font-black uppercase tracking-tight line-clamp-2 leading-tight transition-all ${count > 0 ? 'text-white' : 'text-slate-200 group-hover:text-white'}`}>
-                              {product.name}
-                            </span>
-                            <div className="pt-2">
-                              <span className={`text-xl font-black tabular-nums transition-all ${count > 0 ? 'text-white' : 'text-white'}`}>
-                                <span className="text-[10px] font-bold mr-0.5 opacity-60">R$</span> {product.price.toFixed(2)}
+                            <div className={`absolute inset-0 bg-gradient-to-br transition-opacity duration-500 ${count > 0 ? 'from-white/10 to-transparent' : 'from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100'}`} />
+                            
+                            <div className="relative z-10 w-full space-y-1 pr-6">
+                              <span className={`block text-[10px] font-black uppercase tracking-[0.1em] line-clamp-1 leading-tight transition-all ${count > 0 ? 'text-blue-100' : 'text-slate-500 group-hover:text-blue-300'}`}>
+                                {product.category || 'Geral'}
                               </span>
+                              <span className={`block text-[12px] font-black uppercase tracking-tight line-clamp-2 leading-tight transition-all ${count > 0 ? 'text-white' : 'text-slate-200 group-hover:text-white'}`}>
+                                {product.name}
+                              </span>
+                              <div className="pt-2">
+                                <span className={`text-xl font-black tabular-nums transition-all ${count > 0 ? 'text-white' : 'text-white'}`}>
+                                  <span className="text-[10px] font-bold mr-0.5 opacity-60">R$</span> {product.price.toFixed(2)}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        </motion.button>
+                          </motion.button>
+
+                          {count > 0 && (
+                            <motion.button
+                              initial={{ opacity: 0, scale: 0.5 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              whileTap={{ scale: 0.8 }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeFromCart(product.id);
+                              }}
+                              className="absolute bottom-4 right-4 h-10 w-10 bg-slate-950/80 backdrop-blur-md rounded-2xl border border-white/20 flex items-center justify-center text-white z-30 hover:bg-red-500 transition-colors shadow-lg"
+                            >
+                              <Minus className="h-5 w-5" strokeWidth={3} />
+                            </motion.button>
+                          )}
+                        </div>
                       );
                     })
                   )}
