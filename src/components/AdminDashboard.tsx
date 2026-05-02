@@ -4,8 +4,10 @@ import { collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc, order
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
@@ -183,18 +185,23 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [cardBgUrl, setCardBgUrl] = useState('https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=1000');
 
   const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
+  const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
 
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
-      if (user.role === 'admin') return false; // Hide admins from the list
-      const search = userSearchQuery.toLowerCase();
-      return (
-        user.name.toLowerCase().includes(search) ||
-        user.email.toLowerCase().includes(search) ||
-        user.qrCode?.toLowerCase().includes(search)
-      );
+      if (user.role === 'admin' && profile.email !== 'financeiro@modeloalpha.com.br') return false; // Hide other admins unless super admin
+      
+      const matchesSearch = 
+        user.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+        user.email.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+        user.qrCode?.toLowerCase().includes(userSearchQuery.toLowerCase());
+      
+      const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+
+      return matchesSearch && matchesRole;
     });
-  }, [users, userSearchQuery]);
+  }, [users, userSearchQuery, roleFilter, profile.email]);
 
   const getRoleIcon = (role: string) => {
     switch (role) {
@@ -778,38 +785,75 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
             </section>
 
             {/* Search and List Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <Input 
-                  placeholder="Buscar por nome, e-mail ou cartão..." 
-                  value={userSearchQuery}
-                  onChange={(e) => setUserSearchQuery(e.target.value)}
-                  className="pl-10 h-12 bg-white border-slate-200 rounded-2xl shadow-sm focus:ring-blue-500"
-                />
-              </div>
-              <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest px-4">
-                Total: {filteredUsers.length} usuários
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                <div className="space-y-4 flex-1 max-w-2xl">
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { id: 'all', label: 'Todos', icon: Users },
+                      { id: 'student', label: 'Estudantes', icon: UserIcon },
+                      { id: 'vendor', label: 'Vendedores', icon: ShoppingCart },
+                      { id: 'recharge', label: 'Recarga', icon: CreditCard },
+                      { id: 'admin', label: 'Admins', icon: ShieldCheckIcon },
+                    ].map((role) => (
+                      <button
+                        key={role.id}
+                        onClick={() => setRoleFilter(role.id as any)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border shadow-sm ${
+                          roleFilter === role.id 
+                            ? 'bg-blue-600 border-blue-600 text-white shadow-blue-200' 
+                            : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                        }`}
+                      >
+                        <role.icon className="h-3 w-3" />
+                        {role.label}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  <div className="relative flex-1">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Input 
+                      placeholder="Buscar por nome, e-mail ou cartão..." 
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      className="pl-12 h-14 bg-white border-slate-200 rounded-2xl shadow-sm focus:ring-blue-500 text-base"
+                    />
+                  </div>
+                </div>
+                
+                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] px-4 mb-2">
+                  <span className="text-blue-600">{filteredUsers.length}</span> Membros encontrados
+                </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
               {filteredUsers.map(user => (
-                <div key={user.uid} className="group flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
-                  <div className="p-6 pb-0">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 font-black text-lg border border-blue-100 uppercase transition-transform group-hover:scale-105">
+                <div key={user.uid} className="group flex flex-col bg-white rounded-[32px] border border-slate-200 shadow-sm hover:shadow-xl hover:border-blue-200 transition-all duration-500 overflow-hidden relative">
+                  <div className="p-8">
+                    <div className="flex items-start justify-between mb-8">
+                      <div className="flex items-center gap-4">
+                        <div className="h-16 w-16 rounded-2xl bg-slate-50 flex items-center justify-center text-blue-600 font-black text-2xl border border-slate-100 uppercase transition-transform group-hover:scale-110 shadow-inner">
                           {user.name.charAt(0)}
                         </div>
                         <div>
-                          <h4 className="font-bold text-slate-900 uppercase tracking-tight">{user.name}</h4>
-                          <p className="text-[11px] text-slate-400 font-medium truncate max-w-[140px] italic">{user.email}</p>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-black text-slate-900 uppercase tracking-tighter text-lg">{user.name}</h4>
+                            <button 
+                              onClick={() => setEditingUser(user)}
+                              className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                          <p className="text-[11px] text-slate-400 font-bold truncate max-w-[160px] uppercase tracking-widest">{user.email}</p>
                         </div>
                       </div>
-                      <div className={`flex items-center gap-1.5 text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border shadow-sm ${
+                      <div className={`flex items-center gap-1.5 text-[9px] font-black uppercase px-3 py-1.5 rounded-xl border shadow-sm ${
                         user.role === 'vendor' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
                         user.role === 'recharge' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                        user.role === 'admin' ? 'bg-slate-900 text-white border-slate-800' :
                         'bg-slate-50 text-slate-500 border-slate-100'
                       }`}>
                         {getRoleIcon(user.role)}
@@ -1248,6 +1292,154 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
           )}
         </div>
       </main>
+
+      {/* Edit User Dialog */}
+      <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
+        <DialogContent className="sm:max-w-[600px] rounded-[40px] p-0 overflow-hidden border-none shadow-2xl">
+          {editingUser && (
+            <div className="max-h-[90vh] overflow-y-auto custom-scrollbar">
+              <div className="bg-slate-950 p-8 text-white relative">
+                <div className="absolute top-0 right-0 p-8 opacity-10">
+                  <Edit2 className="h-32 w-32" />
+                </div>
+                <div className="relative z-10 flex items-center gap-6">
+                  <div className="h-16 w-16 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black text-2xl border border-blue-400 uppercase">
+                    {editingUser.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-black uppercase tracking-tight">{editingUser.name}</h2>
+                    <p className="text-slate-400 text-xs font-bold uppercase tracking-[0.2em]">{editingUser.email}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-8 space-y-8 bg-white">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2 col-span-1 md:col-span-2">
+                    <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Nome Completo</Label>
+                    <Input 
+                      value={editingUser.name}
+                      onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                      className="bg-slate-50 border-slate-200 h-14 rounded-2xl font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">E-mail de Acesso</Label>
+                    <Input 
+                      value={editingUser.email}
+                      onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value.toLowerCase() })}
+                      className="bg-slate-50 border-slate-200 h-14 rounded-2xl font-medium"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">QR Code / Cartão</Label>
+                    <Input 
+                      value={editingUser.qrCode}
+                      onChange={(e) => setEditingUser({ ...editingUser, qrCode: e.target.value })}
+                      className="bg-slate-50 border-slate-200 h-14 rounded-2xl font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Função no Sistema</Label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { id: 'student', label: 'Estudante', icon: UserIcon },
+                      { id: 'vendor', label: 'Vendedor', icon: ShoppingCart },
+                      { id: 'recharge', label: 'Recarga', icon: CreditCard },
+                      { id: 'admin', label: 'Admin', icon: ShieldCheckIcon },
+                    ].map((role) => (
+                      <button
+                        key={role.id}
+                        type="button"
+                        onClick={() => {
+                          const newRole = role.id as UserRole;
+                          setEditingUser({ 
+                            ...editingUser, 
+                            role: newRole,
+                            // Clear vendorIds if not vendor, but user might want to keep them just in case
+                            // Let's decide based on UX: if they switch to student, they usually don't need vendorIds
+                          });
+                        }}
+                        className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all gap-2 ${
+                          editingUser.role === role.id 
+                            ? 'border-blue-600 bg-blue-50 text-blue-600' 
+                            : 'border-slate-100 hover:border-slate-200 text-slate-500'
+                        }`}
+                      >
+                        <role.icon className="h-5 w-5" />
+                        <span className="text-[9px] font-black uppercase tracking-tight">{role.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {editingUser.role === 'vendor' && (
+                  <div className="space-y-4 pt-4 border-t border-slate-100">
+                    <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Atribuir Barracas</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {stalls.map(stall => {
+                        const isAssigned = editingUser.vendorIds?.includes(stall.id);
+                        return (
+                          <button
+                            key={stall.id}
+                            type="button"
+                            onClick={() => {
+                              const currentIds = editingUser.vendorIds || [];
+                              const newIds = isAssigned 
+                                ? currentIds.filter(id => id !== stall.id)
+                                : [...currentIds, stall.id];
+                              setEditingUser({ ...editingUser, vendorIds: newIds });
+                            }}
+                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                              isAssigned 
+                                ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20' 
+                                : 'bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300'
+                            }`}
+                          >
+                            {stall.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="pt-6 flex gap-3">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setEditingUser(null)}
+                    className="flex-1 h-14 rounded-2xl border-slate-200 font-bold text-xs uppercase tracking-widest"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button 
+                    onClick={async () => {
+                      if (!editingUser) return;
+                      try {
+                        const { uid, ...updateData } = editingUser;
+                        await updateDoc(doc(db, 'users', uid), updateData);
+                        toast.success('Perfil atualizado com sucesso!');
+                        setEditingUser(null);
+                      } catch (err) {
+                        toast.error('Erro ao atualizar perfil');
+                        console.error(err);
+                      }
+                    }}
+                    className="flex-1 h-14 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase tracking-widest hover:bg-blue-600 shadow-xl"
+                  >
+                    Salvar Alterações
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingUser && false} onOpenChange={() => {}}> {/* Placeholder for safety */}
+      </Dialog>
     </div>
   );
 }
