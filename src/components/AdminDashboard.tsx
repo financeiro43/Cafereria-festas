@@ -379,20 +379,22 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   return (
     <div className="min-h-screen bg-slate-50 relative overflow-x-hidden">
       {/* Floating Menu Button */}
-      <div className="fixed top-6 right-6 z-[200]">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => setIsMenuOpen(!isMenuOpen)}
-          className={`h-16 w-16 rounded-[24px] flex items-center justify-center shadow-2xl transition-all duration-500 ${
-            isMenuOpen 
-              ? 'bg-red-500 text-white rotate-90' 
-              : 'bg-slate-950 text-white'
-          }`}
-        >
-          {isMenuOpen ? <X className="h-8 w-8" /> : <Menu className="h-8 w-8" />}
-        </motion.button>
-      </div>
+      {!forcedTab && activeTab !== 'terminal' && activeTab !== 'recharge_pos' && (
+        <div className="fixed top-6 right-6 z-[200]">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className={`h-16 w-16 rounded-[24px] flex items-center justify-center shadow-2xl transition-all duration-500 ${
+              isMenuOpen 
+                ? 'bg-red-500 text-white rotate-90' 
+                : 'bg-slate-950 text-white'
+            }`}
+          >
+            {isMenuOpen ? <X className="h-8 w-8" /> : <Menu className="h-8 w-8" />}
+          </motion.button>
+        </div>
+      )}
 
       {/* Full Screen Navigation Overlay */}
       <AnimatePresence>
@@ -1304,9 +1306,20 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         {activeTab === 'terminal' && (
             <div className="bg-slate-900 -m-8 min-h-screen p-8">
               <div className="mb-6 flex items-center justify-between border-b border-white/5 pb-6">
-                <div>
-                   <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Terminal Integrado</h2>
-                   <p className="text-slate-400 text-sm">Visão do vendedor/caixeiro em ambiente seguro</p>
+                <div className="flex items-center gap-4">
+                  {!forcedTab && (
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setActiveTab('overview')}
+                      className="h-12 w-12 rounded-xl bg-white/5 text-white hover:bg-white/10"
+                    >
+                      <ArrowLeftRight className="h-5 w-5" />
+                    </Button>
+                  )}
+                  <div>
+                    <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Terminal Integrado</h2>
+                    <p className="text-slate-400 text-sm">Visão do vendedor/caixeiro em ambiente seguro</p>
+                  </div>
                 </div>
                 <div className="px-3 py-1 bg-blue-600 text-white text-[10px] font-black rounded-full uppercase tracking-widest">Simulação Ativa</div>
               </div>
@@ -1317,9 +1330,20 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
           {activeTab === 'recharge_pos' && (
             <div className="bg-slate-900 -m-8 min-h-screen p-8">
               <div className="mb-6 flex items-center justify-between border-b border-white/5 pb-6">
-                <div>
-                   <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Carga e Recarga</h2>
-                   <p className="text-slate-400 text-sm">Adicione créditos aos cartões dos alunos via QR Code</p>
+                <div className="flex items-center gap-4">
+                  {!forcedTab && (
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setActiveTab('overview')}
+                      className="h-12 w-12 rounded-xl bg-white/5 text-white hover:bg-white/10"
+                    >
+                      <ArrowLeftRight className="h-5 w-5" />
+                    </Button>
+                  )}
+                  <div>
+                    <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Carga e Recarga</h2>
+                    <p className="text-slate-400 text-sm">Adicione créditos aos cartões dos alunos via QR Code</p>
+                  </div>
                 </div>
                 <div className="px-3 py-1 bg-green-600 text-white text-[10px] font-black rounded-full uppercase tracking-widest">Caixa Aberto</div>
               </div>
