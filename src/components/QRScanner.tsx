@@ -39,18 +39,32 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
       if (!isMounted) return;
       
       try {
-        scanner = new Html5Qrcode(elementId);
+        // Usar BarcodeDetector API se disponível para performance superior
+        scanner = new Html5Qrcode(elementId, { 
+          verbose: false,
+          experimentalFeatures: { 
+            useBarCodeDetectorIfSupported: true 
+          } 
+        });
         html5QrCodeRef.current = scanner;
 
         const config = {
-          fps: 25,
+          fps: 30, // Aumentado para 30 FPS para leitura mais fluida
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            // Área de captura maior para facilitar leitura em webcams de PC
-            const qrboxSize = Math.floor(minEdge * 0.8);
+            // QRBox dinâmico: maior e mais centralizado
+            const qrboxSize = Math.floor(minEdge * 0.75);
             return { width: qrboxSize, height: qrboxSize };
           },
           aspectRatio: 1.0,
+          disableFlip: false,
+          // Video Constraints para forçar alta qualidade e foco contínuo
+          videoConstraints: {
+            facingMode: "environment",
+            focusMode: "continuous",
+            width: { min: 640, ideal: 1280, max: 1920 },
+            height: { min: 480, ideal: 720, max: 1080 }
+          }
         };
 
         // Função auxiliar para iniciar o scanner

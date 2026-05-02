@@ -9,7 +9,6 @@ import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole } from '../types';
 import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import VendorDashboard from './VendorDashboard';
