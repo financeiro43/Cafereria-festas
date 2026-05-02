@@ -15,7 +15,7 @@ service cloud.firestore {
     }
 
     function isVerified() {
-      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.email == 'financeiro@modeloalpha.com.br');
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.email == 'financeiro@modeloalpha.com.br' || request.auth.token.firebase.sign_in_provider == 'password');
     }
 
     function isValidId(id) {
@@ -87,16 +87,19 @@ service cloud.firestore {
     // USERS
     match /users/{userId} {
       allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isVendor() || isRecharge());
-      allow list: if isSignedIn() && (isAdmin() || (resource.data.email == request.auth.token.email.toLowerCase()));
+      allow list: if isSignedIn() && (isAdmin() || (request.query.limit <= 1 && request.query.filters.size() > 0 && request.query.filters.email == request.auth.token.email.toLowerCase()));
       
       allow create: if isSignedIn() && (
         isAdmin() || 
-        (request.auth.uid == userId && isVerified() && isValidUser(incoming()))
+        (request.auth.uid == userId && isValidUser(incoming()))
       );
       
       allow update: if isSignedIn() && (
         isAdmin() ||
-        (request.auth.uid == userId && isVerified() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL']))
+        (request.auth.uid == userId && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL']) ||
+          (isVerified() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL']))
+        ))
       );
     }
 

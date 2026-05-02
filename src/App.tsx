@@ -1,7 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { auth, db } from '@/lib/firebase';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot, collection, query, where, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
+import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { doc, getDoc, setDoc, onSnapshot, collection, query, where, getDocs, updateDoc, deleteDoc, limit } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { UserProfile, UserRole } from './types';
 import { Toaster } from './components/ui/sonner';
@@ -69,6 +69,9 @@ function MainApp() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [isForgotPassOpen, setIsForgotPassOpen] = useState(false);
+
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (authUser) => {
       if (!authUser) {
@@ -85,26 +88,34 @@ function MainApp() {
           if (snap.exists()) {
             const data = snap.data() as UserProfile;
             if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
-              // Update role in DB if it's the hardcoded admin
               await updateDoc(userRef, { role: 'admin' });
               data.role = 'admin';
             }
             setProfile(data);
             setLoading(false);
+            
+            // AUTOMATIC REDIRECTS
             if (location.pathname === '/' || location.pathname.includes('/login')) {
-              const target = data.role === 'admin' ? '/admin' : 
-                           data.role === 'vendor' ? '/vendor' : 
-                           data.role === 'recharge' ? '/recharge' : '/portal';
+              let target = '/portal';
+              if (data.role === 'admin') target = '/admin';
+              else if (data.role === 'vendor') target = '/pdv';
+              else if (data.role === 'recharge') target = '/recharge';
+              
               navigate(target);
             }
           } else {
-            // One-time attempt to find by email if document doesn't exist by UID
+            // New user or Migration
             try {
-              const emailSnap = await getDocs(query(collection(db, 'users'), where('email', '==', authUser.email?.toLowerCase())));
+              const q = query(
+                collection(db, 'users'), 
+                where('email', '==', authUser.email?.toLowerCase()),
+                limit(1)
+              );
+              const emailSnap = await getDocs(q);
+              
               if (!emailSnap.empty) {
                 const existingDoc = emailSnap.docs[0];
                 const existingData = existingDoc.data();
-                // Persist the QR code from the existing doc if it exists, otherwise use UID
                 const newProfile: UserProfile = {
                   ...(existingData as any),
                   uid: authUser.uid,
@@ -127,8 +138,17 @@ function MainApp() {
                 await setDoc(userRef, newProfile);
               }
             } catch (e) {
-              console.error("Migration error:", e);
-              handleFirestoreError(e, OperationType.GET, 'users_migration');
+              console.error("Auth sync error:", e);
+              // Fallback to basic profile if query fails (likely permission denied if rules strict)
+              const newProfile: UserProfile = {
+                uid: authUser.uid,
+                name: authUser.displayName || 'Usuário',
+                email: authUser.email || '',
+                balance: 0,
+                role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
+                qrCode: authUser.uid
+              };
+              await setDoc(userRef, newProfile).catch(err => console.error("Final fallback error:", err));
             } finally {
               setLoading(false);
             }
@@ -143,7 +163,7 @@ function MainApp() {
     });
 
     return () => unsubAuth();
-  }, [navigate]);
+  }, [navigate, location.pathname]);
 
   const handleGoogleLogin = async () => {
     setAuthLoading(true);
@@ -264,10 +284,65 @@ function MainApp() {
               <div className="relative"><div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-200" /></div><div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-slate-500">Ou e-mail</span></div></div>
               <form onSubmit={handleEmailAuth} className="space-y-4">
                 <div className="space-y-2"><Label>E-mail</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
-                <div className="space-y-2"><Label>Senha</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Senha</Label>
+                    {!isRegistering && (
+                      <button 
+                        type="button" 
+                        onClick={() => setIsForgotPassOpen(true)}
+                        className="text-[10px] text-blue-600 font-bold uppercase tracking-widest hover:underline"
+                      >
+                        Esqueci a senha
+                      </button>
+                    )}
+                  </div>
+                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                </div>
                 <Button type="submit" className="w-full bg-slate-900" disabled={authLoading}>{authLoading ? 'Processando...' : (isRegistering ? 'Cadastrar' : 'Entrar')}</Button>
               </form>
+
               <button onClick={() => setIsRegistering(!isRegistering)} className="w-full text-center text-sm text-blue-600 font-semibold">{isRegistering ? 'Já tem conta? Entre' : 'Não tem conta? Cadastre-se'}</button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Forgot Password Dialog */}
+        <Dialog open={isForgotPassOpen} onOpenChange={setIsForgotPassOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold">Recuperar Senha</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <p className="text-slate-500 text-sm">Insira seu e-mail para receber um link de redefinição de senha.</p>
+              <div className="space-y-2">
+                <Label>Seu E-mail</Label>
+                <Input 
+                  type="email" 
+                  value={forgotPasswordEmail} 
+                  onChange={(e) => setForgotPasswordEmail(e.target.value)} 
+                  placeholder="exemplo@email.com"
+                />
+              </div>
+              <Button 
+                onClick={async () => {
+                  if (!forgotPasswordEmail) return;
+                  setAuthLoading(true);
+                  try {
+                    await sendPasswordResetEmail(auth, forgotPasswordEmail);
+                    toast.success('E-mail de recuperação enviado!');
+                    setIsForgotPassOpen(false);
+                  } catch (err: any) {
+                    toast.error('Erro ao enviar e-mail', { description: err.message });
+                  } finally {
+                    setAuthLoading(false);
+                  }
+                }} 
+                className="w-full bg-slate-900"
+                disabled={authLoading}
+              >
+                {authLoading ? 'Enviando...' : 'Enviar Link'}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -363,12 +438,12 @@ function MainApp() {
   return (
     <Suspense fallback={<LoadingFallback />}>
       <Routes>
-        <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/vendor' : profile.role === 'recharge' ? '/recharge' : '/portal'} replace />} />
+        <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/pdv' : profile.role === 'recharge' ? '/recharge' : '/portal'} replace />} />
         <Route path="/admin/*" element={<ProtectedRoute allowedRoles={['admin']} profile={profile}><AdminDashboard profile={profile} /></ProtectedRoute>} />
         <Route path="/vendor/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin']} profile={profile}><VendorDashboard profile={profile} /></ProtectedRoute>} />
         <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin', 'recharge']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />
         <Route path="/recharge/*" element={<ProtectedRoute allowedRoles={['recharge', 'admin']} profile={profile}><AdminDashboard profile={profile} forcedTab="recharge_pos" /></ProtectedRoute>} />
-        <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student', 'admin']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
+        <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student', 'admin', 'recharge', 'vendor']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
         <Route path="/mock-payment" element={<MockPayment />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
