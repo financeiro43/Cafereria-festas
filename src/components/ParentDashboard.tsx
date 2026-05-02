@@ -37,6 +37,8 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [activeTab, setActiveTab] = useState<ParentTab>(ParentTab.PAYMENT);
   const shareCardRef = useRef<HTMLDivElement>(null);
 
+  const [lastSelectedVal, setLastSelectedVal] = useState<string | null>(null);
+
   const displayedProfile = [profile, ...associatedProfiles].find(p => p.uid === displayedUid) || profile;
 
   // Formata uma string para formato de cartão (XXXX XXXX XXXX XXXX)
@@ -308,18 +310,34 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                   {[20, 50, 100].map(val => (
                     <motion.button 
                       key={val} 
-                      whileTap={{ scale: 0.98, opacity: 0.9 }}
-                      whileHover={{ scale: 1.01 }}
-                      onClick={() => setRechargeAmount(val.toString())}
-                      className={`relative h-16 rounded-2xl border-2 font-black text-sm transition-all duration-300 flex flex-col items-center justify-center gap-0.5 overflow-hidden group ${
+                      whileTap={{ scale: 0.96 }}
+                      onClick={() => {
+                        setRechargeAmount(val.toString());
+                        setLastSelectedVal(val.toString());
+                        setTimeout(() => setLastSelectedVal(null), 400);
+                      }}
+                      className={`relative h-16 rounded-2xl border-2 font-black text-sm transition-all duration-200 flex flex-col items-center justify-center gap-0.5 overflow-hidden group ${
                         rechargeAmount === val.toString() 
-                        ? 'bg-blue-600/90 text-white border-blue-400 shadow-[0_0_30px_rgba(37,99,235,0.3)] ring-2 ring-blue-500/20' 
+                        ? 'bg-blue-600/90 text-white border-blue-400 shadow-[0_0_30px_rgba(37,99,235,0.3)]' 
                         : 'bg-slate-950 text-slate-500 border-white/5 hover:border-white/10 hover:bg-slate-900 hover:text-slate-300'
                       }`}
                     >
                       <span className="text-[10px] opacity-60 font-bold">R$</span>
                       <span className="text-base tracking-tight">{val}</span>
                       
+                      {/* Temporary flash outline */}
+                      <AnimatePresence>
+                        {lastSelectedVal === val.toString() && (
+                          <motion.div 
+                            initial={{ opacity: 1, scale: 1 }}
+                            animate={{ opacity: 0, scale: 1.1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 border-2 border-white rounded-2xl z-20 pointer-events-none"
+                            transition={{ duration: 0.4 }}
+                          />
+                        )}
+                      </AnimatePresence>
+
                       {rechargeAmount === val.toString() && (
                         <>
                           <motion.div 

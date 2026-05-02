@@ -30,6 +30,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   const [isScanning, setIsScanning] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   // POS View State
   const [searchQuery, setSearchQuery] = useState('');
@@ -684,7 +685,10 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.1 }}
                   >
-                    <Card className="bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative">
+                    <Card 
+                      onClick={() => setSelectedOrder(order)}
+                      className="bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative cursor-pointer active:scale-[0.98]"
+                    >
                       <div className="absolute top-0 right-0 p-4">
                         <span className="text-[10px] font-black px-3 py-1.5 bg-slate-950/80 rounded-xl uppercase text-slate-500 border border-white/5 tracking-widest backdrop-blur-md">
                           #{order.id.slice(-4)}
@@ -941,6 +945,101 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       {isScanning && (
         <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Identificar Aluno" />
       )}
+
+      <AnimatePresence>
+        {selectedOrder && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedOrder(null)}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-lg bg-slate-900 border border-white/10 rounded-[40px] shadow-2xl overflow-hidden"
+            >
+              <div className="absolute top-6 right-6">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setSelectedOrder(null)}
+                  className="rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
+                >
+                  <XCircle className="h-6 w-6" />
+                </Button>
+              </div>
+
+              <div className="p-8 space-y-8">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">
+                    <Clock className="h-3 w-3" />
+                    <span>Detalhes do Pedido</span>
+                  </div>
+                  <h3 className="text-3xl font-black text-white tracking-tighter">
+                    {(selectedOrder as any).studentName}
+                  </h3>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                    ID: #{selectedOrder.id.slice(-8)}
+                  </p>
+                </div>
+
+                <div className="bg-white/[0.02] rounded-3xl border border-white/5 p-6 space-y-4">
+                  <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    <span>Horário da Solicitação</span>
+                    <span className="text-white">
+                      {selectedOrder.timestamp?.toDate ? 
+                        new Intl.DateTimeFormat('pt-BR', { 
+                          hour: '2-digit', 
+                          minute: '2-digit', 
+                          second: '2-digit',
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric'
+                        }).format(selectedOrder.timestamp.toDate()) : 
+                        'Data indisponível'
+                      }
+                    </span>
+                  </div>
+                  <div className="h-px bg-white/5" />
+                  <div className="space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Itens Solicitados</p>
+                    <div className="space-y-2">
+                      {selectedOrder.items.map((item, idx) => (
+                        <div key={idx} className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 ring-1 ring-inset ring-white/[0.02]">
+                          <div className="h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.8)]" />
+                          <p className="font-black text-sm uppercase text-white/90 tracking-tight">{item}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between bg-blue-600/10 p-6 rounded-3xl border border-blue-500/20">
+                  <span className="text-sm font-black text-blue-400 uppercase tracking-widest">Total Pago</span>
+                  <div className="text-3xl font-black text-white tracking-tighter">
+                    <span className="text-base font-bold opacity-40 mr-1">R$</span>
+                    {selectedOrder.total.toFixed(2)}
+                  </div>
+                </div>
+
+                <Button 
+                  onClick={() => {
+                    markAsDelivered(selectedOrder.id);
+                    setSelectedOrder(null);
+                  }}
+                  className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs tracking-[0.2em] gap-3 rounded-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all"
+                >
+                  <CheckCircle2 className="h-6 w-6" /> CONFIRMAR ENTREGA AGORA
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
