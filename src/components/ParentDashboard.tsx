@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2 } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -35,7 +35,21 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<ParentTab>(ParentTab.PAYMENT);
+  const [isOnline, setIsOnline] = useState(true);
   const shareCardRef = useRef<HTMLDivElement>(null);
+
+  // Monitor connection status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    setIsOnline(navigator.onLine);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const [lastSelectedVal, setLastSelectedVal] = useState<string | null>(null);
 
@@ -215,9 +229,15 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             </h1>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">{displayedProfile.name} • {displayedUid === profile.uid ? 'Principal' : 'Associado'}</p>
           </div>
-          <Button variant="ghost" size="icon" onClick={() => auth.signOut()} className="bg-white/5 hover:bg-white/10 rounded-2xl h-12 w-12 text-slate-400">
-            <LogOut className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-500 ${isOnline ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-red-500/10 border-red-500/20 text-red-500 animate-pulse'}`}>
+              {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+              <span className="text-[9px] font-black uppercase tracking-widest hidden xs:inline">{isOnline ? 'Online' : 'Offline'}</span>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => auth.signOut()} className="bg-white/5 hover:bg-white/10 rounded-2xl h-12 w-12 text-slate-400">
+              <LogOut className="h-5 w-5" />
+            </Button>
+          </div>
         </header>
 
         <AnimatePresence mode="wait">

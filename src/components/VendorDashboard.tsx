@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserProfile, Product, Stall, Order } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2, Search, ChevronLeft, ChevronRight, BarChart3, TrendingUp, Package, Zap } from 'lucide-react';
+import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2, Search, ChevronLeft, ChevronRight, BarChart3, TrendingUp, Package, Zap, ChevronDown, ChevronUp, Wifi, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -31,6 +31,21 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
+
+  // Monitor connection status
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    setIsOnline(navigator.onLine);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // POS View State
   const [searchQuery, setSearchQuery] = useState('');
@@ -384,6 +399,11 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
             
             <div className="hidden sm:block h-8 w-px bg-white/10 mx-1" />
 
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-500 ${isOnline ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-red-500/10 border-red-500/20 text-red-500 animate-pulse'}`}>
+              {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+              <span className="text-[9px] font-black uppercase tracking-widest hidden xs:inline">{isOnline ? 'Online' : 'Offline'}</span>
+            </div>
+
             <Button variant="ghost" onClick={() => auth.signOut()} className="text-slate-500 hover:text-white hover:bg-white/5 h-11 w-11 p-0 rounded-2xl shrink-0 transition-all">
               <LogOut className="h-5.5 w-5.5" />
             </Button>
@@ -711,48 +731,72 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                     transition={{ delay: idx * 0.1 }}
                   >
                     <Card 
-                      onClick={() => setSelectedOrder(order)}
-                      className="bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative cursor-pointer active:scale-[0.98]"
+                      onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                      className={`bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative cursor-pointer active:scale-[0.98] ${expandedOrderId === order.id ? 'ring-2 ring-blue-500/50 border-blue-500/50' : ''}`}
                     >
-                      <div className="absolute top-0 right-0 p-4">
+                      <div className="absolute top-0 right-0 p-4 flex items-center gap-2">
                         <span className="text-[10px] font-black px-3 py-1.5 bg-slate-950/80 rounded-xl uppercase text-slate-500 border border-white/5 tracking-widest backdrop-blur-md">
                           #{order.id.slice(-4)}
                         </span>
+                        <div className={`transition-transform duration-300 ${expandedOrderId === order.id ? 'rotate-180' : ''}`}>
+                          <ChevronDown className="h-4 w-4 text-slate-500" />
+                        </div>
                       </div>
                       
                       <CardHeader className="bg-white/5 border-b border-white/5 p-8">
                         <p className="text-[10px] text-blue-400 font-black uppercase tracking-[0.3em] mb-2">Comprador Mobile</p>
-                        <CardTitle className="text-2xl font-black tracking-tighter truncate pr-16">{order.studentName}</CardTitle>
+                        <CardTitle className="text-2xl font-black tracking-tighter truncate pr-24">{order.studentName}</CardTitle>
+                        {expandedOrderId !== order.id && (
+                          <div className="flex items-center gap-2 mt-4">
+                            <Package className="h-3.5 w-3.5 text-slate-500" />
+                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{order.items.length} {order.items.length === 1 ? 'Item' : 'Itens'}</span>
+                          </div>
+                        )}
                       </CardHeader>
 
-                      <CardContent className="p-8 space-y-8">
-                        <div className="space-y-3">
-                          {order.items.map((item, idx) => (
-                            <div key={idx} className="flex items-center gap-4 bg-white/[0.03] p-4 rounded-2xl border border-white/5 ring-1 ring-inset ring-white/[0.02]">
-                              <div className="h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.8)]" />
-                              <p className="font-black text-[12px] uppercase text-white/90 tracking-tight">{item}</p>
-                            </div>
-                          ))}
-                        </div>
+                      <AnimatePresence>
+                        {expandedOrderId === order.id && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                          >
+                            <CardContent className="p-8 space-y-8">
+                              <div className="space-y-3">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 px-1">Itens do Pedido</p>
+                                {order.items.map((item, idx) => (
+                                  <div key={idx} className="flex items-center gap-4 bg-white/[0.03] p-4 rounded-2xl border border-white/5 ring-1 ring-inset ring-white/[0.02]">
+                                    <div className="h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.8)]" />
+                                    <p className="font-black text-[12px] uppercase text-white/90 tracking-tight">{item}</p>
+                                  </div>
+                                ))}
+                              </div>
 
-                        <div className="pt-6 border-t border-white/10 flex justify-between items-end">
-                          <div className="space-y-1">
-                            <span className="text-[10px] text-slate-500 uppercase font-black tracking-[0.2em]">Valor Pago</span>
-                            <div className="text-3xl font-black text-white tracking-tighter">
-                              <span className="text-sm font-bold opacity-40 mr-1">R$</span>
-                              {order.total.toFixed(2)}
-                            </div>
-                          </div>
-                        </div>
+                              <div className="pt-6 border-t border-white/10 flex justify-between items-end">
+                                <div className="space-y-1">
+                                  <span className="text-[10px] text-slate-500 uppercase font-black tracking-[0.2em]">Valor Pago</span>
+                                  <div className="text-3xl font-black text-white tracking-tighter">
+                                    <span className="text-sm font-bold opacity-40 mr-1">R$</span>
+                                    {order.total.toFixed(2)}
+                                  </div>
+                                </div>
+                              </div>
 
-                        <Button 
-                          onClick={() => markAsDelivered(order.id)}
-                          className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs tracking-[0.2em] gap-3 rounded-2xl shadow-xl shadow-blue-900/40 transition-all group overflow-hidden relative"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
-                          <CheckCircle2 className="h-6 w-6" /> CONFIRMAR ENTREGA
-                        </Button>
-                      </CardContent>
+                              <Button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  markAsDelivered(order.id);
+                                }}
+                                className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs tracking-[0.2em] gap-3 rounded-2xl shadow-xl shadow-blue-900/40 transition-all group overflow-hidden relative"
+                              >
+                                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
+                                <CheckCircle2 className="h-6 w-6" /> CONFIRMAR ENTREGA
+                              </Button>
+                            </CardContent>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </Card>
                   </motion.div>
                 ))
