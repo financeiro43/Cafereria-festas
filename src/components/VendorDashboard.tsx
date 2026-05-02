@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment, serverTimestamp, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment, serverTimestamp, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserProfile, Product, Stall, Order } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2 } from 'lucide-react';
+import { QrCode, ShoppingCart, Users, LogOut, CheckCircle2, XCircle, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2, Search, ChevronLeft, ChevronRight, BarChart3, TrendingUp, Package } from 'lucide-react';
 import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'motion/react';
 
 import QRScanner from './QRScanner';
 
@@ -23,12 +24,25 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [stall, setStall] = useState<Stall | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
-  const [activeTab, setActiveTab] = useState<'pos' | 'orders'>('pos');
+  const [activeTab, setActiveTab] = useState<'pos' | 'orders' | 'analytics'>('pos');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [scannedUser, setScannedUser] = useState<UserProfile | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // POS View State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 12;
+
+  // Analytics State
+  const [stats, setStats] = useState({ 
+    totalRevenue: 0, 
+    totalItems: 0, 
+    productSales: {} as Record<string, { count: number; revenue: number; name: string }> 
+  });
+  const [statsLoading, setStatsLoading] = useState(false);
 
   useEffect(() => {
     if (profile.role === 'admin') {
@@ -97,6 +111,72 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       unsubOrders();
     };
   }, [activeStallId]);
+
+  // Analytics Aggregation
+  useEffect(() => {
+    if (activeTab !== 'analytics' || !activeStallId) return;
+
+    setStatsLoading(true);
+    const q = query(collection(db, 'consumption'), where('stallId', '==', activeStallId), orderBy('timestamp', 'desc'), limit(1000));
+    
+    const unsub = onSnapshot(q, (snap) => {
+      const newStats = { 
+        totalRevenue: 0, 
+        totalItems: 0, 
+        productSales: {} as Record<string, { count: number; revenue: number; name: string }> 
+      };
+      
+      snap.docs.forEach(doc => {
+        const data = doc.data();
+        newStats.totalRevenue += data.amount || 0;
+        
+        // Detailed items analysis (New format)
+        if (data.detailedItems && Array.isArray(data.detailedItems)) {
+          data.detailedItems.forEach((item: { name: string; quantity: number; subtotal: number }) => {
+            newStats.totalItems += item.quantity;
+            if (!newStats.productSales[item.name]) {
+              newStats.productSales[item.name] = { count: 0, revenue: 0, name: item.name };
+            }
+            newStats.productSales[item.name].count += item.quantity;
+            newStats.productSales[item.name].revenue += item.subtotal;
+          });
+        } 
+        // Fallback for old simple "items" array format
+        else if (data.items && Array.isArray(data.items)) {
+          data.items.forEach((itemStr: string) => {
+            const match = itemStr.match(/(\d+)x\s(.+)/);
+            if (match) {
+              const qty = parseInt(match[1]);
+              const name = match[2];
+              newStats.totalItems += qty;
+              if (!newStats.productSales[name]) {
+                newStats.productSales[name] = { count: 0, revenue: 0, name };
+              }
+              newStats.productSales[name].count += qty;
+            }
+          });
+        }
+      });
+
+      setStats(newStats);
+      setStatsLoading(false);
+    });
+
+    return () => unsub();
+  }, [activeTab, activeStallId]);
+
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => 
+      p.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [products, searchQuery]);
+
+  const paginatedProducts = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredProducts.slice(start, start + itemsPerPage);
+  }, [filteredProducts, currentPage]);
+
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
 
   const markAsDelivered = async (orderId: string) => {
     try {
@@ -208,6 +288,13 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           stallId: activeStallId,
           amount: cartTotal,
           items: cart.map(item => `${item.quantity}x ${item.name}`),
+          detailedItems: cart.map(item => ({
+            productId: item.id,
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+            subtotal: item.price * item.quantity
+          })),
           timestamp: serverTimestamp()
         });
       } catch (e) {
@@ -268,31 +355,26 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button 
-              variant={activeTab === 'orders' ? 'default' : 'ghost'} 
-              size="sm"
-              onClick={() => setActiveTab(activeTab === 'pos' ? 'orders' : 'pos')}
-              className={`h-10 px-3 rounded-lg font-bold text-xs uppercase tracking-widest relative ${activeTab === 'orders' ? 'bg-blue-600' : 'text-slate-400 hover:text-white'}`}
-            >
-              {activeTab === 'pos' ? (
-                <>
-                  <Clock className="h-4 w-4 mr-2" />
-                  Pedidos App
-                  {orders.length > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] h-5 w-5 flex items-center justify-center rounded-full border-2 border-slate-900 animate-pulse">
-                      {orders.length}
-                    </span>
-                  )}
-                </>
-              ) : (
-                <>
-                  <ShoppingCart className="h-4 w-4 mr-2" />
-                  Voltar ao PDV
-                </>
-              )}
-            </Button>
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="bg-slate-800 p-1 rounded-lg">
+              <TabsList className="bg-transparent border-none">
+                <TabsTrigger value="pos" className="data-[state=active]:bg-blue-600 font-bold text-[10px] uppercase h-8 px-3">
+                   <ShoppingCart className="h-3 w-3 mr-2" /> PDV
+                </TabsTrigger>
+                <TabsTrigger value="orders" className="data-[state=active]:bg-blue-600 font-bold text-[10px] uppercase h-8 px-3 relative">
+                   <Clock className="h-3 w-3 mr-2" /> Pedidos
+                   {orders.length > 0 && (
+                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[8px] h-4 w-4 flex items-center justify-center rounded-full border border-slate-900">
+                       {orders.length}
+                     </span>
+                   )}
+                </TabsTrigger>
+                <TabsTrigger value="analytics" className="data-[state=active]:bg-blue-600 font-bold text-[10px] uppercase h-8 px-3">
+                   <BarChart3 className="h-3 w-3 mr-2" /> Análise
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
             
-            <div className="h-6 w-px bg-white/10 mx-1" />
+            <div className="hidden sm:block h-6 w-px bg-white/10 mx-1" />
 
             <Button variant="ghost" onClick={() => auth.signOut()} className="text-slate-500 hover:text-white h-10 w-10 p-0">
               <LogOut className="h-5 w-5" />
@@ -300,51 +382,98 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           </div>
         </header>
 
-        {activeTab === 'pos' ? (
-          <div className="grid grid-cols-1 xl:grid-cols-[1fr,360px] gap-8 items-start animate-in fade-in duration-500">
-            {/* Product Area */}
-            <div className="w-full space-y-4">
-              <div className="flex items-center justify-between px-2">
-                <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">Produtos Disponíveis</h3>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-3">
-                {products.length === 0 ? (
-                  <div className="col-span-full py-32 text-center text-slate-700 bg-slate-900/50 rounded-xl border-2 border-dashed border-white/5">
-                    <PackageCheck className="h-10 w-10 mx-auto opacity-10 mb-2" />
-                    <p className="text-sm font-bold">Aguardando produtos...</p>
+        <AnimatePresence mode="wait">
+          {activeTab === 'pos' ? (
+            <motion.div 
+              key="pos"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="grid grid-cols-1 xl:grid-cols-[1fr,360px] gap-8 items-start animate-in fade-in duration-500"
+            >
+              {/* Product Area */}
+              <div className="w-full space-y-6">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-2">
+                  <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">Produtos Disponíveis</h3>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                    <Input 
+                      placeholder="Buscar produto..." 
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setCurrentPage(1);
+                      }}
+                      className="bg-slate-900/50 border-white/10 pl-10 h-10 text-xs font-bold rounded-xl"
+                    />
                   </div>
-                ) : (
-                  products.map(product => {
-                    const count = cart.find(i => i.id === product.id)?.quantity || 0;
-                    return (
-                      <button
-                        key={product.id}
-                        onClick={() => addToCart(product)}
-                        className={`aspect-square sm:aspect-auto sm:h-32 flex flex-col items-start justify-end p-3 rounded-xl border transition-all active:scale-95 text-left relative overflow-hidden group ${
-                          count > 0 
-                            ? 'bg-blue-600 border-blue-400 shadow-lg' 
-                            : 'bg-slate-900 border-white/5 hover:border-blue-500/30'
-                        }`}
-                      >
-                        {count > 0 && (
-                          <div className="absolute top-2 right-2 bg-white text-blue-600 text-[10px] font-black h-6 w-6 flex items-center justify-center rounded-full shadow-lg z-20">
-                            {count}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-3">
+                  {paginatedProducts.length === 0 ? (
+                    <div className="col-span-full py-32 text-center text-slate-700 bg-slate-900/50 rounded-xl border-2 border-dashed border-white/5">
+                      <PackageCheck className="h-10 w-10 mx-auto opacity-10 mb-2" />
+                      <p className="text-sm font-bold">{searchQuery ? 'Nenhum produto encontrado' : 'Aguardando produtos...'}</p>
+                    </div>
+                  ) : (
+                    paginatedProducts.map(product => {
+                      const count = cart.find(i => i.id === product.id)?.quantity || 0;
+                      return (
+                        <button
+                          key={product.id}
+                          onClick={() => addToCart(product)}
+                          className={`aspect-square sm:aspect-auto sm:h-32 flex flex-col items-start justify-end p-3 rounded-xl border transition-all active:scale-95 text-left relative overflow-hidden group ${
+                            count > 0 
+                              ? 'bg-blue-600 border-blue-400 shadow-lg' 
+                              : 'bg-slate-900 border-white/5 hover:border-blue-500/30'
+                          }`}
+                        >
+                          {count > 0 && (
+                            <div className="absolute top-2 right-2 bg-white text-blue-600 text-[10px] font-black h-6 w-6 flex items-center justify-center rounded-full shadow-lg z-20">
+                              {count}
+                            </div>
+                          )}
+                          <div className="relative z-10 w-full">
+                            <span className="block text-[10px] md:text-[11px] font-bold uppercase tracking-tight line-clamp-2 mb-1 leading-tight text-white/90">
+                              {product.name}
+                            </span>
+                            <span className="text-sm md:text-base font-black text-white">
+                              R$ {product.price.toFixed(2)}
+                            </span>
                           </div>
-                        )}
-                        <div className="relative z-10 w-full">
-                          <span className="block text-[10px] md:text-[11px] font-bold uppercase tracking-tight line-clamp-2 mb-1 leading-tight text-white/90">
-                            {product.name}
-                          </span>
-                          <span className="text-sm md:text-base font-black text-white">
-                            R$ {product.price.toFixed(2)}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-4 pt-4">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="text-slate-500 font-bold"
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+                    </Button>
+                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
+                      Página {currentPage} de {totalPages}
+                    </span>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="text-slate-500 font-bold"
+                    >
+                      Próxima <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
                 )}
               </div>
-            </div>
 
             {/* Sidebar: Cart & User */}
             <div className="hidden xl:block w-full sticky top-24 space-y-4">
@@ -436,9 +565,15 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                 </CardContent>
               </Card>
             </div>
-          </div>
-        ) : (
-          <div className="animate-in slide-in-from-right-8 duration-500">
+          </motion.div>
+        ) : activeTab === 'orders' ? (
+          <motion.div 
+            key="orders"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="animate-in slide-in-from-right-8 duration-500"
+          >
             <div className="flex items-center gap-4 mb-8">
                <div className="h-12 w-12 bg-blue-600 rounded-xl flex items-center justify-center">
                   <Clock className="h-6 w-6 text-white" />
@@ -494,8 +629,93 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                 ))
               )}
             </div>
-          </div>
-        ) }
+          </motion.div>
+        ) : (
+          <motion.div 
+             key="analytics"
+             initial={{ opacity: 0, scale: 0.95 }}
+             animate={{ opacity: 1, scale: 1 }}
+             exit={{ opacity: 0, scale: 1.05 }}
+             className="space-y-8 pb-10"
+          >
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-12 bg-indigo-600 rounded-xl flex items-center justify-center">
+                    <BarChart3 className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                    <h3 className="text-2xl font-black text-white uppercase tracking-tight">Análise de Vendas</h3>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Acompanhamento em tempo real</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                 <Card className="bg-slate-900 border-white/5 rounded-3xl overflow-hidden shadow-xl">
+                    <CardContent className="p-8 space-y-2">
+                       <div className="h-10 w-10 bg-green-500/10 rounded-xl flex items-center justify-center mb-2">
+                          <TrendingUp className="h-5 w-5 text-green-500" />
+                       </div>
+                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Volume Total</p>
+                       <h4 className="text-3xl font-black text-white">R$ {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
+                    </CardContent>
+                 </Card>
+
+                 <Card className="bg-slate-900 border-white/5 rounded-3xl overflow-hidden shadow-xl">
+                    <CardContent className="p-8 space-y-2">
+                       <div className="h-10 w-10 bg-blue-500/10 rounded-xl flex items-center justify-center mb-2">
+                          <Package className="h-5 w-5 text-blue-500" />
+                       </div>
+                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Produtos Vendidos</p>
+                       <h4 className="text-3xl font-black text-white">{stats.totalItems} unid.</h4>
+                    </CardContent>
+                 </Card>
+
+                 <Card className="bg-slate-900 border-white/5 rounded-3xl overflow-hidden shadow-xl">
+                    <CardContent className="p-8 space-y-2">
+                       <div className="h-10 w-10 bg-purple-500/10 rounded-xl flex items-center justify-center mb-2">
+                          <Users className="h-5 w-5 text-purple-500" />
+                       </div>
+                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Ticket Médio</p>
+                       <h4 className="text-3xl font-black text-white">R$ {(stats.totalRevenue / (Object.keys(stats.productSales).length || 1)).toFixed(2)}</h4>
+                    </CardContent>
+                 </Card>
+              </div>
+
+              <div className="space-y-4">
+                 <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-600 px-2">Top Vendidos</h3>
+                 <div className="bg-slate-900/50 border border-white/5 rounded-[32px] overflow-hidden">
+                    <div className="divide-y divide-white/5">
+                       {statsLoading ? (
+                          <div className="p-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-slate-700" /></div>
+                       ) : Object.keys(stats.productSales).length === 0 ? (
+                          <div className="p-20 text-center text-slate-600 font-bold uppercase text-[10px] tracking-widest">Nenhuma venda registrada</div>
+                       ) : (
+                          Object.values(stats.productSales)
+                            .sort((a, b) => (b as any).count - (a as any).count)
+                            .map((item: any, i) => (
+                              <div key={i} className="flex items-center justify-between p-6 hover:bg-white/[0.02] transition-colors">
+                                 <div className="flex items-center gap-4">
+                                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-black ${i === 0 ? 'bg-amber-500 text-white' : 'bg-slate-800 text-slate-500'}`}>
+                                       {i + 1}º
+                                    </div>
+                                    <div>
+                                       <p className="text-xs font-black text-white/90 uppercase">{item.name}</p>
+                                       <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{item.count} unidades vendidas</p>
+                                    </div>
+                                 </div>
+                                 {item.revenue > 0 && (
+                                   <div className="text-sm font-black text-white">
+                                      R$ {item.revenue.toFixed(2)}
+                                   </div>
+                                 )}
+                              </div>
+                            ))
+                       )}
+                    </div>
+                 </div>
+              </div>
+          </motion.div>
+        )}
+        </AnimatePresence>
       </div>
 
       {/* Mobile Control Bar */}

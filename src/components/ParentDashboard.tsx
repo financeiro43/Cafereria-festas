@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '@/lib/firebase';
 import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs, updateDoc, increment } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
@@ -7,10 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import { toPng } from 'html-to-image';
 
 import QRScanner from './QRScanner';
 import RedePaymentForm from './RedePaymentForm';
@@ -33,22 +34,61 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [showShareModal, setShowShareModal] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<ParentTab>(ParentTab.PAYMENT);
+  const shareCardRef = useRef<HTMLDivElement>(null);
 
   const displayedProfile = [profile, ...associatedProfiles].find(p => p.uid === displayedUid) || profile;
 
+  // Formata uma string para formato de cartão (XXXX XXXX XXXX XXXX)
+  const formatCardNumber = (str: string) => {
+    // Usa o UID ou QRCode string para gerar um padrão numérico fixo baseado no hash
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const numeric = Math.abs(hash).toString().padEnd(16, '0').substring(0, 16);
+    return numeric.replace(/(.{4})/g, '$1 ').trim();
+  };
+
   const handleShare = async () => {
-    if (navigator.share) {
-      try {
+    setShowShareModal(true);
+  };
+
+  const generateAndShareImage = async () => {
+    if (!shareCardRef.current) return;
+    
+    setLoading(true);
+    try {
+      const dataUrl = await toPng(shareCardRef.current, {
+        cacheBust: true,
+        backgroundColor: '#ffffff',
+        style: {
+          borderRadius: '0px' // Mantém o fundo limpo para o print
+        }
+      });
+      
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const file = new File([blob], 'cartao-acesso.png', { type: 'image/png' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
-          title: 'Meu Cartão de Acesso - Cafeteria Inteligente',
-          text: `Use este QR Code para realizar compras na cafeteria usando meu saldo unificado.`,
-          url: window.location.href,
+          files: [file],
+          title: 'Cartão de Acesso - Cafeteria Inteligente',
+          text: `Acesse o saldo de ${displayedProfile.name} usando este QR Code.`
         });
-      } catch (err) {
-        setShowShareModal(true);
+      } else {
+        // Fallback: Download
+        const link = document.createElement('a');
+        link.download = `cartao-${displayedProfile.name.toLowerCase().replace(/\s/g, '-')}.png`;
+        link.href = dataUrl;
+        link.click();
+        toast.success('Imagem baixada com sucesso!');
       }
-    } else {
-      setShowShareModal(true);
+    } catch (err) {
+      console.error('Erro ao compartilhar imagem:', err);
+      toast.error('Não foi possível gerar a imagem para compartilhamento');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -258,13 +298,26 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
               <div className="bg-slate-900/40 border border-white/5 rounded-[32px] p-6 space-y-6">
                 <div className="grid grid-cols-3 gap-3">
                   {[20, 50, 100].map(val => (
-                    <button 
+                    <motion.button 
                       key={val} 
+                      whileTap={{ scale: 0.97 }}
+                      whileHover={{ scale: 1.02 }}
                       onClick={() => setRechargeAmount(val.toString())}
-                      className={`h-12 rounded-2xl border font-black text-xs transition-all ${rechargeAmount === val.toString() ? 'bg-blue-600 text-white border-blue-400 shadow-lg shadow-blue-900/20' : 'bg-slate-950 text-slate-400 border-white/5 hover:border-white/10'}`}
+                      className={`relative h-14 rounded-2xl border font-black text-xs transition-shadow duration-300 ${
+                        rechargeAmount === val.toString() 
+                        ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_20px_rgba(37,99,235,0.2)]' 
+                        : 'bg-slate-950 text-slate-400 border-white/5 hover:border-white/20 hover:bg-slate-900'
+                      }`}
                     >
+                      {rechargeAmount === val.toString() && (
+                        <motion.div 
+                          layoutId="active-recharge-pill"
+                          className="absolute inset-x-0 -bottom-1 h-1 bg-white/40 rounded-full mx-4 shadow-[0_0_10px_rgba(255,255,255,0.3)]"
+                          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                        />
+                      )}
                       R$ {val}
-                    </button>
+                    </motion.button>
                   ))}
                 </div>
 
@@ -444,46 +497,76 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-sm bg-white rounded-[40px] p-8 text-slate-950 overflow-hidden shadow-2xl"
+              className="relative w-full max-w-sm"
             >
-              <div className="absolute top-0 left-0 w-full h-2 bg-blue-600" />
-              
-              <div className="text-center space-y-6 pt-4">
-                <div className="space-y-1">
-                  <div className="flex justify-center mb-4">
-                    <div className="bg-blue-600 p-2 rounded-xl">
-                      <QrCode className="h-6 w-6 text-white" />
+              <div 
+                ref={shareCardRef}
+                className="bg-white rounded-[40px] p-10 text-slate-950 overflow-hidden shadow-2xl relative"
+              >
+                <div className="absolute top-0 left-0 w-full h-3 bg-blue-600" />
+                
+                <div className="text-center space-y-8 pt-4">
+                  <div className="space-y-1">
+                    <div className="flex justify-center mb-6">
+                      <div className="bg-blue-600 p-2.5 rounded-2xl shadow-lg shadow-blue-200">
+                        <ShoppingBag className="h-7 w-7 text-white" />
+                      </div>
+                    </div>
+                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Cartão de Acesso</h3>
+                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em]">Escola & Cafeteria Gourmet</p>
+                  </div>
+
+                  <div className="bg-white p-6 rounded-[40px] shadow-[0_20px_50px_rgba(0,0,0,0.06)] border border-slate-100 flex justify-center relative group">
+                    <QRCodeSVG value={displayedProfile.qrCode} size={220} />
+                    <div className="absolute inset-0 bg-white/50 backdrop-blur-[1px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-8 text-center pointer-events-none">
+                       <p className="text-[10px] font-black uppercase text-blue-600">QRCode Válido para Pagamento</p>
                     </div>
                   </div>
-                  <h3 className="text-xl font-black uppercase tracking-tighter">Cartão de Acesso</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Acesso de {displayedProfile.name}</p>
-                </div>
 
-                <div className="bg-slate-50 p-6 rounded-[32px] border-2 border-slate-100 flex justify-center">
-                  <QRCodeSVG value={displayedProfile.qrCode} size={200} />
-                </div>
+                  <div className="space-y-6">
+                    <div className="space-y-1">
+                      <p className="text-[9px] text-slate-400 font-bold uppercase tracking-[0.3em] font-mono">Número do Cartão</p>
+                      <p className="text-lg font-black text-slate-800 tracking-[0.1em] font-mono">
+                        {formatCardNumber(displayedProfile.uid)}
+                      </p>
+                    </div>
 
-                <div className="space-y-4">
-                  <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl">
-                    <p className="text-[10px] text-blue-800 font-bold leading-relaxed">
-                      Este código permite que outras pessoas paguem no balcão usando seu saldo. 
-                      Pronto para enviar por print!
-                    </p>
+                    <div className="pt-6 border-t border-slate-100 flex justify-between items-end">
+                      <div className="text-left space-y-1">
+                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest leading-none">Titular</p>
+                        <p className="text-sm font-black text-slate-900 uppercase truncate max-w-[140px]">{displayedProfile.name}</p>
+                      </div>
+                      <div className="text-right space-y-1">
+                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest leading-none">Válido em</p>
+                        <p className="text-[10px] font-black text-slate-900 uppercase">Toda a Rede</p>
+                      </div>
+                    </div>
                   </div>
-                  
-                  <Button 
-                    onClick={() => setShowShareModal(false)}
-                    className="w-full h-14 bg-slate-950 hover:bg-slate-900 text-white font-black text-[10px] uppercase tracking-widest rounded-2xl"
-                  >
-                    Fechar
-                  </Button>
-
-                  <p className="text-[9px] text-slate-400 font-mono text-center">ID CONTA: {displayedProfile.uid?.substring(0,8)}</p>
                 </div>
+
+                {/* Elementos decorativos */}
+                <div className="absolute top-10 right-[-40px] w-48 h-48 bg-blue-600/5 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute bottom-[-40px] left-[-40px] w-48 h-48 bg-purple-600/5 rounded-full blur-3xl pointer-events-none" />
               </div>
 
-              {/* Elementos decorativos */}
-              <div className="absolute top-10 right-[-20px] w-40 h-40 bg-blue-600/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="mt-8 space-y-3">
+                <Button 
+                  onClick={generateAndShareImage}
+                  disabled={loading}
+                  className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-[0.2em] rounded-2xl gap-3 shadow-xl shadow-blue-900/40"
+                >
+                  {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Share2 className="h-5 w-5" />}
+                  {loading ? 'Gerando Imagem...' : 'Enviar Cartão (Imagem)'}
+                </Button>
+                
+                <Button 
+                  onClick={() => setShowShareModal(false)}
+                  variant="ghost"
+                  className="w-full h-12 text-slate-400 hover:text-white font-black text-[10px] uppercase tracking-widest"
+                >
+                  Fechar
+                </Button>
+              </div>
             </motion.div>
           </div>
         )}
