@@ -178,6 +178,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState<UserRole>('student');
+  const [newUserVendorIds, setNewUserVendorIds] = useState<string[]>([]);
   
   const [batchSize, setBatchSize] = useState(24);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -231,13 +232,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         email: newUserEmail.toLowerCase(),
         role: newUserRole,
         balance: 0,
-        vendorIds: [],
-        qrCode: `TEMP-${Date.now()}`,
+        vendorIds: newUserRole === 'vendor' ? newUserVendorIds : [],
+        qrCode: `PENDING-${Date.now()}`,
         timestamp: serverTimestamp()
       });
 
       setNewUserEmail('');
       setNewUserName('');
+      setNewUserRole('student');
+      setNewUserVendorIds([]);
       toast.success('Membro pré-cadastrado com sucesso!');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'users');
@@ -697,14 +700,20 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
         {activeTab === 'users' && (
           <div className="space-y-8 animate-in fade-in duration-500">
-            <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-200 pb-8">
-              <div>
-                <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
-                  <Users className="h-8 w-8 text-blue-600" />
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 pb-10 border-b border-slate-100">
+              <div className="space-y-4">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-600">
+                  <ShieldCheckIcon className="h-3 w-3" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Controle de Acesso</span>
+                </div>
+                <h2 className="text-4xl font-black text-slate-900 tracking-tighter flex items-center gap-4">
+                  <div className="h-14 w-14 rounded-2xl bg-slate-950 flex items-center justify-center text-white shadow-2xl rotate-3 shrink-0">
+                    <Users className="h-7 w-7" />
+                  </div>
                   GESTÃO DE EQUIPE
                 </h2>
-                <p className="text-slate-500 mt-1 max-w-lg">
-                  Gerencie acessos dos terminais, atribua barracas e controle saldos manuais de colaboradores e alunos.
+                <p className="text-slate-500 text-lg font-medium max-w-xl leading-relaxed">
+                  Gerencie permissões, atribua barracas e controle acessos de colaboradores e estudantes de forma centralizada.
                 </p>
               </div>
             </header>
@@ -743,37 +752,69 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Selecione a Função (Permissões)</label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-6">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Selecione a Função</label>
+                    <div className="flex flex-wrap gap-2">
                       {[
-                        { id: 'student', label: 'Estudante', icon: UserIcon, desc: 'Acesso ao Portal do Aluno' },
-                        { id: 'vendor', label: 'Vendedor', icon: ShoppingCart, desc: 'Acesso ao PDV de Vendas' },
-                        { id: 'recharge', label: 'Recarga', icon: CreditCard, desc: 'Acesso ao PDV de Crédito' },
-                        { id: 'admin', label: 'Admin', icon: ShieldCheckIcon, desc: 'Acesso Total ao Sistema' },
+                        { id: 'student', label: 'Estudante', icon: UserIcon },
+                        { id: 'vendor', label: 'Vendedor', icon: ShoppingCart },
+                        { id: 'recharge', label: 'Recarga', icon: CreditCard },
+                        { id: 'admin', label: 'Admin', icon: ShieldCheckIcon },
                       ].map((role) => (
                         <button
                           key={role.id}
                           type="button"
-                          onClick={() => setNewUserRole(role.id as any)}
-                          className={`flex flex-col items-center justify-center p-6 rounded-[28px] border-2 transition-all gap-3 text-center group/role ${
+                          onClick={() => {
+                            setNewUserRole(role.id as any);
+                            if (role.id !== 'vendor') setNewUserVendorIds([]);
+                          }}
+                          className={`flex items-center gap-3 px-4 py-3 rounded-2xl border-2 transition-all group/role ${
                             newUserRole === role.id 
-                              ? 'border-blue-600 bg-blue-50 text-blue-600 shadow-lg shadow-blue-500/10' 
+                              ? 'border-blue-600 bg-blue-50 text-blue-600' 
                               : 'border-slate-100 bg-slate-50/50 hover:bg-white hover:border-slate-200 text-slate-500'
                           }`}
                         >
-                          <div className={`p-4 rounded-2xl transition-colors ${
+                          <div className={`p-2 rounded-lg transition-colors ${
                             newUserRole === role.id ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 group-hover/role:text-slate-600'
                           }`}>
-                            <role.icon className="h-6 w-6" />
+                            <role.icon className="h-4 w-4" />
                           </div>
-                          <div>
-                            <span className="text-[11px] font-black uppercase tracking-widest block mb-1">{role.label}</span>
-                            <span className="text-[9px] font-medium opacity-60 leading-tight block">{role.desc}</span>
-                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-widest">{role.label}</span>
                         </button>
                       ))}
                     </div>
+
+                    {newUserRole === 'vendor' && (
+                      <div className="space-y-4 pt-4 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Atribuir Barracas (Vendedor)</label>
+                        <div className="flex flex-wrap gap-2">
+                          {stalls.map(stall => {
+                            const isAssigned = newUserVendorIds.includes(stall.id);
+                            return (
+                              <button
+                                key={stall.id}
+                                type="button"
+                                onClick={() => {
+                                  setNewUserVendorIds(prev => 
+                                    isAssigned ? prev.filter(id => id !== stall.id) : [...prev, stall.id]
+                                  );
+                                }}
+                                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                                  isAssigned 
+                                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20' 
+                                    : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                                }`}
+                              >
+                                {stall.name}
+                              </button>
+                            );
+                          })}
+                          {stalls.length === 0 && (
+                            <p className="text-xs text-slate-400 italic">Nenhuma barraca cadastrada ainda.</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <Button type="submit" className="w-full bg-slate-950 hover:bg-blue-600 text-white h-16 rounded-[24px] font-black uppercase tracking-[0.2em] text-xs transition-all shadow-xl group/submit">
