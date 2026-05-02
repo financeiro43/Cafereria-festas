@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { CheckCircle2, CreditCard, Loader2, ShieldCheck, Lock } from 'lucide-react';
+import { CheckCircle2, CreditCard, Loader2, ShieldCheck, Lock, XCircle } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { toast } from 'sonner';
@@ -79,6 +79,58 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
   const formatCardNumber = (value: string) => {
     return value.replace(/\W/gi, '').replace(/(.{4})/g, '$1 ').trim();
   };
+
+  if (status === 'error') {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center overflow-hidden">
+        <motion.div
+          initial={{ scale: 0, rotate: 20 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ 
+            type: 'spring', 
+            stiffness: 260, 
+            damping: 20,
+            delay: 0.1 
+          }}
+          className="relative h-24 w-24 bg-red-500 rounded-full flex items-center justify-center text-white shadow-[0_20px_50px_rgba(239,68,68,0.3)] mb-8"
+        >
+          <XCircle className="h-12 w-12" strokeWidth={3} />
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: [0, 1, 0], scale: [1, 2, 2.5] }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
+            className="absolute inset-0 bg-red-500 rounded-full"
+          />
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="space-y-3"
+        >
+           <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Ops! Algo deu errado</h3>
+           <p className="text-slate-400 font-bold text-sm max-w-[240px] leading-relaxed mx-auto">
+             Não foi possível processar seu pagamento. Verifique seus dados ou tente outro cartão.
+           </p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.6 }}
+          className="mt-10 w-full"
+        >
+          <Button 
+            onClick={() => setStatus('idle')}
+            className="w-full h-14 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black uppercase tracking-[.2em] rounded-xl text-[10px]"
+          >
+            Tentar Novamente
+          </Button>
+        </motion.div>
+      </div>
+    );
+  }
 
   if (status === 'success') {
     return (
