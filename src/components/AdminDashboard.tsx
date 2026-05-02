@@ -79,10 +79,34 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     };
   }, []);
 
+  const stats = useMemo(() => {
+    const totalTransactions = transactions.filter(t => t.type === 'debit');
+    const totalRevenue = totalTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const activeCards = users.filter(u => u.isPhysicalCard).length;
+    const totalUsers = users.length;
+    
+    const credited = transactions.filter(t => t.type === 'credit').reduce((acc, t) => acc + (t.amount || 0), 0);
+    const debited = totalRevenue;
+    const totalWithdrawn = withdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    
+    return {
+      totalRevenue,
+      totalSalesCount: totalTransactions.length,
+      activeCards,
+      totalUsers,
+      credited,
+      debited,
+      totalWithdrawn,
+      balance: debited - totalWithdrawn
+    };
+  }, [transactions, users, withdrawals]);
+
   const statsByStall = useMemo(() => {
     return stalls.map(stall => {
-      const sales = recentSales.filter(s => s.stallId === stall.id);
-      const totalSales = sales.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+      const stallTransactions = transactions.filter(t => t.type === 'debit' && t.description?.includes(stall.name));
+      // Note: This relies on description matching for now if stallId isn't on transaction
+      // Improved logic: find matching consumption records or ensure transactions have stallId
+      const totalSales = stallTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0);
       const stallWithdrawals = withdrawals.filter(w => w.stallId === stall.id);
       const totalWithdrawn = stallWithdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
       
@@ -93,7 +117,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         balance: totalSales - totalWithdrawn
       };
     });
-  }, [stalls, recentSales, withdrawals]);
+  }, [stalls, transactions, withdrawals]);
 
   const handleWithdraw = async () => {
     if (!withdrawalStallId || !withdrawalAmount) return;
@@ -295,9 +319,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Sidebar */}
-      <aside className={`w-72 bg-slate-900 text-white p-6 flex flex-col gap-8 sticky top-0 h-screen overflow-hidden ${forcedTab ? 'hidden' : 'flex'}`}>
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+      {/* Desktop Sidebar */}
+      <aside className={`hidden md:flex w-72 bg-slate-900 text-white p-6 flex-col gap-8 sticky top-0 h-screen overflow-hidden ${forcedTab ? '!hidden' : ''}`}>
         <div className="flex items-center gap-3 px-2">
           <div className="p-2 bg-blue-600 rounded-lg">
             <LayoutDashboard className="h-6 w-6 text-white" />
@@ -405,109 +429,153 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         </div>
       </aside>
 
+      {/* Mobile Top Header */}
+      <header className="md:hidden bg-slate-900 text-white p-4 flex items-center justify-between sticky top-0 z-50 shadow-lg">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 bg-blue-600 rounded-lg">
+            <LayoutDashboard className="h-5 w-5 text-white" />
+          </div>
+          <h1 className="font-black text-lg tracking-tight">MAESTRO</h1>
+        </div>
+        <Button variant="ghost" size="icon" onClick={() => auth.signOut()} className="text-red-400 bg-white/5 h-10 w-10 rounded-xl">
+          <LogOut className="h-5 w-5" />
+        </Button>
+      </header>
+
       {/* Main Content */}
       <main className="flex-1 h-screen overflow-y-auto">
         <div className={`max-w-6xl mx-auto ${forcedTab ? 'p-2' : 'p-8'}`}>
           {activeTab === 'overview' && (
-          <div className="space-y-8">
-            <header>
-              <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight">Gestão Financeira</h2>
-              <p className="text-slate-500">Acompanhamento de vendas e retiradas de caixa</p>
-            </header>
+            <div className="space-y-8 animate-in fade-in duration-500">
+              <header className="px-2 md:px-0">
+                <h2 className="text-2xl md:text-3xl font-black text-slate-900 uppercase tracking-tight leading-none">Gestão Financeira</h2>
+                <p className="text-slate-500 text-sm mt-2">Dashboard consolidado do evento</p>
+              </header>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="shadow-sm border-none bg-blue-600 text-white">
-                <CardHeader>
-                  <CardTitle className="text-sm font-bold uppercase text-blue-100 flex items-center gap-2">
-                    <DollarSign className="h-4 w-4" /> Vendas Totais
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-black">R$ {recentSales.reduce((a, b) => a + (b.amount || 0), 0).toFixed(2)}</p>
-                  <p className="text-xs text-blue-200 mt-2">Volume histórico processado</p>
-                </CardContent>
-              </Card>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 px-2 md:px-0">
+                <Card className="shadow-2xl shadow-blue-500/10 border-none bg-blue-600 text-white rounded-[32px] overflow-hidden relative group">
+                  <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/10 blur-3xl rounded-full group-hover:scale-150 transition-transform duration-700" />
+                  <CardContent className="p-6 md:p-8 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-100 flex items-center gap-2">
+                      <DollarSign className="h-3 w-3" /> Faturamento
+                    </p>
+                    <h4 className="text-3xl font-black tabular-nums tracking-tighter">R$ {stats.totalRevenue.toFixed(2)}</h4>
+                    <p className="text-[9px] text-blue-200 font-bold uppercase tracking-widest">{stats.totalSalesCount} Vendas Realizadas</p>
+                  </CardContent>
+                </Card>
 
-              <Card className="shadow-sm border-none bg-white">
-                <CardHeader>
-                  <CardTitle className="text-sm font-bold uppercase text-slate-500 flex items-center gap-2">
-                    <History className="h-4 w-4 text-orange-500" /> Em Aberto
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-black text-slate-900">
-                    R$ {(recentSales.reduce((a, b) => a + (b.amount || 0), 0) - withdrawals.reduce((a, b) => a + (b.amount || 0), 0)).toFixed(2)}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-2">Valor pendente de retirada</p>
-                </CardContent>
-              </Card>
+                <Card className="shadow-sm border-none bg-white rounded-[32px] overflow-hidden group">
+                  <CardContent className="p-6 md:p-8 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                      <History className="h-3 w-3 text-orange-500" /> Em Aberto
+                    </p>
+                    <h4 className="text-3xl font-black text-slate-900 tabular-nums tracking-tighter">R$ {stats.balance.toFixed(2)}</h4>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Pendente de Retirada</p>
+                  </CardContent>
+                </Card>
 
-              <Card className="shadow-sm border-none bg-white">
-                <CardHeader>
-                  <CardTitle className="text-sm font-bold uppercase text-slate-500 flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-green-500" /> Retiradas
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-3xl font-black text-slate-900">R$ {withdrawals.reduce((a, b) => a + (b.amount || 0), 0).toFixed(2)}</p>
-                  <p className="text-xs text-slate-400 mt-2">Total já recolhido no caixa</p>
-                </CardContent>
-              </Card>
-            </div>
+                <Card className="shadow-sm border-none bg-white rounded-[32px] overflow-hidden">
+                  <CardContent className="p-6 md:p-8 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                      <FileText className="h-3 w-3 text-green-500" /> Retiradas
+                    </p>
+                    <h4 className="text-3xl font-black text-slate-900 tabular-nums tracking-tighter">R$ {stats.totalWithdrawn.toFixed(2)}</h4>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Total já recolhido</p>
+                  </CardContent>
+                </Card>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <Card className="shadow-sm border-none">
-                <CardHeader>
-                  <CardTitle>Retirada de Valor</CardTitle>
-                  <CardDescription>Registre quando o valor físico for recolhido da barraca</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-2">
-                    <select 
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      value={withdrawalStallId}
-                      onChange={(e) => setWithdrawalStallId(e.target.value)}
-                    >
-                      <option value="">Selecione a Barraca</option>
-                      {stalls.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                    <Input 
-                      type="number"
-                      placeholder="Valor R$" 
-                      value={withdrawalAmount}
-                      onChange={(e) => setWithdrawalAmount(e.target.value)}
-                    />
-                  </div>
-                  <Button onClick={handleWithdraw} className="w-full bg-slate-900 hover:bg-slate-800">
-                    Confirmar Entrega de Valores
-                  </Button>
-                </CardContent>
-              </Card>
+                <Card className="shadow-sm border-none bg-indigo-950 text-white rounded-[32px] overflow-hidden relative group">
+                   <div className="absolute -right-4 -top-4 w-24 h-24 bg-indigo-500/10 blur-3xl rounded-full group-hover:scale-150 transition-transform duration-700" />
+                   <CardContent className="p-6 md:p-8 space-y-2">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300 flex items-center gap-2">
+                      <QrCode className="h-3 w-3" /> Cartões Ativos
+                    </p>
+                    <h4 className="text-3xl font-black tabular-nums tracking-tighter">{stats.activeCards}</h4>
+                    <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-widest">Vínculos Gerados</p>
+                  </CardContent>
+                </Card>
+              </div>
 
-              <Card className="shadow-sm border-none">
-                <CardHeader>
-                  <CardTitle>Status por Barraca</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {statsByStall.map(stall => (
-                      <div key={stall.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                        <div>
-                          <p className="font-bold text-slate-900">{stall.name}</p>
-                          <p className="text-[10px] text-slate-400 uppercase font-black">Histórico: R$ {stall.totalSales.toFixed(2)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-black text-blue-600">Disp: R$ {stall.balance.toFixed(2)}</p>
-                          <p className="text-[10px] text-slate-400 uppercase font-black">Retirado: R$ {stall.totalWithdrawn.toFixed(2)}</p>
-                        </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 px-2 md:px-0 pb-24 md:pb-0">
+                <Card className="shadow-sm border-none rounded-[32px] overflow-hidden">
+                  <CardHeader className="bg-slate-50 border-b border-slate-100 p-6 md:p-8">
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+                      <ArrowLeftRight className="h-4 w-4 text-blue-600" /> Retirada de Valores
+                    </CardTitle>
+                    <CardDescription className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-1">Registre o recolhimento físico das barracas</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6 md:p-8 space-y-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Ponto de Venda</label>
+                        <select 
+                          className="flex h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                          value={withdrawalStallId}
+                          onChange={(e) => setWithdrawalStallId(e.target.value)}
+                        >
+                          <option value="">Selecionar Barraca</option>
+                          {stalls.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Valor do Malote (R$)</label>
+                        <Input 
+                          type="number"
+                          placeholder="0.00" 
+                          value={withdrawalAmount}
+                          onChange={(e) => setWithdrawalAmount(e.target.value)}
+                          className="h-14 rounded-2xl bg-slate-50 border-slate-200 focus-visible:ring-blue-500 font-black text-lg"
+                        />
+                      </div>
+                    </div>
+                    <Button onClick={handleWithdraw} className="w-full h-14 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] shadow-xl active:scale-95 transition-all">
+                      Confirmar Entrega de Valores
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-sm border-none rounded-[32px] overflow-hidden">
+                  <CardHeader className="bg-slate-50 border-b border-slate-100 p-6 md:p-8 flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-900">Status por Barraca</CardTitle>
+                      <CardDescription className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-1">Balanço individualizado</CardDescription>
+                    </div>
+                    <Store className="h-5 w-5 text-slate-300" />
+                  </CardHeader>
+                  <CardContent className="p-6 md:p-8">
+                    <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                      {statsByStall.length === 0 ? (
+                        <div className="py-20 text-center space-y-4">
+                           <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-300">
+                             <Package className="h-6 w-6" />
+                           </div>
+                           <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Nenhum dado disponível</p>
+                        </div>
+                      ) : (
+                        statsByStall.map(stall => (
+                          <div key={stall.id} className="flex items-center justify-between p-5 bg-slate-50 hover:bg-white hover:shadow-md hover:border-blue-100 rounded-3xl border border-slate-100 transition-all group">
+                            <div className="flex items-center gap-4">
+                              <div className="h-12 w-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition-colors">
+                                <Store className="h-5 w-5" />
+                              </div>
+                              <div>
+                                <p className="font-black text-slate-900 uppercase tracking-tight text-xs">{stall.name}</p>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">Retirado: R$ {stall.totalWithdrawn.toFixed(2)}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-black text-blue-600 tabular-nums tracking-tighter">R$ {stall.balance.toFixed(2)}</p>
+                              <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Saldo Disp.</p>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {activeTab === 'stalls' && (
           <div className="space-y-8">
@@ -1173,6 +1241,42 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
           )}
         </div>
       </main>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-6 left-6 right-6 z-[100] bg-slate-950/80 backdrop-blur-xl border border-white/10 rounded-[32px] p-2 flex items-center justify-around shadow-2xl safe-area-bottom">
+        <Button 
+          variant="ghost" 
+          size="icon"
+          onClick={() => setActiveTab('overview')}
+          className={`h-14 w-14 rounded-2xl transition-all ${activeTab === 'overview' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+        >
+          <TrendingUp className="h-6 w-6" />
+        </Button>
+        <Button 
+          variant="ghost" 
+          size="icon"
+          onClick={() => setActiveTab('users')}
+          className={`h-14 w-14 rounded-2xl transition-all ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+        >
+          <Users className="h-6 w-6" />
+        </Button>
+        <Button 
+          variant="ghost" 
+          size="icon"
+          onClick={() => setActiveTab('terminal')}
+          className={`h-14 w-14 rounded-2xl transition-all ${activeTab === 'terminal' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+        >
+          <ShoppingCart className="h-6 w-6" />
+        </Button>
+        <Button 
+          variant="ghost" 
+          size="icon"
+          onClick={() => setActiveTab('card_printer')}
+          className={`h-14 w-14 rounded-2xl transition-all ${activeTab === 'card_printer' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+        >
+          <Printer className="h-6 w-6" />
+        </Button>
+      </nav>
     </div>
   );
 }
