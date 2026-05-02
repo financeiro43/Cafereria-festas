@@ -1241,42 +1241,6 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
           )}
         </div>
       </main>
-
-      {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-6 left-6 right-6 z-[100] bg-slate-950/80 backdrop-blur-xl border border-white/10 rounded-[32px] p-2 flex items-center justify-around shadow-2xl safe-area-bottom">
-        <Button 
-          variant="ghost" 
-          size="icon"
-          onClick={() => setActiveTab('overview')}
-          className={`h-14 w-14 rounded-2xl transition-all ${activeTab === 'overview' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-        >
-          <TrendingUp className="h-6 w-6" />
-        </Button>
-        <Button 
-          variant="ghost" 
-          size="icon"
-          onClick={() => setActiveTab('users')}
-          className={`h-14 w-14 rounded-2xl transition-all ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-        >
-          <Users className="h-6 w-6" />
-        </Button>
-        <Button 
-          variant="ghost" 
-          size="icon"
-          onClick={() => setActiveTab('terminal')}
-          className={`h-14 w-14 rounded-2xl transition-all ${activeTab === 'terminal' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-        >
-          <ShoppingCart className="h-6 w-6" />
-        </Button>
-        <Button 
-          variant="ghost" 
-          size="icon"
-          onClick={() => setActiveTab('card_printer')}
-          className={`h-14 w-14 rounded-2xl transition-all ${activeTab === 'card_printer' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-        >
-          <Printer className="h-6 w-6" />
-        </Button>
-      </nav>
     </div>
   );
 }

@@ -479,39 +479,64 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         </AnimatePresence>
       </div>
 
-      {/* Navegação Inferior (Abas) */}
-      <div className="fixed bottom-0 left-0 right-0 bg-slate-900/80 backdrop-blur-xl border-t border-white/5 px-6 py-4 z-50">
-        <div className="max-w-md mx-auto grid grid-cols-3 gap-4">
+      {/* Fluent Bottom Navigation Capsule */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-[340px] z-[100] px-4">
+        <motion.nav 
+          initial={{ y: 100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-[32px] p-2 flex items-center justify-between shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-inset ring-white/5"
+        >
           <button 
             onClick={() => setActiveTab(ParentTab.PAYMENT)}
-            className={`flex flex-col items-center gap-1 transition-all ${activeTab === ParentTab.PAYMENT ? 'text-blue-500 scale-110' : 'text-slate-500'}`}
+            className={`relative flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all ${activeTab === ParentTab.PAYMENT ? 'text-white' : 'text-slate-500 hover:text-slate-400'}`}
           >
-            <div className={`p-2 rounded-xl ${activeTab === ParentTab.PAYMENT ? 'bg-blue-500/10' : ''}`}>
-              <QrCode className="h-6 w-6" />
+            {activeTab === ParentTab.PAYMENT && (
+              <motion.div 
+                layoutId="active-portal-tab-bg"
+                className="absolute inset-x-1 inset-y-1 bg-blue-600 rounded-[24px] shadow-lg shadow-blue-500/20"
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              />
+            )}
+            <div className="relative z-10 flex flex-col items-center gap-1">
+              <QrCode className={`h-5 w-5 ${activeTab === ParentTab.PAYMENT ? 'text-white' : 'text-slate-500'}`} />
+              <span className={`text-[8px] font-black uppercase tracking-widest ${activeTab === ParentTab.PAYMENT ? 'text-white' : 'text-slate-500'}`}>Pagamento</span>
             </div>
-            <span className="text-[8px] font-black uppercase tracking-widest">Pagamento</span>
           </button>
           
           <button 
             onClick={() => setActiveTab(ParentTab.RECHARGE)}
-            className={`flex flex-col items-center gap-1 transition-all ${activeTab === ParentTab.RECHARGE ? 'text-blue-500 scale-110' : 'text-slate-500'}`}
+            className={`relative flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all ${activeTab === ParentTab.RECHARGE ? 'text-white' : 'text-slate-500 hover:text-slate-400'}`}
           >
-            <div className={`p-2 rounded-xl ${activeTab === ParentTab.RECHARGE ? 'bg-blue-500/10' : ''}`}>
-              <Wallet className="h-6 w-6" />
+            {activeTab === ParentTab.RECHARGE && (
+              <motion.div 
+                layoutId="active-portal-tab-bg"
+                className="absolute inset-x-1 inset-y-1 bg-blue-600 rounded-[24px] shadow-lg shadow-blue-500/20"
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              />
+            )}
+            <div className="relative z-10 flex flex-col items-center gap-1">
+              <Wallet className={`h-5 w-5 ${activeTab === ParentTab.RECHARGE ? 'text-white' : 'text-slate-500'}`} />
+              <span className={`text-[8px] font-black uppercase tracking-widest ${activeTab === ParentTab.RECHARGE ? 'text-white' : 'text-slate-500'}`}>Recarga</span>
             </div>
-            <span className="text-[8px] font-black uppercase tracking-widest">Recarga</span>
           </button>
-
+          
           <button 
             onClick={() => setActiveTab(ParentTab.HISTORY)}
-            className={`flex flex-col items-center gap-1 transition-all ${activeTab === ParentTab.HISTORY ? 'text-blue-500 scale-110' : 'text-slate-500'}`}
+            className={`relative flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all ${activeTab === ParentTab.HISTORY ? 'text-white' : 'text-slate-500 hover:text-slate-400'}`}
           >
-            <div className={`p-2 rounded-xl ${activeTab === ParentTab.HISTORY ? 'bg-blue-500/10' : ''}`}>
-              <History className="h-6 w-6" />
+            {activeTab === ParentTab.HISTORY && (
+              <motion.div 
+                layoutId="active-portal-tab-bg"
+                className="absolute inset-x-1 inset-y-1 bg-blue-600 rounded-[24px] shadow-lg shadow-blue-500/20"
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              />
+            )}
+            <div className="relative z-10 flex flex-col items-center gap-1">
+              <History className={`h-5 w-5 ${activeTab === ParentTab.HISTORY ? 'text-white' : 'text-slate-500'}`} />
+              <span className={`text-[8px] font-black uppercase tracking-widest ${activeTab === ParentTab.HISTORY ? 'text-white' : 'text-slate-500'}`}>Histórico</span>
             </div>
-            <span className="text-[8px] font-black uppercase tracking-widest">Histórico</span>
           </button>
-        </div>
+        </motion.nav>
       </div>
 
       {isScanning && (
