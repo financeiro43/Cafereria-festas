@@ -80,6 +80,31 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     return value.replace(/\W/gi, '').replace(/(.{4})/g, '$1 ').trim();
   };
 
+  if (status === 'processing') {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="relative">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            className="h-24 w-24 border-t-4 border-r-4 border-blue-500 rounded-full"
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <CreditCard className="h-8 w-8 text-blue-500 animate-pulse" />
+          </div>
+        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-8 space-y-2"
+        >
+          <h3 className="text-xl font-black text-white uppercase tracking-tighter">Processando Pagamento</h3>
+          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Aguarde a confirmação da operadora...</p>
+        </motion.div>
+      </div>
+    );
+  }
+
   if (status === 'error') {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center overflow-hidden">
