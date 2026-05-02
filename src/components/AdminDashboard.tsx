@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
@@ -181,6 +181,29 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPrintView, setShowPrintView] = useState(false);
   const [cardBgUrl, setCardBgUrl] = useState('https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=1000');
+
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+
+  const filteredUsers = useMemo(() => {
+    return users.filter(user => {
+      if (user.role === 'admin') return false; // Hide admins from the list
+      const search = userSearchQuery.toLowerCase();
+      return (
+        user.name.toLowerCase().includes(search) ||
+        user.email.toLowerCase().includes(search) ||
+        user.qrCode?.toLowerCase().includes(search)
+      );
+    });
+  }, [users, userSearchQuery]);
+
+  const getRoleIcon = (role: string) => {
+    switch (role) {
+      case 'vendor': return <ShoppingCart className="h-4 w-4" />;
+      case 'recharge': return <CreditCard className="h-4 w-4" />;
+      case 'admin': return <ShieldCheckIcon className="h-4 w-4" />;
+      default: return <UserIcon className="h-4 w-4" />;
+    }
+  };
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -779,13 +802,29 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               </div>
             </section>
 
+            {/* Search and List Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Input 
+                  placeholder="Buscar por nome, e-mail ou cartão..." 
+                  value={userSearchQuery}
+                  onChange={(e) => setUserSearchQuery(e.target.value)}
+                  className="pl-10 h-12 bg-white border-slate-200 rounded-2xl shadow-sm focus:ring-blue-500"
+                />
+              </div>
+              <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest px-4">
+                Total: {filteredUsers.length} usuários
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              {users.filter(u => u.role !== 'admin').map(user => (
+              {filteredUsers.map(user => (
                 <div key={user.uid} className="group flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
                   <div className="p-6 pb-0">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="h-12 w-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 font-black text-lg border border-blue-100 uppercase">
+                        <div className="h-12 w-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 font-black text-lg border border-blue-100 uppercase transition-transform group-hover:scale-105">
                           {user.name.charAt(0)}
                         </div>
                         <div>
@@ -793,9 +832,12 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                           <p className="text-[11px] text-slate-400 font-medium truncate max-w-[140px] italic">{user.email}</p>
                         </div>
                       </div>
-                      <div className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border ${
-                        user.role === 'vendor' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'
+                      <div className={`flex items-center gap-1.5 text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border shadow-sm ${
+                        user.role === 'vendor' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                        user.role === 'recharge' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                        'bg-slate-50 text-slate-500 border-slate-100'
                       }`}>
+                        {getRoleIcon(user.role)}
                         {user.role}
                       </div>
                     </div>
