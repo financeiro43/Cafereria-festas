@@ -308,23 +308,31 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                   {[20, 50, 100].map(val => (
                     <motion.button 
                       key={val} 
-                      whileTap={{ scale: 0.97 }}
-                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98, opacity: 0.9 }}
+                      whileHover={{ scale: 1.01 }}
                       onClick={() => setRechargeAmount(val.toString())}
-                      className={`relative h-14 rounded-2xl border font-black text-xs transition-shadow duration-300 ${
+                      className={`relative h-16 rounded-2xl border-2 font-black text-sm transition-all duration-300 flex flex-col items-center justify-center gap-0.5 overflow-hidden group ${
                         rechargeAmount === val.toString() 
-                        ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_20px_rgba(37,99,235,0.2)]' 
-                        : 'bg-slate-950 text-slate-400 border-white/5 hover:border-white/20 hover:bg-slate-900'
+                        ? 'bg-blue-600/90 text-white border-blue-400 shadow-[0_0_30px_rgba(37,99,235,0.3)] ring-2 ring-blue-500/20' 
+                        : 'bg-slate-950 text-slate-500 border-white/5 hover:border-white/10 hover:bg-slate-900 hover:text-slate-300'
                       }`}
                     >
+                      <span className="text-[10px] opacity-60 font-bold">R$</span>
+                      <span className="text-base tracking-tight">{val}</span>
+                      
                       {rechargeAmount === val.toString() && (
-                        <motion.div 
-                          layoutId="active-recharge-pill"
-                          className="absolute inset-x-0 -bottom-1 h-1 bg-white/40 rounded-full mx-4 shadow-[0_0_10px_rgba(255,255,255,0.3)]"
-                          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                        />
+                        <>
+                          <motion.div 
+                            layoutId="active-recharge-glow"
+                            className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-transparent pointer-events-none"
+                            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                          />
+                          <motion.div 
+                            layoutId="active-recharge-indicator"
+                            className="absolute bottom-1.5 h-1 w-6 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.5)]"
+                          />
+                        </>
                       )}
-                      R$ {val}
                     </motion.button>
                   ))}
                 </div>
