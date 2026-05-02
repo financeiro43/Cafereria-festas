@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
@@ -406,10 +406,10 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
             <div className="max-w-4xl w-full space-y-12 py-20">
               <div className="text-center space-y-2">
                 <div className="h-16 w-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center mb-4">
-                  <LayoutDashboard className="h-8 w-8 text-white" />
+                  <Sparkles className="h-8 w-8 text-white" />
                 </div>
-                <h1 className="text-4xl font-black text-white tracking-tighter uppercase">Painel de Controle</h1>
-                <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Selecione uma opção para navegar</p>
+                <h1 className="text-4xl font-black text-white tracking-tighter uppercase">Painel de Evento</h1>
+                <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Acesso Maestro • Controle Total</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -468,7 +468,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   onClick={() => auth.signOut()}
                   className="h-16 px-8 rounded-2xl bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 font-black uppercase tracking-widest text-[10px] transition-all"
                 >
-                  <LogOut className="h-5 w-5 mr-3" /> Sair do Maestro
+                  <LogOut className="h-5 w-5 mr-3" /> Sair do Painel
                 </Button>
               </div>
             </div>

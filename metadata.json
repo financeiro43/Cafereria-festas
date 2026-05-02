@@ -1,6 +1,6 @@
 {
-  "name": "Cafeteria Inteligente",
-  "description": "Sistema de gestão de saldo de alunos com QR Code e pagamentos via Rede.",
+  "name": "Festa Pass",
+  "description": "Sistema de gestão de consumo para eventos e festas com QR Code e pagamentos instantâneos.",
   "requestFramePermissions": [
     "camera"
   ],

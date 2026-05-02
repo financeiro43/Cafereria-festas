@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff, Sparkles, Ticket } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -90,7 +90,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
-          title: 'Cartão de Acesso - Cafeteria Inteligente',
+          title: 'Cartão de Acesso - Festa Pass',
           text: `Acesse o saldo de ${displayedProfile.name} usando este QR Code.`
         });
       } else {
@@ -256,7 +256,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                   <CardContent className="p-8 flex flex-col justify-between h-full min-h-[220px]">
                     <div className="flex justify-between items-start">
                       <div className="space-y-1">
-                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-100/60">Saldo Digital {displayedUid === profile.uid ? 'Unificado' : 'Associado'}</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-100/60">Saldo Arena {displayedUid === profile.uid ? 'Unificado' : 'Associado'}</span>
                         <div className="text-5xl font-black tracking-tighter text-white">
                           R$ {displayedProfile.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </div>
@@ -264,16 +264,16 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                           <p className="text-[9px] font-bold text-blue-200/40 uppercase mt-1">Gerenciando {profile.associatedUids.length} {profile.associatedUids.length === 1 ? 'conta associada' : 'contas associadas'}</p>
                         )}
                       </div>
-                      <Zap className="h-8 w-8 text-white fill-white/20 animate-bounce" />
+                      <Sparkles className="h-8 w-8 text-yellow-300 fill-yellow-400/20 animate-pulse" />
                     </div>
 
                     <div className="flex justify-between items-end mt-12">
                       <div className="space-y-1">
-                         <p className="text-[9px] font-bold uppercase tracking-widest text-blue-100/60 leading-none">Matrícula Escolar</p>
+                         <p className="text-[9px] font-bold uppercase tracking-widest text-blue-100/60 leading-none">Acesso VIP Eventos</p>
                          <p className="text-sm font-black text-white/90 uppercase truncate max-w-[150px]">{displayedProfile.name}</p>
                       </div>
                       <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/20">
-                        <CreditCard className="h-6 w-6 text-white" />
+                        <Ticket className="h-6 w-6 text-white" />
                       </div>
                     </div>
                   </CardContent>
@@ -642,11 +642,11 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                   <div className="space-y-1">
                     <div className="flex justify-center mb-6">
                       <div className="bg-blue-600 p-2.5 rounded-2xl shadow-lg shadow-blue-200">
-                        <ShoppingBag className="h-7 w-7 text-white" />
+                        <Sparkles className="h-7 w-7 text-white" />
                       </div>
                     </div>
-                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Cartão de Acesso</h3>
-                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em]">Escola & Cafeteria Gourmet</p>
+                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Festa Pass Digital</h3>
+                    <p className="text-[11px] text-slate-400 font-bold uppercase tracking-[0.2em]">O Melhor do Entretenimento</p>
                   </div>
 
                   <div className="bg-white p-6 rounded-[40px] shadow-[0_20px_50px_rgba(0,0,0,0.06)] border border-slate-100 flex justify-center relative group">

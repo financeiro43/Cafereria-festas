@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Coffee, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDashboard, User as UserIcon, LogOut, Store, Loader2, ArrowRight, Smartphone, ShoppingCart } from 'lucide-react';
+import { Sparkles, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDashboard, User as UserIcon, LogOut, Store, Loader2, ArrowRight, Smartphone, ShoppingCart, Ticket } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -212,7 +212,7 @@ function MainApp() {
           <div className="relative">
             <div className="absolute inset-0 bg-blue-600 blur-2xl opacity-20 animate-pulse" />
             <div className="relative p-6 bg-slate-900 rounded-[32px] border border-white/10 shadow-2xl">
-              <Coffee className="h-12 w-12 text-blue-500" />
+              <Sparkles className="h-12 w-12 text-yellow-400" />
             </div>
           </div>
           
@@ -245,21 +245,24 @@ function MainApp() {
     return (
       <div className="min-h-screen bg-slate-50">
         <nav className="p-6 flex justify-between items-center max-w-7xl mx-auto">
-          <div className="flex items-center gap-2 font-bold text-xl text-slate-900">
-            <Coffee className="h-6 w-6" /> Cafeteria Inteligente
+          <div className="flex items-center gap-2 font-black text-2xl text-slate-900 tracking-tighter">
+            <div className="bg-slate-900 p-1.5 rounded-lg">
+              <Sparkles className="h-5 w-5 text-yellow-400" />
+            </div>
+            FESTA <span className="text-blue-600">PASS</span>
           </div>
-          <Button onClick={() => setIsLoginOpen(true)} variant="outline">Entrar</Button>
+          <Button onClick={() => setIsLoginOpen(true)} variant="outline" className="rounded-xl font-bold uppercase tracking-widest text-[10px] px-6">Entrar</Button>
         </nav>
 
         <main className="max-w-7xl mx-auto px-6 py-12 md:py-24 grid md:grid-cols-2 gap-12 items-center">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <span className="text-blue-600 font-bold tracking-wider uppercase text-sm">Escolas do Futuro</span>
-            <h1 className="text-5xl md:text-7xl font-bold text-slate-900 mt-4 leading-tight">
-              A merenda sem <br />
-              <span className="text-slate-400">complicações</span>
+            <h1 className="text-5xl md:text-7xl font-black text-slate-900 mt-4 leading-tight tracking-tighter">
+              Sua festa sem <br />
+              <span className="text-blue-600">filas.</span>
             </h1>
-            <p className="text-lg text-slate-600 mt-6 max-w-md">
-              O sistema definitivo para gestão de saldo escolar. Recargas instantâneas via Rede e pagamentos via QR Code.
+            <p className="text-lg text-slate-600 mt-6 max-w-md font-medium">
+              O sistema definitivo para eventos e festivais. Pagamentos via QR Code, gestão de barracas e recargas instantâneas.
             </p>
             <Button onClick={() => setIsLoginOpen(true)} size="lg" className="mt-10 bg-slate-900 text-white px-8 h-14 rounded-xl text-lg group">
               Começar Agora <ChevronRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
@@ -267,7 +270,7 @@ function MainApp() {
           </motion.div>
           <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="relative">
             <div className="aspect-square bg-slate-200 rounded-3xl overflow-hidden relative shadow-2xl">
-              <img src="https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&q=80&w=1200" alt="Cafeteria" className="object-cover w-full h-full mix-blend-overlay opacity-80" referrerPolicy="no-referrer" />
+              <img src="https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&q=80&w=1200" alt="Evento" className="object-cover w-full h-full mix-blend-overlay opacity-80" referrerPolicy="no-referrer" />
               <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent" />
             </div>
           </motion.div>
@@ -360,12 +363,13 @@ function MainApp() {
 
         <div className="w-full max-w-5xl space-y-12 animate-in fade-in zoom-in duration-500">
           <header className="text-center space-y-4">
-             <div className="inline-flex p-4 bg-blue-600 rounded-3xl shadow-2xl shadow-blue-900/40 mb-2">
-                <Coffee className="h-10 w-10 text-white" />
+             <div className="inline-flex p-5 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[32px] shadow-2xl shadow-blue-500/40 mb-2 relative group">
+                <div className="absolute inset-0 bg-white/20 rounded-[32px] scale-0 group-hover:scale-100 transition-transform duration-500" />
+                <Sparkles className="h-12 w-12 text-white relative z-10" />
              </div>
              <div className="space-y-1">
-                <h1 className="text-4xl md:text-6xl font-black text-white uppercase tracking-tighter leading-none">Central Inteligente</h1>
-                <p className="text-slate-500 font-bold uppercase tracking-[0.3em] text-[10px]">Bem-vindo, {profile.name}</p>
+                <h1 className="text-4xl md:text-6xl font-black text-white uppercase tracking-tighter leading-none">Global Event Control</h1>
+                <p className="text-slate-500 font-bold uppercase tracking-[0.3em] text-[10px]">Painel Administrativo • {profile.name}</p>
              </div>
           </header>
 
