@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -25,12 +25,16 @@ enum ParentTab {
 export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [rechargeAmount, setRechargeAmount] = useState<string>('50');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [associatedProfiles, setAssociatedProfiles] = useState<UserProfile[]>([]);
+  const [displayedUid, setDisplayedUid] = useState<string>(profile.uid);
   const [loading, setLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<ParentTab>(ParentTab.PAYMENT);
+
+  const displayedProfile = [profile, ...associatedProfiles].find(p => p.uid === displayedUid) || profile;
 
   const handleShare = async () => {
     if (navigator.share) {
@@ -60,36 +64,17 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       }
 
       const userData = querySnapshot.docs[0].data() as UserProfile;
-      const cardRef = doc(db, 'users', querySnapshot.docs[0].id);
       const userRef = doc(db, 'users', profile.uid);
       
       // Se for um cartão diferente e não for o próprio
       if (userData.uid !== profile.uid) {
-        if (confirm(`Deseja vincular este cartão (${decodedText})? O saldo de R$ ${userData.balance.toFixed(2)} será transferido para sua conta digital.`)) {
+        if (confirm(`Deseja vincular o cartão de ${userData.name} como uma conta associada? Você poderá gerenciar e usar este saldo para pagamentos.`)) {
           
           await updateDoc(userRef, {
-            balance: increment(userData.balance),
-            linkedCards: Array.from(new Set([...(profile.linkedCards || []), decodedText]))
+            associatedUids: Array.from(new Set([...(profile.associatedUids || []), userData.uid]))
           });
 
-          // Reset do saldo do cartão vinculado para evitar duplicidade
-          await updateDoc(cardRef, {
-            balance: 0
-          });
-
-          // Registrar transação de transferência
-          if (userData.balance > 0) {
-            await addDoc(collection(db, 'transactions'), {
-              userId: profile.uid,
-              amount: userData.balance,
-              type: 'credit',
-              status: 'completed',
-              description: `Vínculo de Cartão: ${decodedText} (+ Saldo)`,
-              timestamp: serverTimestamp(),
-            });
-          }
-
-          toast.success(`Cartão ${decodedText} vinculado com sucesso! Saldo transferido.`);
+          toast.success(`Conta de ${userData.name} vinculada com sucesso!`);
         }
       } else {
         toast.success('Este cartão já é o principal da sua conta.');
@@ -101,12 +86,12 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   };
 
   useEffect(() => {
-    if (!profile.uid) return;
+    if (!displayedUid) return;
     
     // Transactions listener
     const qTx = query(
       collection(db, 'transactions'),
-      where('userId', '==', profile.uid),
+      where('userId', '==', displayedUid),
       limit(50) // Increased limit since we sort on client
     );
 
@@ -125,6 +110,32 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
     return () => unsubTx();
   }, [profile.uid]);
+
+  useEffect(() => {
+    if (!profile.associatedUids || profile.associatedUids.length === 0) {
+      setAssociatedProfiles([]);
+      return;
+    }
+
+    const unsubs = profile.associatedUids.map(uid => {
+      return onSnapshot(doc(db, 'users', uid), (snap) => {
+        if (snap.exists()) {
+          const data = { ...snap.data(), uid: snap.id } as UserProfile;
+          setAssociatedProfiles(prev => {
+            const index = prev.findIndex(p => p.uid === data.uid);
+            if (index >= 0) {
+              const next = [...prev];
+              next[index] = data;
+              return next;
+            }
+            return [...prev, data];
+          });
+        }
+      });
+    });
+
+    return () => unsubs.forEach(unsub => unsub());
+  }, [profile.associatedUids]);
 
   const handleRecharge = async () => {
     const amount = parseFloat(rechargeAmount);
@@ -152,7 +163,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
               {activeTab === ParentTab.PAYMENT ? 'Pagamento' : 
                activeTab === ParentTab.RECHARGE ? 'Recarga' : 'Histórico'}
             </h1>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">{profile.name} • Estudante</p>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">{displayedProfile.name} • {displayedUid === profile.uid ? 'Principal' : 'Associado'}</p>
           </div>
           <Button variant="ghost" size="icon" onClick={() => auth.signOut()} className="bg-white/5 hover:bg-white/10 rounded-2xl h-12 w-12 text-slate-400">
             <LogOut className="h-5 w-5" />
@@ -175,12 +186,12 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                   <CardContent className="p-8 flex flex-col justify-between h-full min-h-[220px]">
                     <div className="flex justify-between items-start">
                       <div className="space-y-1">
-                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-100/60">Saldo Digital Unificado</span>
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-100/60">Saldo Digital {displayedUid === profile.uid ? 'Unificado' : 'Associado'}</span>
                         <div className="text-5xl font-black tracking-tighter text-white">
-                          R$ {profile.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          R$ {displayedProfile.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </div>
-                        {profile.linkedCards && profile.linkedCards.length > 0 && (
-                          <p className="text-[9px] font-bold text-blue-200/40 uppercase mt-1">Inclui {profile.linkedCards.length} {profile.linkedCards.length === 1 ? 'cartão vinculado' : 'cartões vinculados'}</p>
+                        {displayedUid === profile.uid && profile.associatedUids && profile.associatedUids.length > 0 && (
+                          <p className="text-[9px] font-bold text-blue-200/40 uppercase mt-1">Gerenciando {profile.associatedUids.length} {profile.associatedUids.length === 1 ? 'conta associada' : 'contas associadas'}</p>
                         )}
                       </div>
                       <Zap className="h-8 w-8 text-white fill-white/20 animate-bounce" />
@@ -189,7 +200,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                     <div className="flex justify-between items-end mt-12">
                       <div className="space-y-1">
                          <p className="text-[9px] font-bold uppercase tracking-widest text-blue-100/60 leading-none">Matrícula Escolar</p>
-                         <p className="text-sm font-black text-white/90 uppercase truncate max-w-[150px]">{profile.name}</p>
+                         <p className="text-sm font-black text-white/90 uppercase truncate max-w-[150px]">{displayedProfile.name}</p>
                       </div>
                       <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/20">
                         <CreditCard className="h-6 w-6 text-white" />
@@ -209,7 +220,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                   </div>
                   
                   <div className="bg-white p-6 rounded-[32px] inline-block shadow-[0_0_50px_rgba(255,255,255,0.05)] transform transition-transform group-hover:scale-105 duration-500">
-                    <QRCodeSVG value={profile.qrCode} size={180} />
+                    <QRCodeSVG value={displayedProfile.qrCode} size={180} />
                   </div>
 
                   <div className="flex items-center justify-center gap-2">
@@ -281,30 +292,54 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                         <QrCode className="h-5 w-5 text-blue-500" />
                     </div>
                     <div className="flex-1">
-                        <p className="text-[11px] font-black uppercase text-blue-100">Vincular Novo Cartão</p>
-                        <p className="text-[9px] text-slate-500 font-bold">Adicione cartões físicos à sua conta</p>
+                        <p className="text-[11px] font-black uppercase text-blue-100">Vincular Conta Associada</p>
+                        <p className="text-[9px] text-slate-500 font-bold">Gerencie cartões de dependentes ou familiares</p>
                     </div>
                     <ChevronRight className="h-5 w-5 text-slate-700 group-hover:translate-x-1 transition-transform" />
                   </div>
 
-                  {profile.linkedCards && profile.linkedCards.length > 0 && (
-                    <div className="pt-2">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-3 ml-2">Meus Cartões Vinculados</p>
-                      <div className="space-y-2">
-                        {profile.linkedCards.map(cardId => (
-                          <div key={cardId} className="flex items-center justify-between p-3.5 bg-slate-950/50 rounded-2xl border border-white/5">
-                            <div className="flex items-center gap-3">
-                               <div className="h-8 w-8 bg-blue-600/10 rounded-lg flex items-center justify-center">
-                                  <CreditCard className="h-4 w-4 text-blue-500" />
-                               </div>
-                               <span className="text-xs font-black text-slate-300 font-mono">{cardId}</span>
-                            </div>
-                            <span className="text-[9px] font-black text-green-500/50 uppercase tracking-tighter bg-green-500/5 px-2 py-0.5 rounded-full border border-green-500/10">Ativo</span>
+                  {/* Selector de Contas */}
+                  <div className="pt-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-600 mb-3 ml-2">Escolha a Conta Ativa</p>
+                    <div className="space-y-2">
+                      {/* Principal Account */}
+                      <button 
+                        onClick={() => setDisplayedUid(profile.uid)}
+                        className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all ${displayedUid === profile.uid ? 'bg-blue-600/10 border-blue-600/30 ring-1 ring-blue-600/20' : 'bg-slate-950/50 border-white/5'}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${displayedUid === profile.uid ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'}`}>
+                            <CreditCard className="h-4 w-4" />
                           </div>
-                        ))}
-                      </div>
+                          <div className="text-left">
+                            <span className="block text-xs font-black text-slate-200">Carteira Principal</span>
+                            <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter">Própria</span>
+                          </div>
+                        </div>
+                        <span className="text-xs font-black text-blue-400">R$ {profile.balance.toFixed(2)}</span>
+                      </button>
+
+                      {/* Associated Profiles */}
+                      {associatedProfiles.map(assoc => (
+                        <button 
+                          key={assoc.uid}
+                          onClick={() => setDisplayedUid(assoc.uid)}
+                          className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all ${displayedUid === assoc.uid ? 'bg-blue-600/10 border-blue-600/30 ring-1 ring-blue-600/20' : 'bg-slate-950/50 border-white/5'}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${displayedUid === assoc.uid ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'}`}>
+                              <Users className="h-4 w-4" />
+                            </div>
+                            <div className="text-left">
+                              <span className="block text-xs font-black text-slate-200 truncate max-w-[120px]">{assoc.name}</span>
+                              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter">Associado</span>
+                            </div>
+                          </div>
+                          <span className="text-xs font-black text-blue-400">R$ {assoc.balance.toFixed(2)}</span>
+                        </button>
+                      ))}
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -421,11 +456,11 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                     </div>
                   </div>
                   <h3 className="text-xl font-black uppercase tracking-tighter">Cartão de Acesso</h3>
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Saldo Compartilhado • {profile.name}</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Acesso de {displayedProfile.name}</p>
                 </div>
 
                 <div className="bg-slate-50 p-6 rounded-[32px] border-2 border-slate-100 flex justify-center">
-                  <QRCodeSVG value={profile.qrCode} size={200} />
+                  <QRCodeSVG value={displayedProfile.qrCode} size={200} />
                 </div>
 
                 <div className="space-y-4">
@@ -443,7 +478,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                     Fechar
                   </Button>
 
-                  <p className="text-[9px] text-slate-400 font-mono text-center">ID COMPARTILHAMENTO: {profile.uid?.substring(0,8)}</p>
+                  <p className="text-[9px] text-slate-400 font-mono text-center">ID CONTA: {displayedProfile.uid?.substring(0,8)}</p>
                 </div>
               </div>
 
@@ -459,7 +494,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           <div className="p-8">
             <RedePaymentForm 
               amount={selectedAmount} 
-              uid={profile.uid} 
+              uid={displayedUid} 
               onSuccess={() => {
                 setTimeout(() => setShowPaymentModal(false), 2000);
               }}
