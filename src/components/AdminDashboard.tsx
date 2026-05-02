@@ -9,6 +9,7 @@ import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, L
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'motion/react';
 import VendorDashboard from './VendorDashboard';
 import ShopView from './ShopView';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
@@ -1241,6 +1242,43 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
           )}
         </div>
       </main>
+
+      {/* Mobile Bottom Navigation Capsule */}
+      <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-[360px] z-[100] px-4">
+        <motion.nav 
+          initial={{ y: 100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          className="bg-slate-900/80 backdrop-blur-2xl border border-white/10 rounded-[32px] p-1.5 flex items-center justify-between shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-inset ring-white/5"
+        >
+          {[
+            { id: 'overview', icon: TrendingUp, label: 'Geral' },
+            { id: 'users', icon: Users, label: 'Equipe' },
+            { id: 'terminal', icon: ShoppingCart, label: 'PDV' },
+            { id: 'recharge_pos', icon: QrCode, label: 'Carga' }
+          ].map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button 
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as AdminTab)}
+                className={`relative flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all ${isActive ? 'text-white' : 'text-slate-500 hover:text-slate-400'}`}
+              >
+                {isActive && (
+                  <motion.div 
+                    layoutId="active-admin-tab-bg"
+                    className="absolute inset-x-1 inset-y-1 bg-blue-600 rounded-[26px] shadow-lg shadow-blue-500/20"
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                  />
+                )}
+                <div className="relative z-10 flex flex-col items-center gap-0.5">
+                  <tab.icon className={`h-5 w-5 ${isActive ? 'text-white' : 'text-slate-500'}`} />
+                  <span className={`text-[8px] font-black uppercase tracking-widest ${isActive ? 'text-white' : 'text-slate-500'}`}>{tab.label}</span>
+                </div>
+              </button>
+            );
+          })}
+        </motion.nav>
+      </div>
     </div>
   );
 }
