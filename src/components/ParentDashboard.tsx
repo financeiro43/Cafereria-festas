@@ -32,6 +32,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [isScanning, setIsScanning] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<ParentTab>(ParentTab.PAYMENT);
   const shareCardRef = useRef<HTMLDivElement>(null);
@@ -114,7 +115,14 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             associatedUids: Array.from(new Set([...(profile.associatedUids || []), userData.uid]))
           });
 
-          toast.success(`Conta de ${userData.name} vinculada com sucesso!`);
+          setShowSuccessAnimation(true);
+          toast.success(`Conta de ${userData.name} vinculada com sucesso!`, {
+            description: 'Você já pode gerenciar este saldo.',
+            duration: 5000,
+          });
+          
+          // Esconde animação após alguns segundos
+          setTimeout(() => setShowSuccessAnimation(false), 3000);
         }
       } else {
         toast.success('Este cartão já é o principal da sua conta.');
@@ -481,6 +489,54 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           title="Vincular Cartão Escolar"
         />
       )}
+
+      {/* Animação Sucesso Vínculo */}
+      <AnimatePresence>
+        {showSuccessAnimation && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-blue-600/20 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.5, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 1.1, opacity: 0 }}
+              className="bg-white rounded-[40px] p-10 text-center space-y-6 shadow-2xl max-w-sm w-full"
+            >
+              <div className="flex justify-center">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: [0, 1.2, 1] }}
+                  transition={{ delay: 0.2, type: 'spring' }}
+                  className="h-24 w-24 bg-green-500 rounded-full flex items-center justify-center shadow-lg shadow-green-200"
+                >
+                  <ShieldCheck className="h-12 w-12 text-white" />
+                </motion.div>
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Tudo Pronto!</h3>
+                <p className="text-sm text-slate-500 font-bold leading-relaxed">
+                  A conta foi vinculada com sucesso ao seu perfil principal.
+                </p>
+              </div>
+              <div className="pt-4 flex justify-center">
+                <div className="flex gap-1">
+                  {[1, 2, 3].map(i => (
+                    <motion.div
+                      key={i}
+                      animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
+                      transition={{ repeat: Infinity, duration: 1, delay: i * 0.2 }}
+                      className="h-2 w-2 bg-blue-600 rounded-full"
+                    />
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Modal de Compartilhamento */}
       <AnimatePresence>
