@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { toast } from 'sonner';
@@ -22,6 +22,7 @@ type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app
 
 export default function AdminDashboard({ profile, forcedTab }: { profile: UserProfile, forcedTab?: AdminTab }) {
   const [activeTab, setActiveTab] = useState<AdminTab>(forcedTab || 'overview');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     if (forcedTab) {
@@ -319,133 +320,121 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     }
   };
 
+  const navItems = [
+    { id: 'overview', icon: TrendingUp, label: 'Gestão Financeira', category: 'Administração' },
+    { id: 'stalls', icon: Store, label: 'Barracas', category: 'Administração' },
+    { id: 'products', icon: Package, label: 'Catálogo Geral', category: 'Administração' },
+    { id: 'users', icon: Users, label: 'Gestão de Equipe', category: 'Administração' },
+    { id: 'transactions', icon: History, label: 'Histórico de Vendas', category: 'Administração' },
+    { id: 'card_printer', icon: Printer, label: 'Impressor de Cartões', category: 'Administração' },
+    { id: 'terminal', icon: ShoppingCart, label: 'Terminal PDV (Caixa)', category: 'Canais de Venda' },
+    { id: 'recharge_pos', icon: QrCode, label: 'Carga e Recarga', category: 'Canais de Venda' },
+    { id: 'app_view', icon: Smartphone, label: 'Portal do Aluno (App)', category: 'Canais de Venda' },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
-      {/* Desktop Sidebar */}
-      <aside className={`hidden md:flex w-72 bg-slate-900 text-white p-6 flex-col gap-8 sticky top-0 h-screen overflow-hidden ${forcedTab ? '!hidden' : ''}`}>
-        <div className="flex items-center gap-3 px-2">
-          <div className="p-2 bg-blue-600 rounded-lg">
-            <LayoutDashboard className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h1 className="font-black text-xl tracking-tight leading-none">MAESTRO</h1>
-            <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-1">Gestão Central</p>
-          </div>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-          <div className="space-y-6">
-            <section>
-              <label className="text-[10px] font-black uppercase text-slate-500 px-3 mb-2 block tracking-widest">Administração</label>
-              <nav className="flex flex-col gap-1">
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab('overview')}
-                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'overview' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <TrendingUp className="h-4 w-4" /> Gestão Financeira
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab('stalls')}
-                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'stalls' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <Store className="h-4 w-4" /> Barracas
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab('products')}
-                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'products' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <Package className="h-4 w-4" /> Catálogo Geral
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab('users')}
-                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'users' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <Users className="h-4 w-4" /> Gestão de Equipe
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab('transactions')}
-                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'transactions' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <History className="h-4 w-4" /> Histórico de Vendas
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab('card_printer')}
-                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'card_printer' ? 'bg-white/10 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <Printer className="h-4 w-4" /> Impressor de Cartões
-                </Button>
-              </nav>
-            </section>
+    <div className="min-h-screen bg-slate-50 relative overflow-x-hidden">
+      {/* Floating Menu Button */}
+      <div className="fixed top-6 right-6 z-[200]">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setIsMenuOpen(!isMenuOpen)}
+          className={`h-16 w-16 rounded-[24px] flex items-center justify-center shadow-2xl transition-all duration-500 ${
+            isMenuOpen 
+              ? 'bg-red-500 text-white rotate-90' 
+              : 'bg-slate-950 text-white'
+          }`}
+        >
+          {isMenuOpen ? <X className="h-8 w-8" /> : <Menu className="h-8 w-8" />}
+        </motion.button>
+      </div>
 
-            <section>
-              <label className="text-[10px] font-black uppercase text-slate-500 px-3 mb-2 block tracking-widest">Canais de Venda</label>
-              <nav className="flex flex-col gap-1">
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab('terminal')}
-                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'terminal' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <ShoppingCart className="h-4 w-4" /> Terminal PDV (Caixa)
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab('recharge_pos')}
-                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'recharge_pos' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <QrCode className="h-4 w-4" /> Carga e Recarga
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  onClick={() => setActiveTab('app_view')}
-                  className={`justify-start gap-3 h-11 rounded-xl border-none transition-all ${activeTab === 'app_view' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                >
-                  <Smartphone className="h-4 w-4" /> Portal do Aluno (App)
-                </Button>
-              </nav>
-            </section>
-          </div>
-        </div>
-
-        <div className="pt-6 border-t border-white/5">
-          <div className="flex items-center gap-3 p-3 bg-white/5 rounded-2xl mb-4">
-             <div className="h-8 w-8 rounded-full bg-slate-700 flex items-center justify-center text-[10px] font-bold">ADM</div>
-             <div className="flex-1 overflow-hidden">
-                <p className="text-xs font-bold truncate">{profile.name}</p>
-                <p className="text-[10px] text-slate-500 truncate">Administrador</p>
-             </div>
-          </div>
-          <Button 
-            variant="ghost" 
-            onClick={() => auth.signOut()}
-            className="w-full justify-start gap-3 h-11 rounded-xl border-none text-red-400 hover:text-red-300 hover:bg-red-950/30"
+      {/* Full Screen Navigation Overlay */}
+      <AnimatePresence>
+        {isMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[190] bg-slate-950/95 backdrop-blur-2xl flex flex-col items-center justify-center p-8 overflow-y-auto"
           >
-            <LogOut className="h-4 w-4" /> Sair do Sistema
-          </Button>
-        </div>
-      </aside>
+            <div className="max-w-4xl w-full space-y-12 py-20">
+              <div className="text-center space-y-2">
+                <div className="h-16 w-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center mb-4">
+                  <LayoutDashboard className="h-8 w-8 text-white" />
+                </div>
+                <h1 className="text-4xl font-black text-white tracking-tighter uppercase">Painel de Controle</h1>
+                <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Selecione uma opção para navegar</p>
+              </div>
 
-      {/* Mobile Top Header */}
-      <header className="md:hidden bg-slate-900 text-white p-4 flex items-center justify-between sticky top-0 z-50 shadow-lg">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-blue-600 rounded-lg">
-            <LayoutDashboard className="h-5 w-5 text-white" />
-          </div>
-          <h1 className="font-black text-lg tracking-tight">MAESTRO</h1>
-        </div>
-        <Button variant="ghost" size="icon" onClick={() => auth.signOut()} className="text-red-400 bg-white/5 h-10 w-10 rounded-xl">
-          <LogOut className="h-5 w-5" />
-        </Button>
-      </header>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {navItems.map((item) => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <motion.button
+                      key={item.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      whileHover={{ scale: 1.02, y: -4 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        setActiveTab(item.id as AdminTab);
+                        setIsMenuOpen(false);
+                      }}
+                      className={`group p-6 rounded-[32px] border-2 transition-all text-left flex items-center gap-5 ${
+                        isActive 
+                          ? 'bg-blue-600 border-blue-400 shadow-[0_20px_50px_rgba(37,99,235,0.3)]' 
+                          : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10'
+                      }`}
+                    >
+                      <div className={`h-12 w-12 rounded-2xl flex items-center justify-center transition-all ${
+                        isActive ? 'bg-white text-blue-600' : 'bg-white/5 text-slate-400 group-hover:text-white'
+                      }`}>
+                        <item.icon className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <p className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${
+                          isActive ? 'text-blue-100' : 'text-slate-500'
+                        }`}>
+                          {item.category}
+                        </p>
+                        <p className={`text-sm font-black uppercase tracking-tight ${
+                          isActive ? 'text-white' : 'text-slate-200'
+                        }`}>
+                          {item.label}
+                        </p>
+                      </div>
+                    </motion.button>
+                  );
+                })}
+              </div>
+
+              <div className="pt-12 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-8">
+                <div className="flex items-center gap-4">
+                  <div className="h-14 w-14 rounded-2xl bg-slate-800 flex items-center justify-center text-slate-400 border border-white/5 font-black text-xl">
+                    {profile.name.charAt(0)}
+                  </div>
+                  <div>
+                    <h3 className="text-white font-black uppercase tracking-tight">{profile.name}</h3>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Acesso de Administrador</p>
+                  </div>
+                </div>
+                <Button 
+                  onClick={() => auth.signOut()}
+                  className="h-16 px-8 rounded-2xl bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 font-black uppercase tracking-widest text-[10px] transition-all"
+                >
+                  <LogOut className="h-5 w-5 mr-3" /> Sair do Maestro
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main Content */}
-      <main className="flex-1 h-screen overflow-y-auto">
-        <div className={`max-w-6xl mx-auto ${forcedTab ? 'p-2' : 'p-8'}`}>
+      <main className="flex-1 min-h-screen">
+        <div className={`max-w-6xl mx-auto ${forcedTab ? 'p-2' : 'p-8 pt-24 md:pt-8'}`}>
           {activeTab === 'overview' && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <header className="px-2 md:px-0">
@@ -1242,43 +1231,6 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
           )}
         </div>
       </main>
-
-      {/* Mobile Bottom Navigation Capsule */}
-      <div className="md:hidden fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-[360px] z-[100] px-4">
-        <motion.nav 
-          initial={{ y: 100, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="bg-slate-900/80 backdrop-blur-2xl border border-white/10 rounded-[32px] p-1.5 flex items-center justify-between shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-inset ring-white/5"
-        >
-          {[
-            { id: 'overview', icon: TrendingUp, label: 'Geral' },
-            { id: 'users', icon: Users, label: 'Equipe' },
-            { id: 'terminal', icon: ShoppingCart, label: 'PDV' },
-            { id: 'recharge_pos', icon: QrCode, label: 'Carga' }
-          ].map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button 
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as AdminTab)}
-                className={`relative flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all ${isActive ? 'text-white' : 'text-slate-500 hover:text-slate-400'}`}
-              >
-                {isActive && (
-                  <motion.div 
-                    layoutId="active-admin-tab-bg"
-                    className="absolute inset-x-1 inset-y-1 bg-blue-600 rounded-[26px] shadow-lg shadow-blue-500/20"
-                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                  />
-                )}
-                <div className="relative z-10 flex flex-col items-center gap-0.5">
-                  <tab.icon className={`h-5 w-5 ${isActive ? 'text-white' : 'text-slate-500'}`} />
-                  <span className={`text-[8px] font-black uppercase tracking-widest ${isActive ? 'text-white' : 'text-slate-500'}`}>{tab.label}</span>
-                </div>
-              </button>
-            );
-          })}
-        </motion.nav>
-      </div>
     </div>
   );
 }
