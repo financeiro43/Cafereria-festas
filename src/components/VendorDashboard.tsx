@@ -329,20 +329,27 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white pb-32 md:pb-8">
-      <div className="max-w-[1536px] mx-auto px-4 py-4 md:px-6 md:py-6 space-y-6">
-        <header className="flex justify-between items-center bg-slate-900 border border-white/5 p-4 rounded-xl shadow-xl sticky top-2 z-30">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/20">
-              <Store className="h-5 w-5 text-white" />
+    <div className="min-h-screen bg-slate-950 text-white pb-32 md:pb-8 relative overflow-hidden">
+      {/* Background Decorative Elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full" />
+        <div className="absolute top-[20%] -right-[10%] w-[30%] h-[30%] bg-indigo-600/10 blur-[100px] rounded-full" />
+        <div className="absolute -bottom-[10%] left-[20%] w-[50%] h-[40%] bg-blue-900/10 blur-[150px] rounded-full" />
+      </div>
+
+      <div className="max-w-[1536px] mx-auto px-4 py-4 md:px-6 md:py-6 space-y-6 relative z-10">
+        <header className="flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-900/40 backdrop-blur-xl border border-white/10 p-4 rounded-3xl shadow-2xl sticky top-2 z-30 transition-all duration-300">
+          <div className="flex items-center gap-4 w-full md:w-auto">
+            <div className="h-12 w-12 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 ring-1 ring-white/20">
+              <Store className="h-6 w-6 text-white" />
             </div>
-            <div>
-              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Terminal Aberto</p>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-black text-white leading-none">{stall?.name || 'Carregando...'}</h2>
+            <div className="flex-1">
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Terminal Ativo</p>
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-black text-white tracking-tight leading-none">{stall?.name || 'Carregando...'}</h2>
                 {(profile.role === 'admin' || (profile.vendorIds && profile.vendorIds.length > 1)) && (
                   <select 
-                    className="bg-slate-800 text-[9px] px-2 py-1 rounded border border-white/10 font-bold text-blue-400 uppercase outline-none"
+                    className="bg-white/5 hover:bg-white/10 text-[10px] px-3 py-1.5 rounded-xl border border-white/10 font-black text-blue-400 uppercase outline-none transition-all cursor-pointer"
                     value={activeStallId || ''}
                     onChange={(e) => setActiveStallId(e.target.value)}
                   >
@@ -354,30 +361,30 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="bg-slate-800 p-1 rounded-lg">
-              <TabsList className="bg-transparent border-none">
-                <TabsTrigger value="pos" className="data-[state=active]:bg-blue-600 font-bold text-[10px] uppercase h-8 px-3">
-                   <ShoppingCart className="h-3 w-3 mr-2" /> PDV
+          <div className="flex items-center gap-3 w-full md:w-auto justify-between sm:justify-end">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="bg-white/5 p-1 rounded-2xl border border-white/5">
+              <TabsList className="bg-transparent border-none h-10 gap-1">
+                <TabsTrigger value="pos" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white font-black text-[10px] uppercase h-8 px-4 rounded-xl transition-all">
+                   <ShoppingCart className="h-3.5 w-3.5 mr-2" /> PDV
                 </TabsTrigger>
-                <TabsTrigger value="orders" className="data-[state=active]:bg-blue-600 font-bold text-[10px] uppercase h-8 px-3 relative">
-                   <Clock className="h-3 w-3 mr-2" /> Pedidos
+                <TabsTrigger value="orders" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white font-black text-[10px] uppercase h-8 px-4 rounded-xl transition-all relative">
+                   <Clock className="h-3.5 w-3.5 mr-2" /> Pedidos
                    {orders.length > 0 && (
-                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[8px] h-4 w-4 flex items-center justify-center rounded-full border border-slate-900">
+                     <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] font-black h-5 w-5 flex items-center justify-center rounded-full border-2 border-slate-900 shadow-lg">
                        {orders.length}
                      </span>
                    )}
                 </TabsTrigger>
-                <TabsTrigger value="analytics" className="data-[state=active]:bg-blue-600 font-bold text-[10px] uppercase h-8 px-3">
-                   <BarChart3 className="h-3 w-3 mr-2" /> Análise
+                <TabsTrigger value="analytics" className="data-[state=active]:bg-indigo-600 data-[state=active]:text-white font-black text-[10px] uppercase h-8 px-4 rounded-xl transition-all">
+                   <BarChart3 className="h-3.5 w-3.5 mr-2" /> Análise
                 </TabsTrigger>
               </TabsList>
             </Tabs>
             
-            <div className="hidden sm:block h-6 w-px bg-white/10 mx-1" />
+            <div className="hidden sm:block h-8 w-px bg-white/10 mx-1" />
 
-            <Button variant="ghost" onClick={() => auth.signOut()} className="text-slate-500 hover:text-white h-10 w-10 p-0">
-              <LogOut className="h-5 w-5" />
+            <Button variant="ghost" onClick={() => auth.signOut()} className="text-slate-500 hover:text-white hover:bg-white/5 h-11 w-11 p-0 rounded-2xl shrink-0 transition-all">
+              <LogOut className="h-5.5 w-5.5" />
             </Button>
           </div>
         </header>
@@ -386,62 +393,83 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           {activeTab === 'pos' ? (
             <motion.div 
               key="pos"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="grid grid-cols-1 xl:grid-cols-[1fr,360px] gap-8 items-start animate-in fade-in duration-500"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.02 }}
+              className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8 items-start transition-all"
             >
               {/* Product Area */}
-              <div className="w-full space-y-6">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-2">
-                  <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500">Produtos Disponíveis</h3>
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+              <div className="w-full space-y-8">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-6 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-[0.4em] text-slate-500 mb-1">Cardápio Disponível</h3>
+                    <p className="text-xs font-bold text-slate-400">Gerencie e venda itens com um toque</p>
+                  </div>
+                  <div className="relative w-full sm:w-80">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
                     <Input 
-                      placeholder="Buscar produto..." 
+                      placeholder="Procurar um produto..." 
                       value={searchQuery}
                       onChange={(e) => {
                         setSearchQuery(e.target.value);
                         setCurrentPage(1);
                       }}
-                      className="bg-slate-900/50 border-white/10 pl-10 h-10 text-xs font-bold rounded-xl"
+                      className="bg-slate-950 border-white/10 pl-11 h-12 text-sm font-bold rounded-2xl focus:ring-blue-500/20 focus:border-blue-500/50 transition-all shadow-inner"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-4">
                   {paginatedProducts.length === 0 ? (
-                    <div className="col-span-full py-32 text-center text-slate-700 bg-slate-900/50 rounded-xl border-2 border-dashed border-white/5">
-                      <PackageCheck className="h-10 w-10 mx-auto opacity-10 mb-2" />
-                      <p className="text-sm font-bold">{searchQuery ? 'Nenhum produto encontrado' : 'Aguardando produtos...'}</p>
-                    </div>
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="col-span-full py-40 text-center text-slate-600 bg-white/[0.02] rounded-[40px] border-4 border-dashed border-white/5"
+                    >
+                      <PackageCheck className="h-16 w-16 mx-auto opacity-10 mb-4" />
+                      <p className="text-lg font-black uppercase tracking-widest opacity-20">{searchQuery ? 'Sem resultados' : 'Aguardando estoque'}</p>
+                    </motion.div>
                   ) : (
-                    paginatedProducts.map(product => {
-                      const count = cart.find(i => i.id === product.id)?.quantity || 0;
+                    paginatedProducts.map((product, index) => {
+                      const cartItem = cart.find(i => i.id === product.id);
+                      const count = cartItem?.quantity || 0;
                       return (
-                        <button
+                        <motion.button
                           key={product.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
                           onClick={() => addToCart(product)}
-                          className={`aspect-square sm:aspect-auto sm:h-32 flex flex-col items-start justify-end p-3 rounded-xl border transition-all active:scale-95 text-left relative overflow-hidden group ${
+                          className={`group aspect-square h-auto flex flex-col items-start justify-end p-5 rounded-[28px] border-2 transition-all active:scale-[0.98] text-left relative overflow-hidden ${
                             count > 0 
-                              ? 'bg-blue-600 border-blue-400 shadow-lg' 
-                              : 'bg-slate-900 border-white/5 hover:border-blue-500/30'
+                              ? 'bg-blue-600/90 border-blue-400 shadow-[0_20px_50px_rgba(37,99,235,0.2)] ring-4 ring-blue-500/10' 
+                              : 'bg-white/[0.03] border-white/5 hover:border-blue-500/40 hover:bg-white/[0.05] hover:-translate-y-1'
                           }`}
                         >
-                          {count > 0 && (
-                            <div className="absolute top-2 right-2 bg-white text-blue-600 text-[10px] font-black h-6 w-6 flex items-center justify-center rounded-full shadow-lg z-20">
-                              {count}
-                            </div>
-                          )}
-                          <div className="relative z-10 w-full">
-                            <span className="block text-[10px] md:text-[11px] font-bold uppercase tracking-tight line-clamp-2 mb-1 leading-tight text-white/90">
+                          <AnimatePresence>
+                            {count > 0 && (
+                              <motion.div 
+                                initial={{ scale: 0, rotate: -45 }}
+                                animate={{ scale: 1, rotate: 0 }}
+                                exit={{ scale: 0, rotate: 45 }}
+                                className="absolute top-3 right-3 bg-white text-blue-600 text-[11px] font-black h-8 w-8 flex items-center justify-center rounded-2xl shadow-xl z-20 border-2 border-blue-100"
+                              >
+                                {count}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+
+                          <div className={`absolute -top-10 -left-10 w-32 h-32 blur-[40px] rounded-full transition-all duration-500 ${count > 0 ? 'bg-white/20' : 'bg-transparent group-hover:bg-blue-500/10'}`} />
+
+                          <div className="relative z-10 w-full space-y-1">
+                            <span className={`block text-[11px] font-black uppercase tracking-tight line-clamp-2 leading-tight transition-all ${count > 0 ? 'text-white' : 'text-slate-400 group-hover:text-blue-200'}`}>
                               {product.name}
                             </span>
-                            <span className="text-sm md:text-base font-black text-white">
-                              R$ {product.price.toFixed(2)}
+                            <span className={`text-xl font-black transition-all ${count > 0 ? 'text-white' : 'text-white'}`}>
+                              <span className="text-xs font-bold mr-0.5 opacity-60">R$</span> {product.price.toFixed(2)}
                             </span>
                           </div>
-                        </button>
+                        </motion.button>
                       );
                     })
                   )}
@@ -449,183 +477,255 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
 
                 {/* Pagination Controls */}
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-4 pt-4">
+                  <div className="flex items-center justify-center gap-6 pt-6 pb-4">
                     <Button 
                       variant="ghost" 
-                      size="sm" 
+                      size="lg" 
                       onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                       disabled={currentPage === 1}
-                      className="text-slate-500 font-bold"
+                      className="text-slate-500 hover:text-white bg-white/5 hover:bg-white/10 rounded-2xl h-12 px-6 font-black text-[10px] uppercase"
                     >
-                      <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+                      <ChevronLeft className="h-4 w-4 mr-2" /> Anterior
                     </Button>
-                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">
-                      Página {currentPage} de {totalPages}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      {Array.from({length: totalPages}).map((_, i) => (
+                        <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === i + 1 ? 'w-8 bg-blue-500' : 'w-1.5 bg-white/10'}`} />
+                      ))}
+                    </div>
                     <Button 
                       variant="ghost" 
-                      size="sm" 
+                      size="lg" 
                       onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                       disabled={currentPage === totalPages}
-                      className="text-slate-500 font-bold"
+                      className="text-slate-500 hover:text-white bg-white/5 hover:bg-white/10 rounded-2xl h-12 px-6 font-black text-[10px] uppercase"
                     >
-                      Próxima <ChevronRight className="h-4 w-4 ml-1" />
+                      Próxima <ChevronRight className="h-4 w-4 ml-2" />
                     </Button>
                   </div>
                 )}
               </div>
 
-            {/* Sidebar: Cart & User */}
-            <div className="hidden xl:block w-full sticky top-24 space-y-4">
-              <Card className="bg-slate-900 border-white/10 text-white rounded-xl overflow-hidden shadow-2xl">
-                <header className="p-4 border-b border-white/5 flex items-center justify-between bg-slate-900/50">
-                  <h3 className="font-bold text-[10px] uppercase tracking-widest text-slate-500">Resumo da Venda</h3>
-                  {cart.length > 0 && (
-                    <Button variant="ghost" size="sm" onClick={clearCart} className="text-red-400 h-7 text-[10px] font-bold hover:bg-red-400/10">
-                      LIMPAR
-                    </Button>
-                  )}
-                </header>
-                
-                <CardContent className="p-0">
-                  <div className="max-h-[min(380px,50vh)] overflow-y-auto custom-scrollbar">
-                    {cart.length === 0 ? (
-                      <div className="py-20 text-center">
-                        <ShoppingCart className="h-8 w-8 mx-auto opacity-10 mb-2 text-slate-400" />
-                        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest leading-relaxed">Selecione os produtos<br/>para iniciar a venda</p>
+              {/* Sidebar: Shopping Bag */}
+              <div className="hidden lg:block w-full sticky top-24 space-y-6">
+                <Card className="bg-slate-900/60 backdrop-blur-3xl border border-white/10 text-white rounded-[32px] overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] transition-all">
+                  <header className="p-6 border-b border-white/5 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 bg-white/5 rounded-xl flex items-center justify-center">
+                        <ShoppingCart className="h-4 w-4 text-blue-400" />
                       </div>
-                    ) : (
-                      <div className="divide-y divide-white/5">
-                        {cart.map(item => (
-                          <div key={item.id} className="flex items-center justify-between p-3.5 bg-white/[0.01]">
-                            <div className="flex-1 mr-4">
-                              <p className="font-bold text-[10px] uppercase truncate text-white/90">{item.name}</p>
-                              <p className="text-[10px] text-blue-400 font-bold mt-0.5">R$ {item.price.toFixed(2)}</p>
-                            </div>
-                            <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-lg border border-white/5">
-                              <button onClick={() => removeFromCart(item.id)} className="h-6 w-6 flex items-center justify-center rounded hover:bg-red-500/20 text-slate-500 hover:text-red-400">
-                                <Minus size={10}/>
-                              </button>
-                              <span className="w-5 text-center text-[10px] font-black">{item.quantity}</span>
-                              <button onClick={() => addToCart(item)} className="h-6 w-6 flex items-center justify-center rounded hover:bg-blue-500/20 text-blue-400 hover:text-blue-300">
-                                <Plus size={10}/>
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      <h3 className="font-black text-[11px] uppercase tracking-[0.2em] text-slate-400">Carrinho</h3>
+                    </div>
+                    {cart.length > 0 && (
+                      <Button variant="ghost" size="sm" onClick={clearCart} className="text-red-400 h-8 text-[10px] font-black hover:bg-red-500/10 rounded-xl px-3 transition-colors">
+                        LIMPAR
+                      </Button>
                     )}
-                  </div>
-
-                  <div className="p-5 bg-slate-950/40 border-t border-white/5 space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">Total</span>
-                      <div className="text-3xl font-black text-white">R$ {cartTotal.toFixed(2)}</div>
+                  </header>
+                  
+                  <CardContent className="p-0">
+                    <div className="max-h-[min(420px,55vh)] overflow-y-auto custom-scrollbar px-6">
+                      {cart.length === 0 ? (
+                        <div className="py-24 text-center space-y-4">
+                          <div className="h-20 w-20 bg-white/[0.02] rounded-full flex items-center justify-center mx-auto ring-1 ring-white/5 shadow-inner">
+                            <ShoppingCart className="h-10 w-10 opacity-10 text-slate-400" />
+                          </div>
+                          <p className="text-[11px] font-black text-slate-600 uppercase tracking-[0.2em] leading-relaxed">Sua sacola<br/>está vazia</p>
+                        </div>
+                      ) : (
+                        <div className="py-4 space-y-3">
+                          <AnimatePresence initial={false}>
+                            {cart.map((item) => (
+                              <motion.div 
+                                key={item.id}
+                                layout
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                className="flex items-center justify-between p-4 bg-white/[0.04] rounded-2xl border border-white/5 group hover:border-blue-500/30 transition-all"
+                              >
+                                <div className="flex-1 mr-4 min-w-0">
+                                  <p className="font-black text-[11px] uppercase truncate text-white/90 tracking-tight leading-tight mb-1">{item.name}</p>
+                                  <p className="text-[11px] text-blue-400 font-bold">R$ {item.price.toFixed(2)}</p>
+                                </div>
+                                <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-xl ring-1 ring-white/5">
+                                  <motion.button 
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={() => removeFromCart(item.id)} 
+                                    className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition-colors"
+                                  >
+                                    <Minus size={12} strokeWidth={3}/>
+                                  </motion.button>
+                                  <span className="w-6 text-center text-[12px] font-black">{item.quantity}</span>
+                                  <motion.button 
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={() => addToCart(item)} 
+                                    className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors"
+                                  >
+                                    <Plus size={12} strokeWidth={3}/>
+                                  </motion.button>
+                                </div>
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        </div>
+                      )}
                     </div>
 
-                    {!scannedUser ? (
-                      <Button 
-                        onClick={() => setIsScanning(true)}
-                        disabled={cart.length === 0}
-                        className="w-full h-14 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.2em] rounded-xl shadow-lg border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all"
-                      >
-                        <QrCode className="mr-2 h-5 w-5" /> Escanear Carteira
-                      </Button>
-                    ) : (
-                      <div className="bg-slate-900 p-4 rounded-xl border-2 border-blue-600/30 space-y-4 animate-in slide-in-from-bottom-4">
-                         <div className="flex justify-between items-start gap-4">
-                            <div className="min-w-0">
-                              <p className="font-black text-xs uppercase truncate text-white">{scannedUser.name}</p>
-                              <div className={`inline-flex items-center px-2 py-0.5 mt-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                                scannedUser.balance < cartTotal ? 'bg-red-500/20 text-red-500' : 'bg-green-500/20 text-green-400'
-                              }`}>
-                                Saldo: R$ {scannedUser.balance.toFixed(2)}
-                              </div>
-                            </div>
-                            <button onClick={() => setScannedUser(null)} className="p-1 hover:bg-white/10 rounded transition-colors">
-                              <XCircle size={16} className="text-slate-500" />
-                            </button>
-                         </div>
-                         
-                         <Button 
-                           onClick={handleSale}
-                           disabled={processing || scannedUser.balance < cartTotal || cart.length === 0}
-                           className={`w-full h-12 font-black uppercase text-xs tracking-widest rounded-xl transition-all ${
-                             scannedUser.balance < cartTotal 
-                              ? 'bg-slate-800 text-slate-500' 
-                              : 'bg-green-600 hover:bg-green-500 shadow-xl shadow-green-900/20'
-                           }`}
-                         >
-                            {processing ? <Loader2 size={16} className="animate-spin" /> : 
-                             scannedUser.balance < cartTotal ? 'SALDO INSUFICIENTE' : 'CONCLUIR VENDA'}
-                         </Button>
+                    <div className="p-8 bg-slate-950/40 border-t border-white/10 space-y-6">
+                      <div className="flex justify-between items-end">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Total Geral</span>
+                          <div className="text-4xl font-black text-white tracking-tighter">
+                            <span className="text-xl font-bold mr-1 opacity-40">R$</span>
+                            {cartTotal.toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="text-[10px] font-black text-blue-500/50 uppercase tracking-widest bg-blue-500/5 px-3 py-1 rounded-full border border-blue-500/10">
+                          {cart.reduce((a, b) => a + b.quantity, 0)} Itens
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </motion.div>
-        ) : activeTab === 'orders' ? (
+
+                      {!scannedUser ? (
+                        <Button 
+                          onClick={() => setIsScanning(true)}
+                          disabled={cart.length === 0}
+                          className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.3em] rounded-2xl shadow-[0_20px_40px_rgba(37,99,235,0.3)] border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all group overflow-hidden relative"
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
+                          <QrCode className="mr-3 h-6 w-6" /> Escanear Carteira
+                        </Button>
+                      ) : (
+                        <motion.div 
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="bg-white/5 p-5 rounded-3xl border-2 border-blue-600/30 space-y-5"
+                        >
+                           <div className="flex justify-between items-center bg-slate-950/50 p-3 rounded-2xl border border-white/5">
+                              <div className="min-w-0 flex items-center gap-3">
+                                <div className="h-10 w-10 bg-blue-600 rounded-xl flex items-center justify-center font-black text-lg">
+                                  {scannedUser.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="font-black text-xs uppercase truncate text-white leading-none mb-1.5">{scannedUser.name}</p>
+                                  <div className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
+                                    scannedUser.balance < cartTotal ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-400'
+                                  }`}>
+                                    Saldo: R$ {scannedUser.balance.toFixed(2)}
+                                  </div>
+                                </div>
+                              </div>
+                              <button 
+                                onClick={() => setScannedUser(null)} 
+                                className="h-8 w-8 flex items-center justify-center hover:bg-white/10 rounded-xl transition-all text-slate-500 hover:text-white"
+                              >
+                                <XCircle size={20} />
+                              </button>
+                           </div>
+                           
+                           <Button 
+                             onClick={handleSale}
+                             disabled={processing || scannedUser.balance < cartTotal || cart.length === 0}
+                             className={`w-full h-14 font-black uppercase text-xs tracking-[0.2em] rounded-2xl transition-all ${
+                               scannedUser.balance < cartTotal 
+                                ? 'bg-slate-800 text-slate-600 cursor-not-allowed' 
+                                : 'bg-green-600 hover:bg-green-500 shadow-xl shadow-green-600/20 active:scale-95'
+                             }`}
+                           >
+                              {processing ? <Loader2 size={24} className="animate-spin" /> : 
+                               scannedUser.balance < cartTotal ? 'SALDO INSUFICIENTE' : 'CONCLUIR PAGAMENTO'}
+                           </Button>
+                        </motion.div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </motion.div>
+          ) : activeTab === 'orders' ? (
           <motion.div 
             key="orders"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            className="animate-in slide-in-from-right-8 duration-500"
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.02 }}
+            className="space-y-8 pb-10"
           >
-            <div className="flex items-center gap-4 mb-8">
-               <div className="h-12 w-12 bg-blue-600 rounded-xl flex items-center justify-center">
-                  <Clock className="h-6 w-6 text-white" />
+            <div className="flex items-center gap-4 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
+               <div className="h-14 w-14 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                  <Clock className="h-7 w-7 text-white" />
                </div>
                <div>
-                  <h3 className="text-2xl font-black text-white uppercase tracking-tight">Pedidos do App</h3>
-                  <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Aguardando entrega no balcão</p>
+                  <h3 className="text-2xl font-black text-white uppercase tracking-tight">Pedidos em Espera</h3>
+                  <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Acompanhe as solicitações via aplicativo</p>
                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
               {orders.length === 0 ? (
-                <div className="col-span-full py-40 text-center text-slate-500 border-2 border-dashed border-white/5 rounded-[40px] bg-white/[0.02]">
-                  <Clock className="h-20 w-20 mx-auto opacity-10 mb-6" />
-                  <p className="text-xl font-black uppercase tracking-widest opacity-30">Nenhum pedido pendente</p>
-                  <Button variant="link" onClick={() => setActiveTab('pos')} className="text-blue-500 mt-4 font-black">VOLTAR AO TERMINAL</Button>
-                </div>
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="col-span-full py-48 text-center text-slate-500 border-4 border-dashed border-white/5 rounded-[48px] bg-white/[0.01] backdrop-blur-sm"
+                >
+                  <Clock className="h-24 w-24 mx-auto opacity-10 mb-8" />
+                  <p className="text-xl font-black uppercase tracking-[0.2em] opacity-30">Sem novos pedidos</p>
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => setActiveTab('pos')} 
+                    className="mt-6 font-black text-[10px] uppercase tracking-widest text-blue-500 hover:text-white hover:bg-blue-600/20 rounded-full px-8 py-6 h-auto transition-all"
+                  >
+                    VOLTAR AO TERMINAL
+                  </Button>
+                </motion.div>
               ) : (
-                orders.map(order => (
-                  <Card key={order.id} className="bg-slate-900 border-white/10 text-white rounded-3xl overflow-hidden group hover:border-blue-500/50 transition-all shadow-xl">
-                    <CardHeader className="bg-slate-800/40 border-b border-white/5 p-6">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="text-[10px] text-blue-400 font-black uppercase tracking-[0.2em] mb-1">Pedido Mobile</p>
-                          <CardTitle className="text-xl font-black truncate max-w-[180px]">{order.studentName}</CardTitle>
-                        </div>
-                        <span className="text-[10px] font-black p-2 bg-slate-950 rounded-lg uppercase text-slate-500 border border-white/5 tracking-widest">
+                orders.map((order, idx) => (
+                  <motion.div
+                    key={order.id}
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.1 }}
+                  >
+                    <Card className="bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative">
+                      <div className="absolute top-0 right-0 p-4">
+                        <span className="text-[10px] font-black px-3 py-1.5 bg-slate-950/80 rounded-xl uppercase text-slate-500 border border-white/5 tracking-widest backdrop-blur-md">
                           #{order.id.slice(-4)}
                         </span>
                       </div>
-                    </CardHeader>
-                    <CardContent className="p-6 space-y-6">
-                      <div className="space-y-2">
-                        {order.items.map((item, idx) => (
-                          <div key={idx} className="flex items-center gap-3 bg-white/[0.02] p-3 rounded-xl border border-white/5">
-                            <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                            <p className="font-bold text-[11px] uppercase text-white/80">{item}</p>
+                      
+                      <CardHeader className="bg-white/5 border-b border-white/5 p-8">
+                        <p className="text-[10px] text-blue-400 font-black uppercase tracking-[0.3em] mb-2">Comprador Mobile</p>
+                        <CardTitle className="text-2xl font-black tracking-tighter truncate pr-16">{order.studentName}</CardTitle>
+                      </CardHeader>
+
+                      <CardContent className="p-8 space-y-8">
+                        <div className="space-y-3">
+                          {order.items.map((item, idx) => (
+                            <div key={idx} className="flex items-center gap-4 bg-white/[0.03] p-4 rounded-2xl border border-white/5 ring-1 ring-inset ring-white/[0.02]">
+                              <div className="h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.8)]" />
+                              <p className="font-black text-[12px] uppercase text-white/90 tracking-tight">{item}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="pt-6 border-t border-white/10 flex justify-between items-end">
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-slate-500 uppercase font-black tracking-[0.2em]">Valor Pago</span>
+                            <div className="text-3xl font-black text-white tracking-tighter">
+                              <span className="text-sm font-bold opacity-40 mr-1">R$</span>
+                              {order.total.toFixed(2)}
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                      <div className="pt-4 border-t border-white/5 flex justify-between items-center px-1">
-                        <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Total Pago</span>
-                        <span className="text-xl font-black text-white">R$ {order.total.toFixed(2)}</span>
-                      </div>
-                      <Button 
-                        onClick={() => markAsDelivered(order.id)}
-                        className="w-full h-14 bg-blue-600 hover:bg-blue-500 text-white font-black text-sm gap-2 rounded-xl shadow-lg transition-all"
-                      >
-                        <CheckCircle2 className="h-5 w-5" /> CONFIRMAR ENTREGA
-                      </Button>
-                    </CardContent>
-                  </Card>
+                        </div>
+
+                        <Button 
+                          onClick={() => markAsDelivered(order.id)}
+                          className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs tracking-[0.2em] gap-3 rounded-2xl shadow-xl shadow-blue-900/40 transition-all group overflow-hidden relative"
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
+                          <CheckCircle2 className="h-6 w-6" /> CONFIRMAR ENTREGA
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
                 ))
               )}
             </div>
@@ -636,78 +736,122 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
              initial={{ opacity: 0, scale: 0.95 }}
              animate={{ opacity: 1, scale: 1 }}
              exit={{ opacity: 0, scale: 1.05 }}
-             className="space-y-8 pb-10"
+             className="space-y-10 pb-10"
           >
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 bg-indigo-600 rounded-xl flex items-center justify-center">
-                    <BarChart3 className="h-6 w-6 text-white" />
+              <div className="flex items-center gap-4 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
+                <div className="h-14 w-14 bg-gradient-to-br from-indigo-500 to-purple-700 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                    <BarChart3 className="h-7 w-7 text-white" />
                 </div>
                 <div>
-                    <h3 className="text-2xl font-black text-white uppercase tracking-tight">Análise de Vendas</h3>
-                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Acompanhamento em tempo real</p>
+                    <h3 className="text-2xl font-black text-white uppercase tracking-tight">Análise Estratégica</h3>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Desempenho da sua barraca em tempo real</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 <Card className="bg-slate-900 border-white/5 rounded-3xl overflow-hidden shadow-xl">
-                    <CardContent className="p-8 space-y-2">
-                       <div className="h-10 w-10 bg-green-500/10 rounded-xl flex items-center justify-center mb-2">
-                          <TrendingUp className="h-5 w-5 text-green-500" />
-                       </div>
-                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Volume Total</p>
-                       <h4 className="text-3xl font-black text-white">R$ {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h4>
-                    </CardContent>
-                 </Card>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                 <motion.div whileHover={{ y: -5 }}>
+                   <Card className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-[32px] overflow-hidden shadow-2xl relative group">
+                      <div className="absolute -right-8 -top-8 w-24 h-24 bg-green-500/10 blur-3xl rounded-full group-hover:bg-green-500/20 transition-all" />
+                      <CardContent className="p-10 space-y-4">
+                         <div className="h-12 w-12 bg-green-500/10 rounded-2xl flex items-center justify-center ring-1 ring-green-500/20">
+                            <TrendingUp className="h-6 w-6 text-green-500" />
+                         </div>
+                         <div className="space-y-1">
+                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 leading-none">Faturamento Total</p>
+                            <h4 className="text-4xl font-black text-white tracking-tighter">
+                              <span className="text-xl font-bold opacity-40 mr-1">R$</span>
+                              {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </h4>
+                         </div>
+                      </CardContent>
+                   </Card>
+                 </motion.div>
 
-                 <Card className="bg-slate-900 border-white/5 rounded-3xl overflow-hidden shadow-xl">
-                    <CardContent className="p-8 space-y-2">
-                       <div className="h-10 w-10 bg-blue-500/10 rounded-xl flex items-center justify-center mb-2">
-                          <Package className="h-5 w-5 text-blue-500" />
-                       </div>
-                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Produtos Vendidos</p>
-                       <h4 className="text-3xl font-black text-white">{stats.totalItems} unid.</h4>
-                    </CardContent>
-                 </Card>
+                 <motion.div whileHover={{ y: -5 }}>
+                   <Card className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-[32px] overflow-hidden shadow-2xl relative group">
+                      <div className="absolute -right-8 -top-8 w-24 h-24 bg-blue-500/10 blur-3xl rounded-full group-hover:bg-blue-500/20 transition-all" />
+                      <CardContent className="p-10 space-y-4">
+                         <div className="h-12 w-12 bg-blue-500/10 rounded-2xl flex items-center justify-center ring-1 ring-blue-500/20">
+                            <Package className="h-6 w-6 text-blue-500" />
+                         </div>
+                         <div className="space-y-1">
+                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 leading-none">Volumes Vendidos</p>
+                            <h4 className="text-4xl font-black text-white tracking-tighter">
+                              {stats.totalItems} <span className="text-xl font-bold opacity-40 ml-1">unid.</span>
+                            </h4>
+                         </div>
+                      </CardContent>
+                   </Card>
+                 </motion.div>
 
-                 <Card className="bg-slate-900 border-white/5 rounded-3xl overflow-hidden shadow-xl">
-                    <CardContent className="p-8 space-y-2">
-                       <div className="h-10 w-10 bg-purple-500/10 rounded-xl flex items-center justify-center mb-2">
-                          <Users className="h-5 w-5 text-purple-500" />
-                       </div>
-                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Ticket Médio</p>
-                       <h4 className="text-3xl font-black text-white">R$ {(stats.totalRevenue / (Object.keys(stats.productSales).length || 1)).toFixed(2)}</h4>
-                    </CardContent>
-                 </Card>
+                 <motion.div whileHover={{ y: -5 }}>
+                   <Card className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-[32px] overflow-hidden shadow-2xl relative group">
+                      <div className="absolute -right-8 -top-8 w-24 h-24 bg-purple-500/10 blur-3xl rounded-full group-hover:bg-purple-500/20 transition-all" />
+                      <CardContent className="p-10 space-y-4">
+                         <div className="h-12 w-12 bg-purple-500/10 rounded-2xl flex items-center justify-center ring-1 ring-purple-500/20">
+                            <Users className="h-6 w-6 text-purple-500" />
+                         </div>
+                         <div className="space-y-1">
+                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 leading-none">Ticket Médio</p>
+                            <h4 className="text-4xl font-black text-white tracking-tighter">
+                              <span className="text-xl font-bold opacity-40 mr-1">R$</span>
+                              {(stats.totalRevenue / (Object.keys(stats.productSales).length || 1)).toFixed(2)}
+                            </h4>
+                         </div>
+                      </CardContent>
+                   </Card>
+                 </motion.div>
               </div>
 
-              <div className="space-y-4">
-                 <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-600 px-2">Top Vendidos</h3>
-                 <div className="bg-slate-900/50 border border-white/5 rounded-[32px] overflow-hidden">
+              <div className="space-y-6">
+                 <div className="flex items-center justify-between px-2">
+                    <h3 className="text-xs font-black uppercase tracking-[0.4em] text-slate-600">Ranking de Produtos</h3>
+                    <div className="h-px flex-1 bg-white/5 mx-6" />
+                 </div>
+                 <div className="bg-white/[0.02] backdrop-blur-xl border border-white/5 rounded-[48px] overflow-hidden shadow-2xl">
                     <div className="divide-y divide-white/5">
                        {statsLoading ? (
-                          <div className="p-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-slate-700" /></div>
+                          <div className="p-32 text-center">
+                            <Loader2 className="h-12 w-12 animate-spin mx-auto text-blue-600/40" />
+                            <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest mt-4">Calculando dados...</p>
+                          </div>
                        ) : Object.keys(stats.productSales).length === 0 ? (
-                          <div className="p-20 text-center text-slate-600 font-bold uppercase text-[10px] tracking-widest">Nenhuma venda registrada</div>
+                          <div className="p-32 text-center">
+                            <Package className="h-16 w-16 mx-auto opacity-5 text-white mb-6" />
+                            <p className="text-[11px] text-slate-600 font-black uppercase tracking-[0.3em]">Nenhum registro de venda</p>
+                          </div>
                        ) : (
                           Object.values(stats.productSales)
                             .sort((a, b) => (b as any).count - (a as any).count)
                             .map((item: any, i) => (
-                              <div key={i} className="flex items-center justify-between p-6 hover:bg-white/[0.02] transition-colors">
-                                 <div className="flex items-center gap-4">
-                                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center font-black ${i === 0 ? 'bg-amber-500 text-white' : 'bg-slate-800 text-slate-500'}`}>
-                                       {i + 1}º
+                              <motion.div 
+                                key={i} 
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: i * 0.05 }}
+                                className="flex items-center justify-between p-8 hover:bg-white/[0.03] transition-all group"
+                              >
+                                 <div className="flex items-center gap-8">
+                                    <div className={`h-14 w-14 rounded-2xl flex items-center justify-center font-black text-xl shadow-lg transition-transform group-hover:scale-110 ${
+                                      i === 0 ? 'bg-amber-500 text-white shadow-amber-900/20 ring-4 ring-amber-500/10' : 
+                                      i === 1 ? 'bg-slate-400 text-white shadow-slate-900/20' :
+                                      i === 2 ? 'bg-orange-600 text-white shadow-orange-900/20' :
+                                      'bg-slate-800 text-slate-500 ring-1 ring-white/5'
+                                    }`}>
+                                       {i + 1}
                                     </div>
                                     <div>
-                                       <p className="text-xs font-black text-white/90 uppercase">{item.name}</p>
-                                       <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{item.count} unidades vendidas</p>
+                                       <p className="text-lg font-black text-white/90 uppercase tracking-tight mb-0.5">{item.name}</p>
+                                       <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">{item.count} unidades vendidas</p>
                                     </div>
                                  </div>
                                  {item.revenue > 0 && (
-                                   <div className="text-sm font-black text-white">
-                                      R$ {item.revenue.toFixed(2)}
+                                   <div className="text-2xl font-black text-white tracking-tighter">
+                                      <span className="text-sm font-bold opacity-40 mr-1">R$</span>
+                                      {item.revenue.toFixed(2)}
                                    </div>
                                  )}
-                              </div>
+                              </motion.div>
                             ))
                        )}
                     </div>
@@ -718,52 +862,78 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         </AnimatePresence>
       </div>
 
-      {/* Mobile Control Bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/90 backdrop-blur-2xl border-t border-white/10 px-6 py-5 lg:hidden safe-area-bottom shadow-[0_-20px_50px_rgba(0,0,0,0.5)]">
-        <div className="max-w-md mx-auto flex items-center justify-between gap-6">
-          <div className="flex flex-col">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">Total</span>
-            <span className="text-2xl font-black text-white">R$ {cartTotal.toFixed(2)}</span>
+      {/* Mobile Control Bar - Premium Refinement */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/80 backdrop-blur-3xl border-t border-white/10 px-8 py-6 lg:hidden safe-area-bottom shadow-[0_-30px_60px_rgba(0,0,0,0.8)]">
+        <div className="max-w-md mx-auto flex items-center justify-between gap-8">
+          <div className="space-y-1">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] leading-none">Total Agora</span>
+            <div className="text-3xl font-black text-white tracking-tighter">
+              <span className="text-sm font-bold opacity-40 mr-1">R$</span>
+              {cartTotal.toFixed(2)}
+            </div>
           </div>
           
-          <div className="flex-1 flex gap-3">
-            {cart.length > 0 && !scannedUser ? (
-              <Button 
-                onClick={() => setIsScanning(true)} 
-                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-sm h-16 rounded-[20px] shadow-2xl shadow-blue-900/40"
-              >
-                <QrCode className="h-6 w-6" />
-              </Button>
-            ) : scannedUser ? (
-              <Button 
-                onClick={handleSale}
-                disabled={processing || scannedUser.balance < cartTotal || cart.length === 0}
-                className={`flex-1 h-16 text-white font-black uppercase text-sm rounded-[24px] shadow-xl ${
-                   scannedUser.balance < cartTotal ? 'bg-slate-700' : 'bg-green-600'
-                }`}
-              >
-                {processing ? <Loader2 className="h-6 w-6 animate-spin" /> : 
-                 scannedUser.balance < cartTotal ? 'Saldo Insuficiente' : 'Pagar'}
-              </Button>
-            ) : (
-              <Button 
-                onClick={() => setIsScanning(true)}
-                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-sm h-16 rounded-[24px]"
-              >
-                <QrCode className="h-6 w-6 mr-3" /> ESCANEAR
-              </Button>
-            )}
-
-            {scannedUser && (
-              <Button 
-                 variant="ghost" 
-                 size="icon" 
-                 onClick={() => setScannedUser(null)}
-                 className="h-16 w-16 bg-white/5 rounded-[24px] text-slate-400"
-              >
-                 <XCircle className="h-7 w-7" />
-              </Button>
-            )}
+          <div className="flex-1 flex gap-4 h-16">
+            <AnimatePresence mode="popLayout">
+              {cart.length > 0 && !scannedUser ? (
+                <motion.div 
+                  key="scan-btn"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="flex-1"
+                >
+                  <Button 
+                    onClick={() => setIsScanning(true)} 
+                    className="w-full h-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[24px] shadow-2xl shadow-blue-500/30 border-b-4 border-blue-900 active:border-b-0 active:translate-y-1 transition-all"
+                  >
+                    <QrCode className="h-6 w-6 mr-3" /> ESCANEAR
+                  </Button>
+                </motion.div>
+              ) : scannedUser ? (
+                <motion.div 
+                  key="pay-btn-group"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="flex-1 flex gap-3"
+                >
+                  <Button 
+                    onClick={handleSale}
+                    disabled={processing || scannedUser.balance < cartTotal || cart.length === 0}
+                    className={`flex-1 h-full font-black uppercase text-xs tracking-widest rounded-[24px] shadow-2xl transition-all ${
+                       scannedUser.balance < cartTotal 
+                       ? 'bg-slate-800 text-slate-600' 
+                       : 'bg-green-600 hover:bg-green-500 shadow-green-600/20 active:translate-y-1'
+                    }`}
+                  >
+                    {processing ? <Loader2 className="h-6 w-6 animate-spin" /> : 
+                     scannedUser.balance < cartTotal ? 'SALDO BAIXO' : 'CONFIRMAR'}
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    onClick={() => setScannedUser(null)}
+                    className="w-16 h-full bg-white/5 rounded-[24px] text-slate-500 hover:text-white border border-white/5"
+                  >
+                    <XCircle className="h-7 w-7" />
+                  </Button>
+                </motion.div>
+              ) : (
+                <motion.div 
+                  key="empty-scan"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex-1"
+                >
+                  <Button 
+                    onClick={() => setIsScanning(true)}
+                    className="w-full h-full bg-white/5 hover:bg-white/10 text-slate-400 font-extrabold uppercase text-[10px] tracking-widest rounded-[24px] border border-white/10"
+                  >
+                    <QrCode className="h-5 w-5 mr-3 opacity-50" /> QR CODE
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>
