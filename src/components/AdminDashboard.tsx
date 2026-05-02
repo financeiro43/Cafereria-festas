@@ -213,6 +213,17 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     }
   };
 
+  const handleDeleteUser = async (userId: string) => {
+    if (!window.confirm('Tem certeza que deseja excluir este usuário? Esta ação é irreversível.')) return;
+    try {
+      await deleteDoc(doc(db, 'users', userId));
+      toast.success('Usuário removido com sucesso');
+      if (editingUser?.uid === userId) setEditingUser(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `users/${userId}`);
+    }
+  };
+
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserEmail || !newUserName) return;
@@ -887,6 +898,12 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                             >
                               <Edit2 className="h-3.5 w-3.5" />
                             </button>
+                            <button 
+                              onClick={() => handleDeleteUser(user.uid)}
+                              className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                           <p className="text-[11px] text-slate-400 font-bold truncate max-w-[160px] uppercase tracking-widest">{user.email}</p>
                         </div>
@@ -1447,31 +1464,40 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   </div>
                 )}
 
-                <div className="pt-6 flex gap-3">
+                <div className="pt-6 flex flex-col sm:flex-row gap-3">
                   <Button 
-                    variant="outline" 
-                    onClick={() => setEditingUser(null)}
-                    className="flex-1 h-14 rounded-2xl border-slate-200 font-bold text-xs uppercase tracking-widest"
+                    variant="ghost" 
+                    onClick={() => handleDeleteUser(editingUser.uid)}
+                    className="h-14 rounded-2xl text-red-600 hover:bg-red-50 font-bold text-xs uppercase tracking-widest px-6"
                   >
-                    Cancelar
+                    Excluir Usuário
                   </Button>
-                  <Button 
-                    onClick={async () => {
-                      if (!editingUser) return;
-                      try {
-                        const { uid, ...updateData } = editingUser;
-                        await updateDoc(doc(db, 'users', uid), updateData);
-                        toast.success('Perfil atualizado com sucesso!');
-                        setEditingUser(null);
-                      } catch (err) {
-                        toast.error('Erro ao atualizar perfil');
-                        console.error(err);
-                      }
-                    }}
-                    className="flex-1 h-14 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase tracking-widest hover:bg-blue-600 shadow-xl"
-                  >
-                    Salvar Alterações
-                  </Button>
+                  <div className="flex-1 flex gap-3">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setEditingUser(null)}
+                      className="flex-1 h-14 rounded-2xl border-slate-200 font-bold text-xs uppercase tracking-widest"
+                    >
+                      Cancelar
+                    </Button>
+                    <Button 
+                      onClick={async () => {
+                        if (!editingUser) return;
+                        try {
+                          const { uid, ...updateData } = editingUser;
+                          await updateDoc(doc(db, 'users', uid), updateData);
+                          toast.success('Perfil atualizado com sucesso!');
+                          setEditingUser(null);
+                        } catch (err) {
+                          toast.error('Erro ao atualizar perfil');
+                          console.error(err);
+                        }
+                      }}
+                      className="flex-1 h-14 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase tracking-widest hover:bg-blue-600 shadow-xl"
+                    >
+                      Salvar
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
