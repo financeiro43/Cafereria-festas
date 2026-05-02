@@ -743,6 +743,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                         { id: 'student', label: 'Estudante', icon: UserIcon, desc: 'Acesso ao Portal do Aluno' },
                         { id: 'vendor', label: 'Vendedor', icon: ShoppingCart, desc: 'Acesso ao PDV de Vendas' },
                         { id: 'recharge', label: 'Recarga', icon: CreditCard, desc: 'Acesso ao PDV de Crédito' },
+                        { id: 'admin', label: 'Admin', icon: ShieldCheckIcon, desc: 'Acesso Total ao Sistema' },
                       ].map((role) => (
                         <button
                           key={role.id}

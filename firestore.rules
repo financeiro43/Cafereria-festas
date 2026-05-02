@@ -45,6 +45,12 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor';
     }
 
+    function isRecharge() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'recharge';
+    }
+
     // --- Validation Helpers ---
 
     function isValidUser(data) {
@@ -80,8 +86,8 @@ service cloud.firestore {
 
     // USERS
     match /users/{userId} {
-      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isVendor());
-      allow list: if isAdmin();
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isVendor() || isRecharge());
+      allow list: if isSignedIn() && (isAdmin() || (resource.data.email == request.auth.token.email.toLowerCase()));
       
       allow create: if isSignedIn() && (
         isAdmin() || 

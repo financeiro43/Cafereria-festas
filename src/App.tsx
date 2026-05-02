@@ -128,10 +128,15 @@ function MainApp() {
               }
             } catch (e) {
               console.error("Migration error:", e);
+              handleFirestoreError(e, OperationType.GET, 'users_migration');
             } finally {
               setLoading(false);
             }
           }
+        }, (err) => {
+          console.error("Profile onSnapshot error:", err);
+          handleFirestoreError(err, OperationType.GET, `users/${authUser.uid}`);
+          setLoading(false);
         });
 
       return () => unsubProfile();
