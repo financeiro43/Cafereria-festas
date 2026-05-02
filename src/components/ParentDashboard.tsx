@@ -280,13 +280,19 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                 </div>
 
                 <div className="relative z-10 px-8 pb-8">
-                  <Button 
-                    onClick={handleShare}
-                    className="w-full h-14 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black text-[10px] uppercase tracking-[0.2em] rounded-2xl gap-3"
+                  <motion.div
+                    whileHover={{ scale: 1.02, y: -2 }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 10 }}
                   >
-                    <Share2 className="h-4 w-4 text-blue-500" />
-                    Compartilhar Acesso
-                  </Button>
+                    <Button 
+                      onClick={handleShare}
+                      className="w-full h-14 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black text-[10px] uppercase tracking-[0.2em] rounded-2xl gap-3 shadow-lg hover:shadow-blue-500/10"
+                    >
+                      <Share2 className="h-4 w-4 text-blue-500" />
+                      Compartilhar Acesso
+                    </Button>
+                  </motion.div>
                 </div>
 
                 <div className="absolute -bottom-10 -right-10 opacity-5">
