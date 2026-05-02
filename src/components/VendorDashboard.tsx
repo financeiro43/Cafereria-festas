@@ -437,38 +437,51 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                       return (
                         <motion.button
                           key={product.id}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.05 }}
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          whileHover={{ scale: 1.02, y: -2 }}
+                          whileTap={{ scale: 0.95 }}
+                          transition={{ 
+                            type: 'spring', 
+                            stiffness: 400, 
+                            damping: 15,
+                            delay: index * 0.03 
+                          }}
                           onClick={() => addToCart(product)}
-                          className={`group aspect-square h-auto flex flex-col items-start justify-end p-5 rounded-[28px] border-2 transition-all active:scale-[0.98] text-left relative overflow-hidden ${
+                          className={`group aspect-square h-auto flex flex-col items-start justify-end p-5 rounded-[32px] border-2 transition-all text-left relative overflow-hidden ${
                             count > 0 
-                              ? 'bg-blue-600/90 border-blue-400 shadow-[0_20px_50px_rgba(37,99,235,0.2)] ring-4 ring-blue-500/10' 
-                              : 'bg-white/[0.03] border-white/5 hover:border-blue-500/40 hover:bg-white/[0.05] hover:-translate-y-1'
+                              ? 'bg-blue-600/90 border-blue-400 shadow-[0_20px_60px_rgba(37,99,235,0.3)] ring-4 ring-blue-500/10' 
+                              : 'bg-white/[0.03] border-white/5 hover:border-blue-500/30 hover:bg-white/[0.06]'
                           }`}
                         >
                           <AnimatePresence>
                             {count > 0 && (
                               <motion.div 
-                                initial={{ scale: 0, rotate: -45 }}
-                                animate={{ scale: 1, rotate: 0 }}
-                                exit={{ scale: 0, rotate: 45 }}
-                                className="absolute top-3 right-3 bg-white text-blue-600 text-[11px] font-black h-8 w-8 flex items-center justify-center rounded-2xl shadow-xl z-20 border-2 border-blue-100"
+                                initial={{ scale: 0, rotate: -45, y: 10 }}
+                                animate={{ scale: 1, rotate: 0, y: 0 }}
+                                exit={{ scale: 0, rotate: 45, y: 10 }}
+                                transition={{ type: 'spring', stiffness: 500, damping: 15 }}
+                                className="absolute top-4 right-4 bg-white text-blue-600 text-[12px] font-black h-9 w-9 flex items-center justify-center rounded-2xl shadow-2xl z-20 border-2 border-blue-100 ring-4 ring-white/10"
                               >
                                 {count}
                               </motion.div>
                             )}
                           </AnimatePresence>
 
-                          <div className={`absolute -top-10 -left-10 w-32 h-32 blur-[40px] rounded-full transition-all duration-500 ${count > 0 ? 'bg-white/20' : 'bg-transparent group-hover:bg-blue-500/10'}`} />
-
+                          <div className={`absolute inset-0 bg-gradient-to-br transition-opacity duration-500 ${count > 0 ? 'from-white/10 to-transparent' : 'from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100'}`} />
+                          
                           <div className="relative z-10 w-full space-y-1">
-                            <span className={`block text-[11px] font-black uppercase tracking-tight line-clamp-2 leading-tight transition-all ${count > 0 ? 'text-white' : 'text-slate-400 group-hover:text-blue-200'}`}>
+                            <span className={`block text-[10px] font-black uppercase tracking-[0.1em] line-clamp-1 leading-tight transition-all ${count > 0 ? 'text-blue-100' : 'text-slate-500 group-hover:text-blue-300'}`}>
+                              {product.category || 'Geral'}
+                            </span>
+                            <span className={`block text-[12px] font-black uppercase tracking-tight line-clamp-2 leading-tight transition-all ${count > 0 ? 'text-white' : 'text-slate-200 group-hover:text-white'}`}>
                               {product.name}
                             </span>
-                            <span className={`text-xl font-black transition-all ${count > 0 ? 'text-white' : 'text-white'}`}>
-                              <span className="text-xs font-bold mr-0.5 opacity-60">R$</span> {product.price.toFixed(2)}
-                            </span>
+                            <div className="pt-2">
+                              <span className={`text-xl font-black tabular-nums transition-all ${count > 0 ? 'text-white' : 'text-white'}`}>
+                                <span className="text-[10px] font-bold mr-0.5 opacity-60">R$</span> {product.price.toFixed(2)}
+                              </span>
+                            </div>
                           </div>
                         </motion.button>
                       );
@@ -534,35 +547,35 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                         </div>
                       ) : (
                         <div className="py-4 space-y-3">
-                          <AnimatePresence initial={false}>
+                          <AnimatePresence initial={false} mode="popLayout">
                             {cart.map((item) => (
                               <motion.div 
                                 key={item.id}
                                 layout
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, scale: 0.95 }}
-                                className="flex items-center justify-between p-4 bg-white/[0.04] rounded-2xl border border-white/5 group hover:border-blue-500/30 transition-all"
+                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, x: 20, scale: 0.9 }}
+                                className="flex items-center justify-between p-4 bg-white/[0.04] rounded-2xl border border-white/5 group hover:border-blue-500/30 transition-all shadow-lg"
                               >
                                 <div className="flex-1 mr-4 min-w-0">
                                   <p className="font-black text-[11px] uppercase truncate text-white/90 tracking-tight leading-tight mb-1">{item.name}</p>
-                                  <p className="text-[11px] text-blue-400 font-bold">R$ {item.price.toFixed(2)}</p>
+                                  <p className="text-[11px] text-blue-400 font-bold tabular-nums">R$ {item.price.toFixed(2)}</p>
                                 </div>
-                                <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-xl ring-1 ring-white/5">
+                                <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-xl ring-1 ring-white/5 transition-transform group-hover:scale-105">
                                   <motion.button 
-                                    whileTap={{ scale: 0.9 }}
+                                    whileTap={{ scale: 0.8 }}
                                     onClick={() => removeFromCart(item.id)} 
-                                    className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition-colors"
+                                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition-colors"
                                   >
-                                    <Minus size={12} strokeWidth={3}/>
+                                    <Minus size={14} strokeWidth={3}/>
                                   </motion.button>
-                                  <span className="w-6 text-center text-[12px] font-black">{item.quantity}</span>
+                                  <span className="w-6 text-center text-xs font-black tabular-nums">{item.quantity}</span>
                                   <motion.button 
-                                    whileTap={{ scale: 0.9 }}
+                                    whileTap={{ scale: 0.8 }}
                                     onClick={() => addToCart(item)} 
-                                    className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors"
+                                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors"
                                   >
-                                    <Plus size={12} strokeWidth={3}/>
+                                    <Plus size={14} strokeWidth={3}/>
                                   </motion.button>
                                 </div>
                               </motion.div>
