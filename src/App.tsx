@@ -65,7 +65,6 @@ function MainApp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<UserRole>('student');
   const [authLoading, setAuthLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -112,7 +111,7 @@ function MainApp() {
                   qrCode: existingData.qrCode || authUser.uid,
                   name: existingData.name || authUser.displayName || 'Usuário',
                   email: authUser.email?.toLowerCase() || existingData.email,
-                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : (existingData.role || selectedRole)
+                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : (existingData.role || 'student')
                 };
                 await setDoc(userRef, newProfile);
                 if (existingDoc.id !== authUser.uid) await deleteDoc(existingDoc.ref);
@@ -122,7 +121,7 @@ function MainApp() {
                   name: authUser.displayName || 'Usuário',
                   email: authUser.email || '',
                   balance: 0,
-                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : selectedRole,
+                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
                   qrCode: authUser.uid
                 };
                 await setDoc(userRef, newProfile);
@@ -139,7 +138,7 @@ function MainApp() {
     });
 
     return () => unsubAuth();
-  }, [navigate, selectedRole]);
+  }, [navigate]);
 
   const handleGoogleLogin = async () => {
     setAuthLoading(true);
@@ -259,33 +258,6 @@ function MainApp() {
               </Button>
               <div className="relative"><div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-200" /></div><div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-slate-500">Ou e-mail</span></div></div>
               <form onSubmit={handleEmailAuth} className="space-y-4">
-                {isRegistering && (
-                  <div className="space-y-3">
-                    <Label className="text-[10px] uppercase font-black tracking-widest text-slate-500">Selecione sua função</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[
-                        { id: 'student', label: 'Estudante', icon: UserIcon },
-                        { id: 'vendor', label: 'Vendedor', icon: ShoppingCart },
-                        { id: 'recharge', label: 'Recarga', icon: CreditCard },
-                        { id: 'admin', label: 'Admin', icon: ShieldCheck },
-                      ].map((role) => (
-                        <button
-                          key={role.id}
-                          type="button"
-                          onClick={() => setSelectedRole(role.id as any)}
-                          className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all gap-2 ${
-                            selectedRole === role.id 
-                              ? 'border-blue-600 bg-blue-50 text-blue-600' 
-                              : 'border-slate-100 hover:border-slate-200 text-slate-500'
-                          }`}
-                        >
-                          <role.icon className="h-5 w-5" />
-                          <span className="text-[9px] font-black uppercase tracking-tight">{role.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 <div className="space-y-2"><Label>E-mail</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
                 <div className="space-y-2"><Label>Senha</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
                 <Button type="submit" className="w-full bg-slate-900" disabled={authLoading}>{authLoading ? 'Processando...' : (isRegistering ? 'Cadastrar' : 'Entrar')}</Button>
@@ -386,7 +358,7 @@ function MainApp() {
   return (
     <Suspense fallback={<LoadingFallback />}>
       <Routes>
-        <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/vendor' : profile.role === 'recharge' ? '/pdv' : '/portal'} replace />} />
+        <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/vendor' : profile.role === 'recharge' ? '/recharge' : '/portal'} replace />} />
         <Route path="/admin/*" element={<ProtectedRoute allowedRoles={['admin']} profile={profile}><AdminDashboard profile={profile} /></ProtectedRoute>} />
         <Route path="/vendor/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin']} profile={profile}><VendorDashboard profile={profile} /></ProtectedRoute>} />
         <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin', 'recharge']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />

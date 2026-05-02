@@ -694,110 +694,84 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               <div>
                 <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
                   <Users className="h-8 w-8 text-blue-600" />
-                  EQUIPE DE VENDAS
+                  GESTÃO DE EQUIPE
                 </h2>
                 <p className="text-slate-500 mt-1 max-w-lg">
                   Gerencie acessos dos terminais, atribua barracas e controle saldos manuais de colaboradores e alunos.
                 </p>
               </div>
-              <div className="flex items-center gap-3">
-                <Button 
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      let bebidaStall = stalls.find(s => s.name === 'Bebida');
-                      let stallId = bebidaStall?.id;
-
-                      if (!bebidaStall) {
-                        const docRef = await addDoc(collection(db, 'stalls'), {
-                          name: 'Bebida',
-                          createdAt: new Date().toISOString()
-                        });
-                        stallId = docRef.id;
-                      }
-
-                      const denisEmail = 'denis.alves@exemplo.com';
-                      if (!users.find(u => u.email === denisEmail)) {
-                        await addDoc(collection(db, 'users'), {
-                          name: 'Denis Alves',
-                          email: denisEmail,
-                          role: 'vendor',
-                          balance: 0,
-                          vendorIds: [stallId],
-                          qrCode: `TEMP-DENIS-${Date.now()}`,
-                          timestamp: serverTimestamp()
-                        });
-                      }
-
-                      const luisEmail = 'luis@exemplo.com';
-                      if (!users.find(u => u.email === luisEmail)) {
-                        await addDoc(collection(db, 'users'), {
-                          name: 'Luis',
-                          email: luisEmail,
-                          role: 'admin',
-                          balance: 0,
-                          vendorIds: [],
-                          qrCode: `TEMP-LUIS-${Date.now()}`,
-                          timestamp: serverTimestamp()
-                        });
-                      }
-                      toast.success('Configuração Denis/Luis aplicada!');
-                    } catch (e) {
-                      toast.error('Erro na configuração rápida');
-                    }
-                  }}
-                  className="border-orange-200 text-orange-600 hover:bg-orange-50 font-bold text-[10px] uppercase tracking-widest px-4 h-10 rounded-xl"
-                >
-                  Configuração Rápida
-                </Button>
-              </div>
             </header>
 
             {/* Form Section */}
-            <section className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
-              <div className="flex flex-col md:flex-row items-center gap-8">
-                <div className="md:w-1/3">
-                  <h3 className="font-bold text-slate-900 text-lg uppercase tracking-tight">Novo Membro</h3>
-                  <p className="text-slate-500 text-sm mt-1">Pré-cadastre usuários para que eles possam acessar o sistema.</p>
+            <section className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-8 opacity-5">
+                <Users className="h-24 w-24 text-slate-900" />
+              </div>
+              <div className="relative z-10 flex flex-col gap-8">
+                <div>
+                  <h3 className="font-black text-slate-900 text-xl uppercase tracking-tighter">Pré-Cadastro de Membros</h3>
+                  <p className="text-slate-500 text-sm mt-1 max-w-md">Adicione membros à equipe ou estudantes. Eles entrarão com as permissões definidas ao fazer login.</p>
                 </div>
-                <form onSubmit={handleAddUser} className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5 flex-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome Completo</label>
-                    <Input 
-                      value={newUserName}
-                      onChange={(e) => setNewUserName(e.target.value)}
-                      placeholder="Ex: João Silva"
-                      className="bg-slate-50 border-slate-200 h-11 focus-visible:ring-blue-500 rounded-xl"
-                    />
-                  </div>
-                  <div className="space-y-1.5 flex-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Função / Acesso</label>
-                    <select 
-                      value={newUserRole}
-                      onChange={(e) => setNewUserRole(e.target.value as any)}
-                      className="w-full flex h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus-visible:ring-blue-500"
-                    >
-                      <option value="student">Estudante / Portal</option>
-                      <option value="vendor">PDV / Vendedor</option>
-                      <option value="recharge">Carga e Recarga</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1.5 flex-1">
-                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">E-mail do Google</label>
-                    <div className="flex gap-2">
-                       <Input 
+
+                <form onSubmit={handleAddUser} className="space-y-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome Completo</label>
+                      <Input 
+                        value={newUserName}
+                        onChange={(e) => setNewUserName(e.target.value)}
+                        placeholder="Ex: João Silva"
+                        className="bg-slate-50 border-slate-200 h-14 focus-visible:ring-blue-500 rounded-2xl text-base font-medium px-4"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">E-mail do Google</label>
+                      <Input 
                         type="email"
                         value={newUserEmail}
                         onChange={(e) => setNewUserEmail(e.target.value)}
                         placeholder="exemplo@gmail.com"
-                        className="bg-slate-50 border-slate-200 h-11 focus-visible:ring-blue-500 rounded-xl"
+                        className="bg-slate-50 border-slate-200 h-14 focus-visible:ring-blue-500 rounded-2xl text-base font-medium px-4"
                       />
-                      <Button type="submit" className="bg-slate-900 hover:bg-slate-800 text-white h-11 px-6 rounded-xl font-bold transition-all shrink-0">
-                        <Plus className="h-4 w-4" />
-                      </Button>
                     </div>
                   </div>
+
+                  <div className="space-y-4">
+                    <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Selecione a Função (Permissões)</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {[
+                        { id: 'student', label: 'Estudante', icon: UserIcon, desc: 'Acesso ao Portal do Aluno' },
+                        { id: 'vendor', label: 'Vendedor', icon: ShoppingCart, desc: 'Acesso ao PDV de Vendas' },
+                        { id: 'recharge', label: 'Recarga', icon: CreditCard, desc: 'Acesso ao PDV de Crédito' },
+                      ].map((role) => (
+                        <button
+                          key={role.id}
+                          type="button"
+                          onClick={() => setNewUserRole(role.id as any)}
+                          className={`flex flex-col items-center justify-center p-6 rounded-[28px] border-2 transition-all gap-3 text-center group/role ${
+                            newUserRole === role.id 
+                              ? 'border-blue-600 bg-blue-50 text-blue-600 shadow-lg shadow-blue-500/10' 
+                              : 'border-slate-100 bg-slate-50/50 hover:bg-white hover:border-slate-200 text-slate-500'
+                          }`}
+                        >
+                          <div className={`p-4 rounded-2xl transition-colors ${
+                            newUserRole === role.id ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 group-hover/role:text-slate-600'
+                          }`}>
+                            <role.icon className="h-6 w-6" />
+                          </div>
+                          <div>
+                            <span className="text-[11px] font-black uppercase tracking-widest block mb-1">{role.label}</span>
+                            <span className="text-[9px] font-medium opacity-60 leading-tight block">{role.desc}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Button type="submit" className="w-full bg-slate-950 hover:bg-blue-600 text-white h-16 rounded-[24px] font-black uppercase tracking-[0.2em] text-xs transition-all shadow-xl group/submit">
+                    <Plus className="h-5 w-5 mr-2 group-hover/submit:rotate-90 transition-transform" /> 
+                    Finalizar Pré-Cadastro
+                  </Button>
                 </form>
               </div>
             </section>
