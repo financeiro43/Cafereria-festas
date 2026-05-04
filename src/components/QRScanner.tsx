@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Button } from '@/components/ui/button';
-import { X, Camera, Loader2, Zap, ZapOff } from 'lucide-react';
+import { X, Camera, Loader2, Zap, ZapOff, Focus } from 'lucide-react';
 
 interface QRScannerProps {
   onScan: (decodedText: string) => void;
@@ -42,6 +42,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         // Usar BarcodeDetector API se disponível para performance superior
         scanner = new Html5Qrcode(elementId, { 
           verbose: false,
+          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
           experimentalFeatures: { 
             useBarCodeDetectorIfSupported: true 
           } 
@@ -49,21 +50,24 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         html5QrCodeRef.current = scanner;
 
         const config = {
-          fps: 30, // Aumentado para 30 FPS para leitura mais fluida
+          fps: 60, // Aumentado para 60 FPS para leitura ultrarrápida (se suportado pelo hardware)
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            // QRBox dinâmico: maior e mais centralizado
-            const qrboxSize = Math.floor(minEdge * 0.75);
+            // QRBox otimizado: 70% da menor dimensão para garantir resolução e foco
+            const qrboxSize = Math.floor(minEdge * 0.7);
             return { width: qrboxSize, height: qrboxSize };
           },
           aspectRatio: 1.0,
           disableFlip: false,
-          // Video Constraints para forçar alta qualidade e foco contínuo
+          // Video Constraints maximizadas para precisão
           videoConstraints: {
             facingMode: "environment",
             focusMode: "continuous",
+            whiteBalanceMode: "continuous",
+            exposureMode: "continuous",
             width: { min: 640, ideal: 1280, max: 1920 },
-            height: { min: 480, ideal: 720, max: 1080 }
+            height: { min: 480, ideal: 720, max: 1080 },
+            frameRate: { ideal: 60, min: 30 }
           }
         };
 
