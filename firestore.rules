@@ -40,15 +40,19 @@ service cloud.firestore {
     }
 
     function isVendor() {
-      return isSignedIn() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor';
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor')
+      );
     }
 
     function isRecharge() {
-      return isSignedIn() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'recharge';
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'recharge')
+      );
     }
 
     // --- Validation Helpers ---

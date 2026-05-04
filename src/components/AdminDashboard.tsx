@@ -61,30 +61,47 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       handleFirestoreError(error, OperationType.GET, 'products');
     });
 
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      setUsers(snap.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'users');
-    });
+    // Withdrawals - Admin Only
+    let unsubWithdrawals = () => {};
+    if (profile.role === 'admin') {
+      unsubWithdrawals = onSnapshot(collection(db, 'withdrawals'), (snap) => {
+        setWithdrawals(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Withdrawal)));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'withdrawals');
+      });
+    }
 
-    const qSales = query(collection(db, 'consumption'), orderBy('timestamp', 'desc'));
-    const unsubSales = onSnapshot(qSales, (snap) => {
-      setRecentSales(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'consumption');
-    });
+    // Consumption - Admin or Vendor
+    let unsubSales = () => {};
+    if (profile.role === 'admin' || profile.role === 'vendor') {
+      const qSales = query(collection(db, 'consumption'), orderBy('timestamp', 'desc'));
+      unsubSales = onSnapshot(qSales, (snap) => {
+        setRecentSales(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'consumption');
+      });
+    }
 
-    const unsubWithdrawals = onSnapshot(collection(db, 'withdrawals'), (snap) => {
-      setWithdrawals(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Withdrawal)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'withdrawals');
-    });
+    // Transactions - Admin or Vendor or Recharge
+    let unsubTransactions = () => {};
+    if (profile.role === 'admin' || profile.role === 'vendor' || profile.role === 'recharge') {
+      const qTransactions = query(collection(db, 'transactions'), orderBy('timestamp', 'desc'));
+      unsubTransactions = onSnapshot(qTransactions, (snap) => {
+        setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'transactions');
+      });
+    }
 
-    const unsubTransactions = onSnapshot(query(collection(db, 'transactions'), orderBy('timestamp', 'desc')), (snap) => {
-      setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'transactions');
-    });
+    // Users - Admin can see all, Vendors might need it for scanning but rules allow list
+    let unsubUsers = () => {};
+    if (profile.role === 'admin' || profile.role === 'vendor' || profile.role === 'recharge') {
+      unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+        setUsers(snap.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile)));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, 'users');
+      });
+    }
 
     return () => {
       unsubStalls();
@@ -94,7 +111,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       unsubWithdrawals();
       unsubTransactions();
     };
-  }, []);
+  }, [profile.role]);
 
   const stats = useMemo(() => {
     const totalTransactions = transactions.filter(t => t.type === 'debit');
@@ -224,6 +241,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
   useEffect(() => {
     const fetchSettings = async () => {
+      if (profile.role !== 'admin') return;
       try {
         const docRef = doc(db, 'settings', 'config');
         const docSnap = await getDoc(docRef);
@@ -235,7 +253,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       }
     };
     fetchSettings();
-  }, []);
+  }, [profile.role]);
 
   const handleSaveSettings = async () => {
     try {
@@ -253,6 +271,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'stall' | 'product' | 'user', action: () => void } | null>(null);
 
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
@@ -279,14 +298,19 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir este usuário? Esta ação é irreversível.')) return;
-    try {
-      await deleteDoc(doc(db, 'users', userId));
-      toast.success('Usuário removido com sucesso');
-      if (editingUser?.uid === userId) setEditingUser(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `users/${userId}`);
-    }
+    setDeleteConfirm({
+      id: userId,
+      type: 'user',
+      action: async () => {
+        try {
+          await deleteDoc(doc(db, 'users', userId));
+          toast.success('Usuário removido com sucesso');
+          if (editingUser?.uid === userId) setEditingUser(null);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `users/${userId}`);
+        }
+      }
+    });
   };
 
   const handleAddUser = async (e: React.FormEvent) => {
@@ -408,17 +432,22 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
   const handleDeleteStall = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (!window.confirm('Excluir esta barraca e todos os seus produtos?')) return;
-    try {
-      await deleteDoc(doc(db, 'stalls', id));
-      const stallProducts = products.filter(p => p.vendorId === id);
-      for (const p of stallProducts) {
-        await deleteDoc(doc(db, 'products', p.id));
+    setDeleteConfirm({
+      id,
+      type: 'stall',
+      action: async () => {
+        try {
+          await deleteDoc(doc(db, 'stalls', id));
+          const stallProducts = products.filter(p => p.vendorId === id);
+          for (const p of stallProducts) {
+            await deleteDoc(doc(db, 'products', p.id));
+          }
+          toast.success('Barraca excluída');
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `stalls/${id}`);
+        }
       }
-      toast.success('Barraca excluída');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `stalls/${id}`);
-    }
+    });
   };
 
   const handleUpdateStall = async () => {
@@ -436,13 +465,18 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
   const handleDeleteProduct = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (!window.confirm('Excluir este produto?')) return;
-    try {
-      await deleteDoc(doc(db, 'products', id));
-      toast.success('Produto excluído');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
-    }
+    setDeleteConfirm({
+      id,
+      type: 'product',
+      action: async () => {
+        try {
+          await deleteDoc(doc(db, 'products', id));
+          toast.success('Produto excluído');
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
+        }
+      }
+    });
   };
 
   const handleUpdateProduct = async () => {
@@ -2089,6 +2123,42 @@ function RechargePortal() {
       {isScanning && (
         <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Aluno" />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <DialogContent className="rounded-[32px] border-none shadow-2xl p-8 max-w-sm">
+          <DialogHeader className="space-y-4">
+            <div className="h-14 w-14 rounded-2xl bg-red-500/10 flex items-center justify-center text-red-500 mx-auto">
+              <Trash2 className="h-7 w-7" />
+            </div>
+            <DialogTitle className="text-2xl font-black text-center tracking-tight uppercase">Confirmar Exclusão</DialogTitle>
+            <DialogDescription className="text-center text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+              Esta ação é permanente e não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-6 text-center">
+            <p className="text-slate-600 font-medium">Tem certeza que deseja remover este {deleteConfirm?.type === 'stall' ? 'ponto de venda' : deleteConfirm?.type === 'product' ? 'produto' : 'usuário'}?</p>
+          </div>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+            <Button 
+              onClick={() => {
+                deleteConfirm?.action();
+                setDeleteConfirm(null);
+              }}
+              className="w-full h-14 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px]"
+            >
+              Sim, Excluir Agora
+            </Button>
+            <Button 
+              variant="ghost" 
+              onClick={() => setDeleteConfirm(null)}
+              className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] text-slate-400"
+            >
+              Cancelar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
