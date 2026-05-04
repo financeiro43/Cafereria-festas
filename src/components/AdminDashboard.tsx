@@ -65,7 +65,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       handleFirestoreError(error, OperationType.GET, 'users');
     });
 
-    const qSales = query(collection(db, 'consumption'), orderBy('timestamp', 'desc'), limit(10));
+    const qSales = query(collection(db, 'consumption'), orderBy('timestamp', 'desc'));
     const unsubSales = onSnapshot(qSales, (snap) => {
       setRecentSales(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => {
@@ -97,17 +97,24 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const stats = useMemo(() => {
     const totalTransactions = transactions.filter(t => t.type === 'debit');
     const totalRevenue = totalTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
-    const activeCards = users.filter(u => u.isPhysicalCard).length;
+    
+    // Identificar usuários que já colocaram valores (pelo menos um crédito)
+    const rechargedUserIds = new Set(transactions.filter(t => t.type === 'credit' && t.status === 'completed').map(t => t.userId));
+    
+    const activePhysicalCards = users.filter(u => u.isPhysicalCard && rechargedUserIds.has(u.uid)).length;
+    const activeVirtualCards = users.filter(u => !u.isPhysicalCard && rechargedUserIds.has(u.uid)).length;
+    
     const totalUsers = users.length;
     
-    const credited = transactions.filter(t => t.type === 'credit').reduce((acc, t) => acc + (t.amount || 0), 0);
+    const credited = transactions.filter(t => t.type === 'credit' && t.status === 'completed').reduce((acc, t) => acc + (t.amount || 0), 0);
     const debited = totalRevenue;
     const totalWithdrawn = withdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
     
     return {
       totalRevenue,
       totalSalesCount: totalTransactions.length,
-      activeCards,
+      activePhysicalCards,
+      activeVirtualCards,
       totalUsers,
       credited,
       debited,
@@ -119,9 +126,23 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const statsByStall = useMemo(() => {
     return stalls.map(stall => {
       const stallTransactions = transactions.filter(t => t.type === 'debit' && t.description?.includes(stall.name));
-      // Note: This relies on description matching for now if stallId isn't on transaction
-      // Improved logic: find matching consumption records or ensure transactions have stallId
       const totalSales = stallTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+      
+      // Contagem de produtos vendidos usando a collection consumption
+      const stallConsumption = recentSales.filter(s => s.stallId === stall.id);
+      let productsSold = 0;
+      stallConsumption.forEach(sale => {
+        if (sale.detailedItems && Array.isArray(sale.detailedItems)) {
+          productsSold += sale.detailedItems.reduce((acc: number, item: any) => acc + (item.quantity || 0), 0);
+        } else if (sale.items && Array.isArray(sale.items)) {
+          // Fallback para formato string "Nx Nome"
+          sale.items.forEach((item: string) => {
+            const match = item.match(/^(\d+)x/);
+            if (match) productsSold += parseInt(match[1]);
+          });
+        }
+      });
+
       const stallWithdrawals = withdrawals.filter(w => w.stallId === stall.id);
       const totalWithdrawn = stallWithdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
       
@@ -129,10 +150,11 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         ...stall,
         totalSales,
         totalWithdrawn,
+        productsSold,
         balance: totalSales - totalWithdrawn
       };
     });
-  }, [stalls, transactions, withdrawals]);
+  }, [stalls, transactions, withdrawals, recentSales]);
 
   const handleWithdraw = async () => {
     if (!withdrawalStallId || !withdrawalAmount) return;
@@ -562,20 +584,34 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   </CardContent>
                 </Card>
 
-                <Card className="shadow-sm border-none bg-indigo-950 text-white rounded-[32px] overflow-hidden relative group">
+                <Card className="shadow-sm border-none bg-indigo-950 text-white rounded-[32px] overflow-hidden relative group h-full">
                    <div className="absolute -right-4 -top-4 w-24 h-24 bg-indigo-500/10 blur-3xl rounded-full group-hover:scale-150 transition-transform duration-700" />
-                   <CardContent className="p-6 md:p-8 space-y-2">
+                   <CardContent className="p-6 md:p-8 space-y-4">
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300 flex items-center gap-2">
                       <QrCode className="h-3 w-3" /> Cartões Ativos
                     </p>
-                    <h4 className="text-3xl font-black tabular-nums tracking-tighter">{stats.activeCards}</h4>
-                    <p className="text-[9px] text-indigo-400 font-bold uppercase tracking-widest">Vínculos Gerados</p>
+                    <div className="flex items-end justify-between">
+                      <h4 className="text-4xl font-black tabular-nums tracking-tighter">
+                        {stats.activePhysicalCards + stats.activeVirtualCards}
+                      </h4>
+                      <div className="text-right pb-1">
+                        <div className="flex items-center gap-2 justify-end">
+                          <div className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+                          <p className="text-[9px] text-indigo-200 font-bold uppercase tracking-widest">{stats.activePhysicalCards} Físicos</p>
+                        </div>
+                        <div className="flex items-center gap-2 justify-end">
+                          <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                          <p className="text-[9px] text-indigo-200 font-bold uppercase tracking-widest">{stats.activeVirtualCards} Virtuais</p>
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-[8px] text-indigo-400/60 font-black uppercase tracking-[0.2em] border-t border-white/5 pt-3">Apenas com carga efetuada</p>
                   </CardContent>
                 </Card>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 px-2 md:px-0 pb-24 md:pb-0">
-                <Card className="shadow-sm border-none rounded-[32px] overflow-hidden">
+                <Card className="shadow-sm border-none rounded-[32px] overflow-hidden h-fit">
                   <CardHeader className="bg-slate-50 border-b border-slate-100 p-6 md:p-8">
                     <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
                       <ArrowLeftRight className="h-4 w-4 text-blue-600" /> Retirada de Valores
@@ -636,9 +672,13 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                               <div className="h-12 w-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition-colors">
                                 <Store className="h-5 w-5" />
                               </div>
-                              <div>
+                              <div className="space-y-0.5">
                                 <p className="font-black text-slate-900 uppercase tracking-tight text-xs">{stall.name}</p>
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">Retirado: R$ {stall.totalWithdrawn.toFixed(2)}</p>
+                                <div className="flex items-center gap-1.5">
+                                  <div className="h-1 w-1 rounded-full bg-blue-500" />
+                                  <p className="text-[9px] text-blue-600 font-black uppercase tracking-widest">{stall.productsSold || 0} Prod. Vendidos</p>
+                                </div>
                               </div>
                             </div>
                             <div className="text-right">
