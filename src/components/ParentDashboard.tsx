@@ -234,9 +234,21 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
               {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
               <span className="text-[9px] font-black uppercase tracking-widest hidden xs:inline">{isOnline ? 'Online' : 'Offline'}</span>
             </div>
-            <Button variant="ghost" size="icon" onClick={() => auth.signOut()} className="bg-white/5 hover:bg-white/10 rounded-2xl h-12 w-12 text-slate-400">
-              <LogOut className="h-5 w-5" />
-            </Button>
+            
+            <div className="flex items-center gap-2 bg-white/5 pl-4 pr-2 py-2 rounded-2xl border border-white/10 group">
+              <div className="text-right hidden xs:block">
+                <p className="text-[10px] font-black text-white uppercase leading-none mb-1 line-clamp-1">{profile.name}</p>
+                <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{profile.email}</p>
+              </div>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => auth.signOut()} 
+                className="h-10 w-10 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
         </header>
 
