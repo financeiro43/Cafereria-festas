@@ -39,6 +39,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   
   const [newStallName, setNewStallName] = useState('');
+  const [editingStall, setEditingStall] = useState<Stall | null>(null);
   const [newProductName, setNewProductName] = useState('');
   const [newProductPrice, setNewProductPrice] = useState('');
   const [selectedStallId, setSelectedStallId] = useState('');
@@ -404,17 +405,31 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     }
   };
 
-  const handleDeleteStall = async (id: string) => {
-    if (!confirm('Excluir esta barraca e todos os seus produtos?')) return;
+  const handleDeleteStall = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm('Excluir esta barraca e todos os seus produtos?')) return;
     try {
-      await deleteDoc(doc(collection(db, 'stalls'), id));
+      await deleteDoc(doc(db, 'stalls', id));
       const stallProducts = products.filter(p => p.vendorId === id);
       for (const p of stallProducts) {
-        await deleteDoc(doc(collection(db, 'products'), p.id));
+        await deleteDoc(doc(db, 'products', p.id));
       }
       toast.success('Barraca excluída');
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `stalls/${id}`);
+    }
+  };
+
+  const handleUpdateStall = async () => {
+    if (!editingStall || !editingStall.name.trim()) return;
+    try {
+      await updateDoc(doc(db, 'stalls', editingStall.id), {
+        name: editingStall.name
+      });
+      setEditingStall(null);
+      toast.success('Barraca atualizada!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `stalls/${editingStall.id}`);
     }
   };
 
@@ -713,19 +728,78 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {stalls.map(stall => (
-                <div key={stall.id} className="p-6 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+                <div 
+                  key={stall.id} 
+                  onClick={() => setEditingStall(stall)}
+                  className="group p-6 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between cursor-pointer hover:shadow-md hover:border-blue-200 transition-all active:scale-[0.98]"
+                >
                   <div className="flex items-center gap-4">
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <Store className="h-6 w-6 text-slate-400" />
+                    <div className="p-3 bg-slate-50 rounded-xl group-hover:bg-blue-50 transition-colors">
+                      <Store className="h-6 w-6 text-slate-400 group-hover:text-blue-500" />
                     </div>
-                    <span className="font-black text-slate-900 uppercase text-sm tracking-widest">{stall.name}</span>
+                    <div>
+                      <span className="font-black text-slate-900 uppercase text-sm tracking-widest">{stall.name}</span>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">Clique para editar</p>
+                    </div>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => handleDeleteStall(stall.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingStall(stall);
+                      }} 
+                      className="text-slate-400 hover:text-blue-600 hover:bg-blue-50"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      onClick={(e) => handleDeleteStall(stall.id, e)} 
+                      className="text-red-400 hover:text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
+
+            {/* Edit Stall Dialog */}
+            <Dialog open={!!editingStall} onOpenChange={(open) => !open && setEditingStall(null)}>
+              <DialogContent className="rounded-[32px] border-none shadow-2xl p-8 max-w-sm">
+                <DialogHeader className="space-y-4">
+                  <div className="h-14 w-14 rounded-2xl bg-blue-600 flex items-center justify-center text-white mx-auto shadow-xl">
+                    <Edit2 className="h-7 w-7" />
+                  </div>
+                  <DialogTitle className="text-2xl font-black text-center tracking-tight uppercase">Editar Barraca</DialogTitle>
+                  <DialogDescription className="text-center text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                    Altere o nome do ponto de venda
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="py-6 space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nome da Barraca</Label>
+                    <Input 
+                      value={editingStall?.name || ''} 
+                      onChange={(e) => setEditingStall(prev => prev ? { ...prev, name: e.target.value } : null)}
+                      placeholder="Ex: Cantina Principal"
+                      className="h-14 rounded-2xl bg-slate-50 border-slate-200 font-black"
+                    />
+                  </div>
+                </div>
+                <DialogFooter className="flex-col sm:flex-col gap-3">
+                  <Button onClick={handleUpdateStall} className="w-full h-14 bg-slate-900 hover:bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all">
+                    Salvar Alterações
+                  </Button>
+                  <Button variant="ghost" onClick={() => setEditingStall(null)} className="w-full h-12 rounded-xl font-bold uppercase tracking-widest text-[10px] text-slate-400 hover:text-slate-600">
+                    Cancelar
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         )}
 
