@@ -459,7 +459,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <MainApp />
-      <Toaster />
+      <Toaster position="top-center" expand={true} richColors />
     </BrowserRouter>
   );
 }
