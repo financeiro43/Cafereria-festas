@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc, orderBy, limit, Timestamp, increment, serverTimestamp, where, getDocs } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc, orderBy, limit, Timestamp, increment, serverTimestamp, where, getDocs, getDoc, setDoc } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -49,27 +49,39 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   useEffect(() => {
     const unsubStalls = onSnapshot(collection(db, 'stalls'), (snap) => {
       setStalls(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stall)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'stalls');
     });
 
     const unsubProducts = onSnapshot(collection(db, 'products'), (snap) => {
       setProducts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'products');
     });
 
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       setUsers(snap.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'users');
     });
 
     const qSales = query(collection(db, 'consumption'), orderBy('timestamp', 'desc'), limit(10));
     const unsubSales = onSnapshot(qSales, (snap) => {
       setRecentSales(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'consumption');
     });
 
     const unsubWithdrawals = onSnapshot(collection(db, 'withdrawals'), (snap) => {
       setWithdrawals(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Withdrawal)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'withdrawals');
     });
 
     const unsubTransactions = onSnapshot(query(collection(db, 'transactions'), orderBy('timestamp', 'desc')), (snap) => {
       setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'transactions');
     });
 
     return () => {
@@ -178,9 +190,39 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState<UserRole>('student');
   const [newUserVendorIds, setNewUserVendorIds] = useState<string[]>([]);
-  
-  const [batchSize, setBatchSize] = useState(24);
+  const [settings, setSettings] = useState({
+    siteName: 'Festa Pass',
+    contactEmail: 'financeiro@modeloalpha.com.br',
+    redePV: '',
+    redeToken: '',
+    isProduction: false
+  });
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const docRef = doc(db, 'settings', 'config');
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setSettings(docSnap.data() as any);
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, 'settings/config');
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const handleSaveSettings = async () => {
+    try {
+      await setDoc(doc(db, 'settings', 'config'), settings);
+      toast.success('Configurações salvas com sucesso!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'settings/config');
+    }
+  };
   const [isGenerating, setIsGenerating] = useState(false);
+  const [batchSize, setBatchSize] = useState(24);
   const [showPrintView, setShowPrintView] = useState(false);
   const [cardBgUrl, setCardBgUrl] = useState('https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=1000');
 
@@ -373,6 +415,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     { id: 'terminal', icon: ShoppingCart, label: 'Terminal PDV (Caixa)', category: 'Canais de Venda' },
     { id: 'recharge_pos', icon: QrCode, label: 'Carga e Recarga', category: 'Canais de Venda' },
     { id: 'app_view', icon: Smartphone, label: 'Portal do Aluno (App)', category: 'Canais de Venda' },
+    { id: 'settings', icon: SettingsIcon, label: 'Configurações', category: 'Sistema' },
   ];
 
   return (
@@ -1367,6 +1410,108 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               <div className="max-w-4xl mx-auto bg-slate-100 p-8 rounded-[40px] shadow-2xl border-4 border-white">
                 <div className="bg-white rounded-[32px] overflow-hidden min-h-[600px] shadow-inner">
                    <ShopView profile={profile} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'settings' && (
+            <div className="space-y-8 animate-in fade-in duration-500">
+              <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 pb-10 border-b border-slate-100">
+                <div className="space-y-4">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600">
+                    <SettingsIcon className="h-3 w-3" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Configurações Globais</span>
+                  </div>
+                  <h2 className="text-4xl font-black text-slate-900 tracking-tighter flex items-center gap-4">
+                    <div className="h-14 w-14 rounded-2xl bg-slate-950 flex items-center justify-center text-white shadow-2xl -rotate-3 shrink-0">
+                      <SettingsIcon className="h-7 w-7" />
+                    </div>
+                    SISTEMA & GATEWAY
+                  </h2>
+                  <p className="text-slate-500 text-lg font-medium max-w-xl leading-relaxed">
+                    Configure as chaves do gateway de pagamento, dados de contato e preferências do sistema.
+                  </p>
+                </div>
+              </header>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm space-y-8">
+                   <div>
+                     <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2 mb-6">
+                       <CreditCard className="h-5 w-5 text-blue-600" />
+                       GATEWAY REDE (PAGAMENTO)
+                     </h3>
+                     <div className="grid grid-cols-1 gap-6">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">PV (Número do Estabelecimento)</Label>
+                          <Input 
+                            placeholder="Ex: 123456789"
+                            value={settings.redePV}
+                            onChange={(e) => setSettings({ ...settings, redePV: e.target.value })}
+                            className="bg-slate-50 border-slate-200 h-14 rounded-2xl font-medium"
+                          />
+                          <p className="text-[10px] text-slate-400 font-medium px-1">O seu "PV" fornecido pela Rede para integração e-commerce.</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Token de Autenticação</Label>
+                          <Input 
+                            type="password"
+                            placeholder="••••••••••••••••"
+                            value={settings.redeToken}
+                            onChange={(e) => setSettings({ ...settings, redeToken: e.target.value })}
+                            className="bg-slate-50 border-slate-200 h-14 rounded-2xl font-medium"
+                          />
+                          <p className="text-[10px] text-slate-400 font-medium px-1">A chave de segurança secreta para autorizar transações.</p>
+                        </div>
+                        <div className="flex items-center gap-4 p-4 bg-blue-50 border border-blue-100 rounded-2xl">
+                          <div className={`h-10 w-20 rounded-full bg-white border border-blue-200 flex items-center p-1 cursor-pointer transition-all ${settings.isProduction ? 'justify-end bg-blue-600 border-blue-600' : 'justify-start'}`}
+                               onClick={() => setSettings({ ...settings, isProduction: !settings.isProduction })}>
+                             <div className="h-8 w-8 bg-white rounded-full shadow-md" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-black uppercase text-blue-900">Modo Produção</p>
+                            <p className="text-[8px] font-bold text-blue-700/60 uppercase tracking-widest">
+                              {settings.isProduction ? 'Transações Reais Ativadas' : 'Ambiente de Testes (Sandbox)'}
+                            </p>
+                          </div>
+                        </div>
+                     </div>
+                   </div>
+                </div>
+
+                <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm space-y-8">
+                   <div>
+                     <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2 mb-6">
+                       <FileText className="h-5 w-5 text-blue-600" />
+                       DADOS DO EVENTO
+                     </h3>
+                     <div className="grid grid-cols-1 gap-6">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Nome da Plataforma</Label>
+                          <Input 
+                            value={settings.siteName}
+                            onChange={(e) => setSettings({ ...settings, siteName: e.target.value })}
+                            className="bg-slate-50 border-slate-200 h-14 rounded-2xl font-medium"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Email de Suporte</Label>
+                          <Input 
+                            value={settings.contactEmail}
+                            onChange={(e) => setSettings({ ...settings, contactEmail: e.target.value })}
+                            className="bg-slate-50 border-slate-200 h-14 rounded-2xl font-medium"
+                          />
+                        </div>
+                     </div>
+                   </div>
+
+                   <Button 
+                    onClick={handleSaveSettings}
+                    className="w-full bg-slate-950 hover:bg-blue-600 text-white h-16 rounded-[24px] font-black uppercase tracking-[0.2em] text-xs transition-all shadow-xl group/save"
+                   >
+                     Salvar Configurações
+                   </Button>
                 </div>
               </div>
             </div>

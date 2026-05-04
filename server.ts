@@ -91,7 +91,16 @@ async function startServer() {
       }
 
       const transactionId = `${Date.now()}`;
-      const isReal = !!(process.env.REDE_PV && process.env.REDE_TOKEN);
+      
+      let isReal = !!(process.env.REDE_PV && process.env.REDE_TOKEN);
+      if (db && !isReal) {
+        const settingsSnap = await db.collection("settings").doc("config").get();
+        if (settingsSnap.exists) {
+          const config = settingsSnap.data();
+          if (config?.redePV && config?.redeToken) isReal = true;
+        }
+      }
+
       const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}${isReal ? '&real=true' : ''}`;
       
       res.json({ checkoutUrl, transactionId, isReal });
@@ -104,8 +113,6 @@ async function startServer() {
   // Real Rede Payment Processing
   app.post(`${API_BASE}/process-payment`, async (req, res) => {
     console.log(`[REDE-API] POST /process-payment`);
-    const REDE_PV = process.env.REDE_PV;
-    const REDE_TOKEN = process.env.REDE_TOKEN;
 
     try {
       const { cardData, amount, transactionId, userId } = req.body;
@@ -115,9 +122,24 @@ async function startServer() {
           return res.status(400).json({ error: "Missing transaction data", details: { userId: !!userId, amount: !!amount, cardData: !!cardData } });
       }
 
-      if (!REDE_PV || !REDE_TOKEN) {
-        console.error(`[REDE-API] Credentials missing: PV=${!!REDE_PV}, Token=${!!REDE_TOKEN}`);
-        return res.status(400).json({ error: "Rede credentials not configured in environment (REDE_PV, REDE_TOKEN)" });
+      // Fetch dynamic settings from DB
+      let livePV = process.env.REDE_PV;
+      let liveToken = process.env.REDE_TOKEN;
+      let forceSandbox = process.env.REDE_SANDBOX !== 'false';
+
+      if (db) {
+        const settingsSnap = await db.collection("settings").doc("config").get();
+        if (settingsSnap.exists) {
+          const config = settingsSnap.data();
+          if (config?.redePV) livePV = config.redePV;
+          if (config?.redeToken) liveToken = config.redeToken;
+          if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
+        }
+      }
+
+      if (!livePV || !liveToken) {
+        console.error(`[REDE-API] Credentials missing: PV=${!!livePV}, Token=${!!liveToken}`);
+        return res.status(400).json({ error: "Rede credentials not configured in environment or DB (REDE_PV, REDE_TOKEN)" });
       }
 
       const redeAmount = Math.round(parseFloat(amount) * 100);
@@ -147,11 +169,10 @@ async function startServer() {
         softDescriptor: "RECESCOLA"
       };
 
-      const axiosConfig = { auth: { username: REDE_PV, password: REDE_TOKEN } };
-      const isSandbox = process.env.REDE_SANDBOX !== 'false';
-      const redeUrl = isSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
+      const axiosConfig = { auth: { username: livePV, password: liveToken } };
+      const redeUrl = forceSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
 
-      console.log(`[REDE-API] Calling URL: ${redeUrl} (Sandbox: ${isSandbox})`);
+      console.log(`[REDE-API] Calling URL: ${redeUrl} (Sandbox: ${forceSandbox})`);
       console.log(`[REDE-API] Payload:`, JSON.stringify({ ...redePayload, cardNumber: "****", securityCode: "***" }));
       
       const response = await axios.post(redeUrl, redePayload, axiosConfig);

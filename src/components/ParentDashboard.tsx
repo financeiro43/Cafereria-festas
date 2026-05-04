@@ -235,10 +235,10 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
               <span className="text-[9px] font-black uppercase tracking-widest hidden xs:inline">{isOnline ? 'Online' : 'Offline'}</span>
             </div>
             
-            <div className="flex items-center gap-2 bg-white/5 pl-4 pr-2 py-2 rounded-2xl border border-white/10 group">
-              <div className="text-right hidden xs:block">
-                <p className="text-[10px] font-black text-white uppercase leading-none mb-1 line-clamp-1">{profile.name}</p>
-                <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{profile.email}</p>
+            <div className="flex items-center gap-2 bg-white/10 pl-4 pr-2 py-2 rounded-2xl border border-white/20 group">
+              <div className="text-right hidden sm:block">
+                <p className="text-[10px] font-black text-white uppercase leading-none mb-1 line-clamp-1 truncate max-w-[120px]">{profile.name}</p>
+                <p className="text-[8px] font-bold text-blue-400 uppercase tracking-widest">{profile.role}</p>
               </div>
               <Button 
                 variant="ghost" 

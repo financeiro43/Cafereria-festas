@@ -82,12 +82,32 @@ service cloud.firestore {
              data.timestamp == request.time;
     }
 
+    function isValidSettings(data) {
+      return (data.siteName == null || (data.siteName is string && data.siteName.size() <= 100)) &&
+             (data.contactEmail == null || (data.contactEmail is string && data.contactEmail.size() <= 100)) &&
+             (data.redePV == null || (data.redePV is string && data.redePV.size() <= 100)) &&
+             (data.redeToken == null || (data.redeToken is string && data.redeToken.size() <= 100)) &&
+             (data.isProduction == null || data.isProduction is bool);
+    }
+
     // --- Collection Routes ---
+
+    // SETTINGS
+    match /settings/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() && isValidSettings(incoming());
+    }
 
     // USERS
     match /users/{userId} {
       allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isVendor() || isRecharge());
-      allow list: if isSignedIn() && (isAdmin() || (request.query.limit <= 1 && request.query.filters.size() > 0 && request.query.filters.email == request.auth.token.email.toLowerCase()));
+      allow list: if isSignedIn() && (
+        isAdmin() || 
+        isVendor() || 
+        isRecharge() || 
+        (request.query.limit <= 1 && request.query.filters.size() > 0 && 
+         (request.query.filters.email == request.auth.token.email.toLowerCase() || request.query.filters.qrCode != null))
+      );
       
       allow create: if isSignedIn() && (
         isAdmin() || 
@@ -97,19 +117,18 @@ service cloud.firestore {
       allow update: if isSignedIn() && (
         isAdmin() ||
         (request.auth.uid == userId && (
-          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL']) ||
-          (isVerified() && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL']))
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL', 'fcmToken'])
         ))
       );
     }
 
     // TRANSACTIONS
     match /transactions/{transactionId} {
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin() || isVendor() || isRecharge());
+      allow list: if isSignedIn() && (isAdmin() || isVendor() || isRecharge() || resource.data.userId == request.auth.uid);
       
       allow create: if isVerified() && isValidTransaction(incoming()) && (
-        incoming().userId == request.auth.uid || isVendor() || isAdmin()
+        incoming().userId == request.auth.uid || isVendor() || isAdmin() || isRecharge()
       );
       
       allow update: if isVerified() && (

@@ -65,8 +65,8 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
             focusMode: "continuous",
             whiteBalanceMode: "continuous",
             exposureMode: "continuous",
-            width: { min: 640, ideal: 1280, max: 1920 },
-            height: { min: 480, ideal: 720, max: 1080 },
+            width: { min: 640, ideal: 1920, max: 3840 },
+            height: { min: 480, ideal: 1080, max: 2160 },
             frameRate: { ideal: 60, min: 30 }
           }
         };
@@ -92,12 +92,18 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
           
           // Tentar qualquer câmera disponível
           try {
-            const devices = await Html5Qrcode.getCameras();
-            if (devices && devices.length > 0) {
-              // Em PCs, a primeira câmera costuma ser a webcam
-              await tryStart(devices[0].id);
+            const allDevices = await Html5Qrcode.getCameras();
+            const backCamera = allDevices.find(c => 
+              c.label.toLowerCase().includes('back') || 
+              c.label.toLowerCase().includes('traseira') ||
+              c.label.toLowerCase().includes('rear')
+            );
+            
+            if (backCamera) {
+              await tryStart(backCamera.id);
+            } else if (allDevices.length > 0) {
+              await tryStart(allDevices[0].id);
             } else {
-              // Última tentativa: deixar o navegador decidir sem restrições
               await tryStart({ facingMode: "user" });
             }
           } catch (fallbackError) {

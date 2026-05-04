@@ -122,6 +122,19 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["studentId", "stallId", "items", "total", "status", "timestamp"]
+    },
+    "Settings": {
+      "title": "System Settings",
+      "description": "Global configuration including gateway credentials",
+      "type": "object",
+      "properties": {
+        "siteName": { "type": "string" },
+        "contactEmail": { "type": "string" },
+        "redePV": { "type": "string" },
+        "redeToken": { "type": "string" },
+        "isProduction": { "type": "boolean" }
+      },
+      "required": []
     }
   },
   "firestore": {
@@ -160,6 +173,10 @@
     "/orders/{orderId}": {
       "schema": "Order",
       "description": "Mobile app orders"
+    },
+    "/settings/{config}": {
+      "schema": "Settings",
+      "description": "Global system configuration"
     }
   }
 }

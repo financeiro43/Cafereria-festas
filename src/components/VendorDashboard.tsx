@@ -403,19 +403,23 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
               <span className="text-[9px] font-black uppercase tracking-widest hidden xs:inline">{isOnline ? 'Online' : 'Offline'}</span>
             </div>
 
-            <div className="hidden sm:flex items-center gap-4 bg-white/5 px-4 py-2 rounded-2xl border border-white/5">
+            <div className="hidden sm:flex items-center gap-4 bg-white/10 px-4 py-2 rounded-2xl border border-white/20">
               <div className="text-right">
-                <p className="text-[10px] font-black text-white uppercase leading-none mb-1">{profile.name}</p>
-                <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest">{profile.email}</p>
+                <p className="text-[10px] font-black text-white uppercase leading-none mb-1 truncate max-w-[100px]">{profile.name}</p>
+                <p className="text-[8px] font-bold text-blue-400 uppercase tracking-widest">{profile.role}</p>
               </div>
-              <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center font-black text-xs">
+              <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center font-black text-xs text-white">
                 {profile.name.charAt(0).toUpperCase()}
               </div>
             </div>
 
-            <Button variant="ghost" onClick={() => auth.signOut()} className="text-slate-500 hover:text-white hover:bg-red-500/10 h-11 px-4 rounded-2xl shrink-0 transition-all flex items-center gap-2 group">
-              <LogOut className="h-4 w-4 group-hover:text-red-500" />
-              <span className="text-[10px] font-black uppercase tracking-widest hidden lg:inline group-hover:text-red-500">Sair</span>
+            <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => auth.signOut()} 
+                className="h-11 w-11 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-2xl transition-all"
+              >
+              <LogOut className="h-5 w-5" />
             </Button>
           </div>
         </header>
