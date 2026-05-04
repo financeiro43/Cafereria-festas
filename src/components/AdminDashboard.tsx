@@ -40,6 +40,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   
   const [newStallName, setNewStallName] = useState('');
   const [editingStall, setEditingStall] = useState<Stall | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newProductName, setNewProductName] = useState('');
   const [newProductPrice, setNewProductPrice] = useState('');
   const [selectedStallId, setSelectedStallId] = useState('');
@@ -433,12 +434,29 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     }
   };
 
-  const handleDeleteProduct = async (id: string) => {
+  const handleDeleteProduct = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!window.confirm('Excluir este produto?')) return;
     try {
-      await deleteDoc(doc(collection(db, 'products'), id));
+      await deleteDoc(doc(db, 'products', id));
       toast.success('Produto excluído');
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `products/${id}`);
+    }
+  };
+
+  const handleUpdateProduct = async () => {
+    if (!editingProduct || !editingProduct.name.trim() || !editingProduct.price || !editingProduct.vendorId) return;
+    try {
+      await updateDoc(doc(db, 'products', editingProduct.id), {
+        name: editingProduct.name,
+        price: Number(editingProduct.price),
+        vendorId: editingProduct.vendorId
+      });
+      setEditingProduct(null);
+      toast.success('Produto atualizado!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `products/${editingProduct.id}`);
     }
   };
 
@@ -849,14 +867,36 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                       <p className="py-4 text-center text-xs text-slate-400 italic">Nenhum produto</p>
                     ) : (
                       products.filter(p => p.vendorId === stall.id).map(product => (
-                        <div key={product.id} className="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg group">
+                        <div 
+                          key={product.id} 
+                          onClick={() => setEditingProduct(product)}
+                          className="flex items-center justify-between p-2 hover:bg-blue-50 rounded-lg group cursor-pointer transition-colors active:scale-[0.98]"
+                        >
                           <div>
-                            <p className="text-sm font-bold text-slate-900">{product.name}</p>
+                            <p className="text-sm font-bold text-slate-900 line-clamp-1 truncate max-w-[150px]">{product.name}</p>
                             <p className="text-[10px] text-blue-600 font-bold">R$ {product.price.toFixed(2)}</p>
                           </div>
-                          <Button variant="ghost" size="icon" onClick={() => handleDeleteProduct(product.id)} className="h-8 w-8 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingProduct(product);
+                              }} 
+                              className="h-7 w-7 text-slate-400 hover:text-blue-600 hover:bg-blue-100"
+                            >
+                              <Edit2 className="h-3 w-3" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={(e) => handleDeleteProduct(product.id, e)} 
+                              className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-100"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
                       ))
                     )}
@@ -864,6 +904,62 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 </Card>
               ))}
             </div>
+
+            {/* Edit Product Dialog */}
+            <Dialog open={!!editingProduct} onOpenChange={(open) => !open && setEditingProduct(null)}>
+              <DialogContent className="rounded-[32px] border-none shadow-2xl p-8 max-w-sm">
+                <DialogHeader className="space-y-4">
+                  <div className="h-14 w-14 rounded-2xl bg-blue-600 flex items-center justify-center text-white mx-auto shadow-xl">
+                    <Edit2 className="h-7 w-7" />
+                  </div>
+                  <DialogTitle className="text-2xl font-black text-center tracking-tight uppercase">Editar Produto</DialogTitle>
+                  <DialogDescription className="text-center text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                    Altere os detalhes do produto
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="py-6 space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Ponto de Venda</Label>
+                    <select
+                      value={editingProduct?.vendorId || ''}
+                      onChange={(e) => setEditingProduct(prev => prev ? { ...prev, vendorId: e.target.value } : null)}
+                      className="w-full h-14 rounded-2xl bg-slate-50 border-slate-200 font-bold px-4 text-sm"
+                    >
+                      <option value="">Selecione a Barraca</option>
+                      {stalls.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nome do Produto</Label>
+                    <Input 
+                      value={editingProduct?.name || ''} 
+                      onChange={(e) => setEditingProduct(prev => prev ? { ...prev, name: e.target.value } : null)}
+                      placeholder="Ex: Coca-Cola 350ml"
+                      className="h-14 rounded-2xl bg-slate-50 border-slate-200 font-black"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Preço unitário</Label>
+                    <Input 
+                      type="number"
+                      step="0.01"
+                      value={editingProduct?.price || ''} 
+                      onChange={(e) => setEditingProduct(prev => prev ? { ...prev, price: Number(e.target.value) } : null)}
+                      placeholder="0.00"
+                      className="h-14 rounded-2xl bg-slate-50 border-slate-200 font-black"
+                    />
+                  </div>
+                </div>
+                <DialogFooter className="flex-col sm:flex-col gap-3">
+                  <Button onClick={handleUpdateProduct} className="w-full h-14 bg-slate-900 hover:bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl active:scale-95 transition-all">
+                    Salvar Alterações
+                  </Button>
+                  <Button variant="ghost" onClick={() => setEditingProduct(null)} className="w-full h-12 rounded-xl font-bold uppercase tracking-widest text-[10px] text-slate-400 hover:text-slate-600">
+                    Cancelar
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         )}
 
