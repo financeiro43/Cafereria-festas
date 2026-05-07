@@ -1919,6 +1919,42 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
       <Dialog open={!!editingUser && false} onOpenChange={() => {}}> {/* Placeholder for safety */}
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <DialogContent className="rounded-[32px] border-none shadow-2xl p-8 max-w-sm">
+          <DialogHeader className="space-y-4">
+            <div className="h-14 w-14 rounded-2xl bg-red-500/10 flex items-center justify-center text-red-500 mx-auto">
+              <Trash2 className="h-7 w-7" />
+            </div>
+            <DialogTitle className="text-2xl font-black text-center tracking-tight uppercase">Confirmar Exclusão</DialogTitle>
+            <DialogDescription className="text-center text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+              Esta ação é permanente e não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-6 text-center">
+            <p className="text-slate-600 font-medium">Tem certeza que deseja remover este {deleteConfirm?.type === 'stall' ? 'ponto de venda' : deleteConfirm?.type === 'product' ? 'produto' : 'usuário'}?</p>
+          </div>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+            <Button 
+              onClick={() => {
+                deleteConfirm?.action();
+                setDeleteConfirm(null);
+              }}
+              className="w-full h-14 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px]"
+            >
+              Sim, Excluir Agora
+            </Button>
+            <Button 
+              variant="ghost" 
+              onClick={() => setDeleteConfirm(null)}
+              className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] text-slate-400"
+            >
+              Cancelar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2123,42 +2159,6 @@ function RechargePortal() {
       {isScanning && (
         <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Aluno" />
       )}
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
-        <DialogContent className="rounded-[32px] border-none shadow-2xl p-8 max-w-sm">
-          <DialogHeader className="space-y-4">
-            <div className="h-14 w-14 rounded-2xl bg-red-500/10 flex items-center justify-center text-red-500 mx-auto">
-              <Trash2 className="h-7 w-7" />
-            </div>
-            <DialogTitle className="text-2xl font-black text-center tracking-tight uppercase">Confirmar Exclusão</DialogTitle>
-            <DialogDescription className="text-center text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
-              Esta ação é permanente e não pode ser desfeita.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-6 text-center">
-            <p className="text-slate-600 font-medium">Tem certeza que deseja remover este {deleteConfirm?.type === 'stall' ? 'ponto de venda' : deleteConfirm?.type === 'product' ? 'produto' : 'usuário'}?</p>
-          </div>
-          <DialogFooter className="flex flex-col gap-2 sm:flex-col">
-            <Button 
-              onClick={() => {
-                deleteConfirm?.action();
-                setDeleteConfirm(null);
-              }}
-              className="w-full h-14 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px]"
-            >
-              Sim, Excluir Agora
-            </Button>
-            <Button 
-              variant="ghost" 
-              onClick={() => setDeleteConfirm(null)}
-              className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] text-slate-400"
-            >
-              Cancelar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -115,11 +115,11 @@ async function startServer() {
     console.log(`[REDE-API] POST /process-payment`);
 
     try {
-      const { cardData, amount, transactionId, userId } = req.body;
-      console.log(`[REDE-API] Data: uid=${userId}, amt=${amount}, tid=${transactionId}`);
+      const { cardData, amount, transactionId, userId, paymentMethod } = req.body;
+      console.log(`[REDE-API] Data: uid=${userId}, amt=${amount}, tid=${transactionId}, method=${paymentMethod}`);
       
-      if (!userId || !amount || !cardData) {
-          return res.status(400).json({ error: "Missing transaction data", details: { userId: !!userId, amount: !!amount, cardData: !!cardData } });
+      if (!userId || !amount || (!cardData && paymentMethod !== 'pix')) {
+          return res.status(400).json({ error: "Missing transaction data" });
       }
 
       // Fetch dynamic settings from DB
@@ -138,48 +138,56 @@ async function startServer() {
       }
 
       if (!livePV || !liveToken) {
-        console.error(`[REDE-API] Credentials missing: PV=${!!livePV}, Token=${!!liveToken}`);
-        return res.status(400).json({ error: "Rede credentials not configured in environment or DB (REDE_PV, REDE_TOKEN)" });
+        return res.status(400).json({ error: "Rede credentials not configured" });
       }
 
       const redeAmount = Math.round(parseFloat(amount) * 100);
-      const [month, year] = cardData.expiry.split("/");
-
-      // Sanitize cardholder name for Rede (Remove accents, uppercase, allowed chars only)
-      const sanitizedName = cardData.name
-        .toUpperCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^A-Z0-9 ]/g, "")
-        .substring(0, 30);
-
-      // Force unique and valid reference (alphanumeric, <16 chars)
       const secureRef = String(transactionId || `R${Date.now()}`).replace(/[^a-zA-Z0-9]/g, "").substring(0, 16);
-
-      const redePayload = {
-        capture: true,
-        kind: "credit",
-        reference: secureRef,
-        amount: redeAmount,
-        cardholderName: sanitizedName,
-        cardNumber: cardData.number.replace(/\s/g, ""),
-        expirationMonth: month.padStart(2, '0'),
-        expirationYear: "20" + year.trim(),
-        securityCode: cardData.securityCode || cardData.cvv,
-        softDescriptor: "RECESCOLA"
-      };
-
       const axiosConfig = { auth: { username: livePV, password: liveToken } };
       const redeUrl = forceSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
 
-      console.log(`[REDE-API] Calling URL: ${redeUrl} (Sandbox: ${forceSandbox})`);
-      console.log(`[REDE-API] Payload:`, JSON.stringify({ ...redePayload, cardNumber: "****", securityCode: "***" }));
+      let redePayload: any = {
+        amount: redeAmount,
+        reference: secureRef,
+        softDescriptor: "RECESCOLA"
+      };
+
+      if (paymentMethod === 'pix') {
+        redePayload.kind = "pix";
+      } else {
+        const [month, year] = cardData.expiry.split("/");
+        const sanitizedName = cardData.name
+          .toUpperCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^A-Z0-9 ]/g, "")
+          .substring(0, 30);
+
+        redePayload = {
+          ...redePayload,
+          capture: true,
+          kind: paymentMethod === 'debit' ? "debit" : "credit",
+          cardholderName: sanitizedName,
+          cardNumber: cardData.number.replace(/\s/g, ""),
+          expirationMonth: month.padStart(2, '0'),
+          expirationYear: "20" + year.trim(),
+          securityCode: cardData.securityCode || cardData.cvv,
+        };
+
+        if (paymentMethod === 'debit') {
+          redePayload.threeDSecure = {
+            embedded: true,
+            onFailure: "continue"
+          };
+        }
+      }
+
+      console.log(`[REDE-API] Requesting ${paymentMethod} to ${redeUrl}`);
       
       const response = await axios.post(redeUrl, redePayload, axiosConfig);
-      console.log(`[REDE-API] Response Code: ${response.data.returnCode}`);
-
+      
       if (response.data.returnCode === "00") {
-        if (db) {
+        if (paymentMethod !== 'pix' && db) {
           const userRef = db.collection("users").doc(userId);
           const txnRef = db.collection("transactions").doc(transactionId);
           await db.runTransaction(async (t) => {
@@ -191,13 +199,29 @@ async function startServer() {
               amount: parseFloat(amount),
               type: "credit",
               status: "completed",
-              description: "Recarga Real via Rede",
+              description: `Recarga ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} via Rede`,
               timestamp: FieldValue.serverTimestamp(),
               redeTid: response.data.tid
             });
           });
+        } else if (paymentMethod === 'pix' && db) {
+          // For Pix, we save it as pending to be updated by the webhook later
+          await db.collection("transactions").doc(transactionId).set({
+            userId,
+            amount: parseFloat(amount),
+            type: "credit",
+            status: "pending",
+            description: "Recarga Pix via Rede",
+            timestamp: FieldValue.serverTimestamp(),
+            redeTid: response.data.tid
+          });
         }
-        return res.json({ success: true, tid: response.data.tid });
+        
+        return res.json({ 
+          success: true, 
+          tid: response.data.tid,
+          pix: response.data.pix
+        });
       } else {
         return res.status(400).json({ error: "Pagamento negado", message: response.data.returnMessage });
       }
