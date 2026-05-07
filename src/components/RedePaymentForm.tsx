@@ -182,15 +182,38 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
             damping: 20,
             delay: 0.1 
           }}
-          className="relative h-24 w-24 bg-green-500 rounded-full flex items-center justify-center text-white shadow-[0_20px_50px_rgba(34,197,94,0.3)] mb-8"
+          className="relative h-24 w-24 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-[0_20px_50px_rgba(16,185,129,0.3)] mb-8"
         >
-          <CheckCircle2 className="h-12 w-12" strokeWidth={3} />
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: [0, 1, 0], scale: [1, 2, 2.5] }}
-            transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
-            className="absolute inset-0 bg-green-500 rounded-full"
-          />
+          <motion.div
+            animate={{ 
+              scale: [1, 1.15, 1],
+              opacity: [1, 0.8, 1]
+            }}
+            transition={{ 
+              repeat: Infinity, 
+              duration: 2,
+              ease: "easeInOut"
+            }}
+            className="relative z-10"
+          >
+            <CheckCircle2 className="h-12 w-12" strokeWidth={3} />
+          </motion.div>
+          
+          {/* Pulsing ripples */}
+          {[1, 2].map((i) => (
+            <motion.div 
+              key={i}
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: [0, 0.4, 0], scale: [1, 1.8 + (i * 0.4)] }}
+              transition={{ 
+                duration: 2, 
+                repeat: Infinity, 
+                ease: "easeOut",
+                delay: i * 0.6
+              }}
+              className="absolute inset-0 bg-emerald-500 rounded-full"
+            />
+          ))}
         </motion.div>
 
         <motion.div
@@ -223,7 +246,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
                 repeat: Infinity, 
                 delay: i * 0.2 
               }}
-              className="h-1.5 w-1.5 bg-green-500 rounded-full"
+              className="h-1.5 w-1.5 bg-emerald-500 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.4)]"
             />
           ))}
         </motion.div>
