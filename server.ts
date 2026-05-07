@@ -184,7 +184,12 @@ async function startServer() {
 
       console.log(`[REDE-API] Requesting ${paymentMethod} to ${redeUrl}`);
       
-      const response = await axios.post(redeUrl, redePayload, axiosConfig);
+      const response = await axios.post(redeUrl, redePayload, {
+        ...axiosConfig,
+        timeout: 25000 // 25 seconds timeout
+      });
+      
+      console.log(`[REDE-API] Response Code: ${response.data.returnCode} - ${response.data.returnMessage}`);
       
       if (response.data.returnCode === "00") {
         if (paymentMethod !== 'pix' && db) {

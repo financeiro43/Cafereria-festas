@@ -23,6 +23,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_pix'>('idle');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('credit');
   const [loading, setLoading] = useState(false);
+  const [showForceCancel, setShowForceCancel] = useState(false);
   const [pixData, setPixData] = useState<{ qrcode: string, tid: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [cardData, setCardData] = useState({
@@ -42,6 +43,8 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
 
     setLoading(true);
     setStatus('processing');
+    setShowForceCancel(false);
+    const timer = setTimeout(() => setShowForceCancel(true), 12000);
     const tid = `txn_${Date.now()}`;
     
     try {
@@ -51,7 +54,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         transactionId: tid,
         userId: uid,
         paymentMethod
-      });
+      }, { timeout: 30000 }); // 30s timeout on frontend
 
       if (response.data.success) {
         if (paymentMethod === 'pix' && response.data.pix) {
@@ -76,6 +79,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       setStatus('error');
       toast.error(errorMsg, { duration: 5000 });
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   };
@@ -113,6 +117,22 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         >
           <h3 className="text-xl font-black text-white uppercase tracking-tighter">Processando Pagamento</h3>
           <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Aguarde a confirmação da operadora...</p>
+          
+          {showForceCancel && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="pt-4"
+            >
+              <Button 
+                variant="ghost" 
+                onClick={() => setStatus('idle')}
+                className="text-[10px] text-slate-600 hover:text-white uppercase font-black tracking-widest"
+              >
+                Demorando muito? Voltar
+              </Button>
+            </motion.div>
+          )}
         </motion.div>
       </div>
     );
