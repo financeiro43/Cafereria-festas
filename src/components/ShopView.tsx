@@ -107,6 +107,8 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
           amount: -total,
           type: 'debit',
           description: `Pedido App: ${selectedStall?.name}`,
+          stallName: selectedStall?.name || 'Barraca',
+          items: cart.map(item => `${item.quantity}x ${item.product.name}`),
           status: 'completed',
           timestamp: serverTimestamp()
         });

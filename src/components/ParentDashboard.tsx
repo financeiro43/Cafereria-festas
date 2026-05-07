@@ -485,24 +485,49 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                       Sem movimentações recentes
                     </div>
                   ) : (
-                    transactions.map((tx) => (
-                      <div key={tx.id} className="flex justify-between items-center p-6 hover:bg-white/[0.02] transition-colors">
-                        <div className="flex items-center gap-4">
-                          <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${tx.type === 'credit' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                            {tx.type === 'credit' ? <PlusCircle className="h-5 w-5" /> : <ShoppingBag className="h-5 w-5" />}
+                    transactions.map((tx) => {
+                      const date = tx.timestamp ? new Date(tx.timestamp.toDate()) : new Date();
+                      const dateStr = date.toLocaleDateString('pt-BR');
+                      const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                      
+                      // Try to use explicit fields or fallback to description parsing
+                      const isPurchase = tx.type === 'debit';
+                      const stall = tx.stallName || (tx.description.includes('barraca') ? tx.description.split(': ')[0].replace('Compra na barraca ', '') : tx.description);
+                      const items = tx.items || (tx.description.includes(': ') ? tx.description.split(': ')[1].split(', ') : []);
+
+                      return (
+                        <div key={tx.id} className="p-5 hover:bg-white/[0.02] transition-colors border-b border-white/5 last:border-0 group">
+                          <div className="flex justify-between items-start">
+                            <div className="flex items-center gap-4">
+                              <div className={`h-10 w-10 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110 ${tx.type === 'credit' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
+                                {tx.type === 'credit' ? <PlusCircle className="h-5 w-5" /> : <ShoppingBag className="h-5 w-5" />}
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[11px] font-black text-white uppercase tracking-tight leading-none group-hover:text-blue-400 transition-colors">{stall}</p>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{dateStr}</span>
+                                  <div className="h-1 w-1 bg-slate-800 rounded-full" />
+                                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{timeStr}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className={`text-sm font-black tabular-nums ${tx.type === 'credit' ? 'text-emerald-500' : 'text-slate-200'}`}>
+                              {tx.type === 'credit' ? '+' : '-'} R$ {Math.abs(tx.amount).toFixed(2)}
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-xs font-black text-white/90 uppercase leading-none mb-1">{tx.description}</p>
-                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
-                              {tx.timestamp ? new Date(tx.timestamp.toDate()).toLocaleDateString('pt-BR') : 'Agora'}
-                            </p>
-                          </div>
+                          
+                          {isPurchase && items.length > 0 && (
+                            <div className="mt-3 pl-14 flex flex-wrap gap-1.5">
+                              {items.map((item, id) => (
+                                <span key={id} className="px-2 py-0.5 bg-white/5 rounded-lg text-[8px] font-black text-slate-400 uppercase tracking-tighter border border-white/5 group-hover:border-white/10 transition-colors">
+                                  {item}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div className={`text-sm font-black ${tx.type === 'credit' ? 'text-green-500' : 'text-slate-400'}`}>
-                          {tx.type === 'credit' ? '+' : '-'} R$ {Math.abs(tx.amount).toFixed(2)}
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

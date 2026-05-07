@@ -289,6 +289,9 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           amount: -cartTotal,
           type: 'debit',
           description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
+          stallName: stall?.name || 'Barraca',
+          items: cart.map(item => `${item.quantity}x ${item.name}`),
+          vendorId: profile.uid,
           status: 'completed',
           timestamp: serverTimestamp()
         });

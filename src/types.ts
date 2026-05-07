@@ -54,6 +54,9 @@ export interface Transaction {
   description: string;
   status: 'completed' | 'pending' | 'failed';
   timestamp: any;
+  items?: string[];
+  stallName?: string;
+  vendorId?: string;
 }
 
 export interface ConsumptionRecord {
