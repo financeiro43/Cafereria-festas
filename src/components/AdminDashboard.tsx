@@ -1312,30 +1312,34 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                           </TableCell>
                           <TableCell className="py-4">
                             <div className="flex flex-col">
-                              <span className="font-bold text-slate-700 text-xs truncate max-w-[150px]">{tx.userId}</span>
+                              <span className="font-bold text-slate-700 text-xs truncate max-w-[150px]">
+                                {users.find(u => u.uid === tx.userId)?.name || tx.userId}
+                              </span>
                               <span className="text-[9px] text-slate-400 font-medium">#{tx.id.slice(0, 8)}</span>
                             </div>
                           </TableCell>
                           <TableCell className="py-4 text-right">
-                            <span className={`font-black tracking-tight ${tx.type === 'credit' ? 'text-green-600' : 'text-slate-900'}`}>
+                            <span className={`font-black tracking-tight ${tx.type === 'credit' ? 'text-emerald-500' : 'text-rose-500'}`}>
                               {tx.type === 'credit' ? '+' : '-'} R$ {tx.amount.toFixed(2)}
                             </span>
                           </TableCell>
                           <TableCell className="py-4 text-center">
-                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${
-                              tx.type === 'credit' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-slate-100 text-slate-500 border-slate-200'
+                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full border ${
+                              tx.type === 'credit' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-200'
                             }`}>
-                              {tx.type === 'credit' ? 'Crédito' : 'Débito'}
+                              {tx.type === 'credit' ? 'Recarga' : 'Gasto'}
                             </span>
                           </TableCell>
                           <TableCell className="py-4">
                             <span className="text-sm text-slate-600">{tx.description}</span>
                           </TableCell>
                           <TableCell className="py-4 text-right pr-8">
-                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
-                              tx.status === 'completed' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'
+                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
+                              tx.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 
+                              tx.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
+                              'bg-rose-100 text-rose-700'
                             }`}>
-                              {tx.status}
+                              {tx.status === 'completed' ? 'Pago' : tx.status === 'pending' ? 'Pendente' : 'Erro'}
                             </span>
                           </TableCell>
                         </TableRow>
