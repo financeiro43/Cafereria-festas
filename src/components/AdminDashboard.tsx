@@ -1203,7 +1203,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                         'bg-slate-50 text-slate-500 border-slate-100'
                       }`}>
                         {getRoleIcon(user.role)}
-                        {user.role}
+                        {user.role === 'student' ? 'Cliente' : 
+                         user.role === 'vendor' ? 'Vendedor' : 
+                         user.role === 'recharge' ? 'Recarga' : 'Admin'}
                       </div>
                     </div>
 
@@ -1646,7 +1648,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               <div className="mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
                 <div>
                    <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Portal do Cliente</h2>
-                   <p className="text-slate-500 text-sm">Como os clientes e pais visualizam e compram via app</p>
+                   <p className="text-slate-500 text-sm">Como os clientes visualizam e compram via app</p>
                 </div>
                 <div className="flex gap-2">
                    <div className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl">
