@@ -53,7 +53,15 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         amount: amount.toString(),
         transactionId: tid,
         userId: uid,
-        paymentMethod
+        paymentMethod,
+        // Dados fiscais do cliente
+        customer: {
+          name: "Luis Carlos Tosto",
+          cpf: "04082089888",
+          email: "admin@modeloalpha.com.br",
+          businessName: "Escola Cristã Modelo Alpha Ltda",
+          cnpj: "04214446000170"
+        }
       }, { timeout: 30000 }); // 30s timeout on frontend
 
       if (response.data.success) {

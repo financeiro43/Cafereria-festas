@@ -115,7 +115,7 @@ async function startServer() {
     console.log(`[REDE-API] POST /process-payment`);
 
     try {
-      const { cardData, amount, transactionId, userId, paymentMethod } = req.body;
+      const { cardData, amount, transactionId, userId, paymentMethod, customer } = req.body;
       console.log(`[REDE-API] Data: uid=${userId}, amt=${amount}, tid=${transactionId}, method=${paymentMethod}`);
       
       if (!userId || !amount || (!cardData && paymentMethod !== 'pix')) {
@@ -151,6 +151,15 @@ async function startServer() {
         reference: secureRef,
         softDescriptor: "RECESCOLA"
       };
+
+      if (customer) {
+        redePayload.customer = {
+          name: customer.name,
+          documentNumber: customer.cnpj || customer.cpf,
+          documentType: customer.cnpj ? 'CNPJ' : 'CPF',
+          email: customer.email
+        };
+      }
 
       if (paymentMethod === 'pix') {
         redePayload.kind = "pix";
