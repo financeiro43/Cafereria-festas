@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs, updateDoc, increment } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs, updateDoc, increment, startAfter } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,10 @@ enum ParentTab {
 export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [rechargeAmount, setRechargeAmount] = useState<string>('50');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [lastVisible, setLastVisible] = useState<any>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 10;
   const [associatedProfiles, setAssociatedProfiles] = useState<UserProfile[]>([]);
   const [displayedUid, setDisplayedUid] = useState<string>(profile.uid);
   const [loading, setLoading] = useState(false);
@@ -149,31 +153,98 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
     }
   };
 
+  const fetchTransactions = async (isFirstPage = false, uid = displayedUid) => {
+    if (!uid) return;
+    
+    setLoadingMore(true);
+    try {
+      const txRef = collection(db, 'transactions');
+      let qTx;
+      if (isFirstPage) {
+        qTx = query(
+          txRef,
+          where('userId', '==', uid),
+          orderBy('timestamp', 'desc'),
+          limit(PAGE_SIZE)
+        );
+      } else if (lastVisible) {
+        qTx = query(
+          txRef,
+          where('userId', '==', uid),
+          orderBy('timestamp', 'desc'),
+          startAfter(lastVisible),
+          limit(PAGE_SIZE)
+        );
+      } else {
+        return;
+      }
+
+      const snapshot = await getDocs(qTx);
+      const newTx = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as Transaction));
+      
+      if (isFirstPage) {
+        setTransactions(newTx);
+      } else {
+        setTransactions(prev => {
+          const existingIds = new Set(prev.map(t => t.id));
+          const filtered = newTx.filter(t => !existingIds.has(t.id));
+          return [...prev, ...filtered];
+        });
+      }
+      
+      if (snapshot.docs.length > 0) {
+        setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
+      }
+      setHasMore(snapshot.docs.length === PAGE_SIZE);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, 'transactions');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   useEffect(() => {
     if (!displayedUid) return;
     
-    // Transactions listener
-    const qTx = query(
+    // Clear state when switching users
+    setTransactions([]);
+    setLastVisible(null);
+    setHasMore(true);
+    
+    fetchTransactions(true, displayedUid);
+    
+    // Subscribe to first page for real-time updates of the NEWEST items
+    const qLatest = query(
       collection(db, 'transactions'),
       where('userId', '==', displayedUid),
-      limit(50) // Increased limit since we sort on client
+      orderBy('timestamp', 'desc'),
+      limit(PAGE_SIZE)
     );
 
-    const unsubTx = onSnapshot(qTx, (snapshot) => {
-      const txData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction));
-      // Sort on client side to avoid composite index requirement
-      const sortedTx = txData.sort((a, b) => {
-        const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
-        const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
-        return timeB - timeA;
+    const unsubLatest = onSnapshot(qLatest, (snapshot) => {
+      const latestTx = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as Transaction));
+      
+      setTransactions(prev => {
+        // Merge latest with existing, avoiding duplicates
+        const latestIds = new Set(latestTx.map(t => t.id));
+        const rest = prev.filter(t => !latestIds.has(t.id));
+        const merged = [...latestTx, ...rest];
+        
+        return merged.sort((a, b) => {
+          const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 
+                        (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : 0);
+          const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 
+                        (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : 0);
+          return timeB - timeA;
+        });
       });
-      setTransactions(sortedTx);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'transactions');
+      // Index error might happen if timestamp + userId index isn't ready
+      console.warn('Real-time updates failed, falling back to manual fetch:', error);
     });
 
-    return () => unsubTx();
-  }, [profile.uid]);
+    return () => unsubLatest();
+  }, [displayedUid]);
 
   useEffect(() => {
     if (!profile.associatedUids || profile.associatedUids.length === 0) {
@@ -480,54 +551,83 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             >
               <div className="bg-slate-900/40 border border-white/5 rounded-[32px] overflow-hidden">
                 <div className="divide-y divide-white/5">
-                  {transactions.length === 0 ? (
+                  {transactions.length === 0 && !loadingMore ? (
                     <div className="p-12 text-center text-slate-600 font-bold uppercase tracking-widest text-[10px]">
                       Sem movimentações recentes
                     </div>
                   ) : (
-                    transactions.map((tx) => {
-                      const date = tx.timestamp ? new Date(tx.timestamp.toDate()) : new Date();
-                      const dateStr = date.toLocaleDateString('pt-BR');
-                      const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                      
-                      // Try to use explicit fields or fallback to description parsing
-                      const isPurchase = tx.type === 'debit';
-                      const stall = tx.stallName || (tx.description.includes('barraca') ? tx.description.split(': ')[0].replace('Compra na barraca ', '') : tx.description);
-                      const items = tx.items || (tx.description.includes(': ') ? tx.description.split(': ')[1].split(', ') : []);
+                    <>
+                      {transactions.map((tx) => {
+                        const date = tx.timestamp ? new Date(tx.timestamp.toDate ? tx.timestamp.toDate() : tx.timestamp) : new Date();
+                        const dateStr = date.toLocaleDateString('pt-BR');
+                        const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                        
+                        const isPurchase = tx.type === 'debit';
+                        const stall = tx.stallName || (tx.description.includes('barraca') ? tx.description.split(': ')[0].replace('Compra na barraca ', '') : tx.description);
+                        const items = tx.items || (tx.description.includes(': ') ? tx.description.split(': ')[1].split(', ') : []);
 
-                      return (
-                        <div key={tx.id} className="p-5 hover:bg-white/[0.02] transition-colors border-b border-white/5 last:border-0 group">
-                          <div className="flex justify-between items-start">
-                            <div className="flex items-center gap-4">
-                              <div className={`h-10 w-10 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110 ${tx.type === 'credit' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
-                                {tx.type === 'credit' ? <PlusCircle className="h-5 w-5" /> : <ShoppingBag className="h-5 w-5" />}
-                              </div>
-                              <div className="space-y-1">
-                                <p className="text-[11px] font-black text-white uppercase tracking-tight leading-none group-hover:text-blue-400 transition-colors">{stall}</p>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{dateStr}</span>
-                                  <div className="h-1 w-1 bg-slate-800 rounded-full" />
-                                  <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{timeStr}</span>
+                        return (
+                          <div key={tx.id} className="p-5 hover:bg-white/[0.02] transition-colors border-b border-white/5 last:border-0 group">
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-center gap-4">
+                                <div className={`h-10 w-10 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110 ${tx.type === 'credit' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
+                                  {tx.type === 'credit' ? <PlusCircle className="h-5 w-5" /> : <ShoppingBag className="h-5 w-5" />}
+                                </div>
+                                <div className="space-y-1">
+                                  <p className="text-[11px] font-black text-white uppercase tracking-tight leading-none group-hover:text-blue-400 transition-colors">
+                                    {isPurchase ? `Compra: ${stall}` : tx.description}
+                                  </p>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{dateStr}</span>
+                                    <div className="h-0.5 w-0.5 bg-slate-800 rounded-full" />
+                                    <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{timeStr}</span>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                            <div className={`text-sm font-black tabular-nums ${tx.type === 'credit' ? 'text-emerald-500' : 'text-slate-200'}`}>
-                              {tx.type === 'credit' ? '+' : '-'} R$ {Math.abs(tx.amount).toFixed(2)}
-                            </div>
-                          </div>
-                          
-                          {isPurchase && items.length > 0 && (
-                            <div className="mt-3 pl-14 flex flex-wrap gap-1.5">
-                              {items.map((item, id) => (
-                                <span key={id} className="px-2 py-0.5 bg-white/5 rounded-lg text-[8px] font-black text-slate-400 uppercase tracking-tighter border border-white/5 group-hover:border-white/10 transition-colors">
-                                  {item}
+                              <div className="text-right">
+                                <div className={`text-sm font-black tabular-nums ${tx.type === 'credit' ? 'text-emerald-500' : 'text-slate-200'}`}>
+                                  {tx.type === 'credit' ? '+' : '-'} R$ {Math.abs(tx.amount).toFixed(2)}
+                                </div>
+                                <span className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded-md ${
+                                  tx.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' : 
+                                  tx.status === 'pending' ? 'bg-amber-500/10 text-amber-500' : 
+                                  'bg-rose-500/10 text-rose-500'
+                                }`}>
+                                  {tx.status}
                                 </span>
-                              ))}
+                              </div>
                             </div>
-                          )}
+                            
+                            {isPurchase && items.length > 0 && (
+                              <div className="mt-3 pl-14 flex flex-wrap gap-1.5">
+                                {items.map((item, id) => (
+                                  <span key={id} className="px-2 py-0.5 bg-white/5 rounded-lg text-[8px] font-black text-slate-400 uppercase tracking-tighter border border-white/5 group-hover:border-white/10 transition-colors">
+                                    {item}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      
+                      {hasMore && (
+                        <div className="p-4 border-t border-white/5 bg-slate-900/20">
+                          <Button 
+                            onClick={(e) => {
+                              e.preventDefault();
+                              fetchTransactions(false);
+                            }}
+                            disabled={loadingMore}
+                            variant="ghost"
+                            className="w-full h-10 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-white"
+                          >
+                            {loadingMore ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <History className="h-4 w-4 mr-2" />}
+                            Carregar Mais
+                          </Button>
                         </div>
-                      );
-                    })
+                      )}
+                    </>
                   )}
                 </div>
               </div>
