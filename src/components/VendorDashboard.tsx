@@ -250,7 +250,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       }
       
       if (querySnapshot.empty) {
-        toast.error('Aluno não encontrado');
+        toast.error('Cliente não encontrado');
         return;
       }
 
@@ -1029,7 +1029,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       </div>
 
       {isScanning && (
-        <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Identificar Aluno" />
+        <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Identificar Cliente" />
       )}
 
       <AnimatePresence>

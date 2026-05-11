@@ -700,7 +700,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         <QRScanner 
           onScan={onScanSuccess} 
           onClose={() => setIsScanning(false)} 
-          title="Vincular Cartão Escolar"
+          title="Vincular Cartão do Cliente"
         />
       )}
 

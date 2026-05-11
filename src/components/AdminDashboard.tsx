@@ -498,12 +498,12 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     { id: 'overview', icon: TrendingUp, label: 'Gestão Financeira', category: 'Administração' },
     { id: 'stalls', icon: Store, label: 'Barracas', category: 'Administração' },
     { id: 'products', icon: Package, label: 'Catálogo Geral', category: 'Administração' },
-    { id: 'users', icon: Users, label: 'Gestão de Equipe', category: 'Administração' },
+    { id: 'users', icon: Users, label: 'Gestão de Usuários', category: 'Administração' },
     { id: 'transactions', icon: History, label: 'Histórico de Vendas', category: 'Administração' },
     { id: 'card_printer', icon: Printer, label: 'Impressor de Cartões', category: 'Administração' },
     { id: 'terminal', icon: ShoppingCart, label: 'Terminal PDV (Caixa)', category: 'Canais de Venda' },
     { id: 'recharge_pos', icon: QrCode, label: 'Carga e Recarga', category: 'Canais de Venda' },
-    { id: 'app_view', icon: Smartphone, label: 'Portal do Aluno (App)', category: 'Canais de Venda' },
+    { id: 'app_view', icon: Smartphone, label: 'Portal do Cliente (App)', category: 'Canais de Venda' },
     { id: 'settings', icon: SettingsIcon, label: 'Configurações', category: 'Sistema' },
   ];
 
@@ -1009,10 +1009,10 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   <div className="h-14 w-14 rounded-2xl bg-slate-950 flex items-center justify-center text-white shadow-2xl rotate-3 shrink-0">
                     <Users className="h-7 w-7" />
                   </div>
-                  GESTÃO DE EQUIPE
+                  GESTÃO DE USUÁRIOS
                 </h2>
                 <p className="text-slate-500 text-lg font-medium max-w-xl leading-relaxed">
-                  Gerencie permissões, atribua barracas e controle acessos de colaboradores e estudantes de forma centralizada.
+                  Gerencie permissões, atribua barracas e controle acessos de colaboradores e clientes de forma centralizada.
                 </p>
               </div>
             </header>
@@ -1024,8 +1024,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               </div>
               <div className="relative z-10 flex flex-col gap-8">
                 <div>
-                  <h3 className="font-black text-slate-900 text-xl uppercase tracking-tighter">Pré-Cadastro de Membros</h3>
-                  <p className="text-slate-500 text-sm mt-1 max-w-md">Adicione membros à equipe ou estudantes. Eles entrarão com as permissões definidas ao fazer login.</p>
+                  <h3 className="font-black text-slate-900 text-xl uppercase tracking-tighter">Pré-Cadastro de Usuários</h3>
+                  <p className="text-slate-500 text-sm mt-1 max-w-md">Adicione usuários ao sistema. Eles entrarão com as permissões definidas ao fazer login.</p>
                 </div>
 
                 <form onSubmit={handleAddUser} className="space-y-8">
@@ -1055,7 +1055,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                     <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Selecione a Função</label>
                     <div className="flex flex-wrap gap-2">
                       {[
-                        { id: 'student', label: 'Estudante', icon: UserIcon },
+                        { id: 'student', label: 'Cliente', icon: UserIcon },
                         { id: 'vendor', label: 'Vendedor', icon: ShoppingCart },
                         { id: 'recharge', label: 'Recarga', icon: CreditCard },
                         { id: 'admin', label: 'Admin', icon: ShieldCheckIcon },
@@ -1131,7 +1131,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   <div className="flex flex-wrap gap-2">
                     {[
                       { id: 'all', label: 'Todos', icon: Users },
-                      { id: 'student', label: 'Estudantes', icon: UserIcon },
+                      { id: 'student', label: 'Clientes', icon: UserIcon },
                       { id: 'vendor', label: 'Vendedores', icon: ShoppingCart },
                       { id: 'recharge', label: 'Recarga', icon: CreditCard },
                       { id: 'admin', label: 'Admins', icon: ShieldCheckIcon },
@@ -1458,7 +1458,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                          <div className="flex justify-between items-end">
                             <div className="space-y-1">
                                <p className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Portador</p>
-                               <p className="text-sm font-black uppercase tracking-tight">Nome do Aluno/Cliente</p>
+                               <p className="text-sm font-black uppercase tracking-tight">Nome do Cliente</p>
                             </div>
                             <div className="bg-white p-2 rounded-xl border border-white/20 shadow-lg">
                                <QRCodeSVG value="PREVIEW" size={70} />
@@ -1632,7 +1632,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   )}
                   <div>
                     <h2 className="text-2xl font-black text-white uppercase tracking-tighter">Carga e Recarga</h2>
-                    <p className="text-slate-400 text-sm">Adicione créditos aos cartões dos alunos via QR Code</p>
+                    <p className="text-slate-400 text-sm">Adicione créditos aos cartões dos clientes via QR Code</p>
                   </div>
                 </div>
                 <div className="px-3 py-1 bg-green-600 text-white text-[10px] font-black rounded-full uppercase tracking-widest">Caixa Aberto</div>
@@ -1645,8 +1645,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
             <div className="bg-white -m-8 min-h-screen p-8">
               <div className="mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
                 <div>
-                   <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Portal do Aluno</h2>
-                   <p className="text-slate-500 text-sm">Como os alunos e pais visualizam e compram via app</p>
+                   <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Portal do Cliente</h2>
+                   <p className="text-slate-500 text-sm">Como os clientes e pais visualizam e compram via app</p>
                 </div>
                 <div className="flex gap-2">
                    <div className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl">
@@ -1819,7 +1819,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Função no Sistema</Label>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {[
-                      { id: 'student', label: 'Estudante', icon: UserIcon },
+                      { id: 'student', label: 'Cliente', icon: UserIcon },
                       { id: 'vendor', label: 'Vendedor', icon: ShoppingCart },
                       { id: 'recharge', label: 'Recarga', icon: CreditCard },
                       { id: 'admin', label: 'Admin', icon: ShieldCheckIcon },
@@ -2037,7 +2037,7 @@ function RechargePortal() {
                </div>
                <CardTitle className="text-xl font-black uppercase tracking-tight">Identificação</CardTitle>
             </div>
-            <CardDescription className="text-slate-400 text-sm">Escaneie o cartão do aluno para iniciar a recarga</CardDescription>
+            <CardDescription className="text-slate-400 text-sm">Escaneie o cartão do cliente para iniciar a recarga</CardDescription>
           </CardHeader>
           <CardContent className="p-8 pt-4 space-y-6">
             {!isScanning && !scannedUser ? (
@@ -2058,7 +2058,7 @@ function RechargePortal() {
               <div className="p-8 bg-blue-600/10 border border-blue-500/20 rounded-[40px] space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <div className="flex justify-between items-start">
                   <div className="space-y-1">
-                     <p className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em]">Aluno Confirmado</p>
+                     <p className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em]">Cliente Confirmado</p>
                      <h3 className="text-3xl font-black tracking-tight">{scannedUser.name}</h3>
                      <p className="text-slate-500 text-sm font-medium italic">{scannedUser.email}</p>
                   </div>
@@ -2085,7 +2085,7 @@ function RechargePortal() {
                   }}
                   className="w-full h-14 bg-white/5 border-white/10 text-slate-300 hover:text-white hover:bg-white/10 rounded-2xl font-black uppercase tracking-widest text-[10px]"
                 >
-                  Trocar de Aluno
+                  Trocar de Cliente
                 </Button>
               </div>
             ) : null}
@@ -2151,7 +2151,7 @@ function RechargePortal() {
               ) : (
                 <div className="h-24 w-full bg-white/[0.02] border-2 border-dashed border-white/5 rounded-[32px] flex items-center justify-center px-8 text-center">
                    <p className="text-slate-500 font-black text-xs uppercase tracking-[0.2em] leading-relaxed">
-                      {!scannedUser ? 'ESCANEAR ALUNO PARA CONTINUAR' : 'SELECIONE OU DIGITE UM VALOR'}
+                      {!scannedUser ? 'ESCANEAR CLIENTE PARA CONTINUAR' : 'SELECIONE OU DIGITE UM VALOR'}
                    </p>
                 </div>
               )}
@@ -2161,7 +2161,7 @@ function RechargePortal() {
       </div>
       
       {isScanning && (
-        <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Aluno" />
+        <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Cliente" />
       )}
     </div>
   );
