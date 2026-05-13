@@ -1257,7 +1257,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                               checked={!!user.vendorIds?.includes(s.id)}
                               onChange={(e) => setUserVendorIds(user.uid, s.id, e.target.checked)}
                             />
-                            {user.vendorIds?.includes(s.id) && <CircleCheckIcon className="h-3 w-3" />}
+                            {user.vendorIds?.includes(s.id) && <ShieldCheckIcon className="h-3 w-3" />}
                             {s.name}
                           </label>
                         ))}

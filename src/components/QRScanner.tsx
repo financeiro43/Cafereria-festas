@@ -39,36 +39,13 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
       if (!isMounted) return;
       
       try {
-        // Usar BarcodeDetector API se disponível para performance superior
-        scanner = new Html5Qrcode(elementId, { 
-          verbose: false,
-          formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
-          experimentalFeatures: { 
-            useBarCodeDetectorIfSupported: false 
-          } 
-        });
+        scanner = new Html5Qrcode(elementId);
         html5QrCodeRef.current = scanner;
 
         const config = {
-          fps: 60, // Aumentado para 60 FPS para leitura ultrarrápida (se suportado pelo hardware)
-          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            // QRBox otimizado: 70% da menor dimensão para garantir resolução e foco
-            const qrboxSize = Math.floor(minEdge * 0.7);
-            return { width: qrboxSize, height: qrboxSize };
-          },
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
           aspectRatio: 1.0,
-          disableFlip: false,
-          // Video Constraints maximizadas para precisão
-          videoConstraints: {
-            facingMode: "environment",
-            focusMode: "continuous",
-            whiteBalanceMode: "continuous",
-            exposureMode: "continuous",
-            width: { min: 640, ideal: 1920, max: 3840 },
-            height: { min: 480, ideal: 1080, max: 2160 },
-            frameRate: { ideal: 60, min: 30 }
-          }
         };
 
         // Função auxiliar para iniciar o scanner

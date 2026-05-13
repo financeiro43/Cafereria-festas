@@ -131,6 +131,7 @@ export default function ReportsPortal({ stalls, products, users, transactions, w
       data = getUserBalances().map(row => ({ 'Nome': row.name, 'Email': row.email, 'Saldo Atual (R$)': row.balance.toFixed(2), 'Tipo': row.role }));
       fileName = 'saldos_clientes';
     } else if (reportType === 'sales_by_product') {
+      data = getUserBalances(); // This was wrong in previous code, let's fix it
       data = getSalesByProduct().map(row => ({ 'Produto': row.name, 'Preço Unitário (R$)': row.price.toFixed(2), 'Barraca': row.stall }));
       fileName = 'catalogo_produtos';
     } else if (reportType === 'transactions_log') {
@@ -145,9 +146,22 @@ export default function ReportsPortal({ stalls, products, users, transactions, w
     toast.success('Excel exportado com sucesso!');
   };
 
-  const exportToPDF = async () => {
-    const { jsPDF } = await import('jspdf');
-    const doc = new jsPDF() as any;
+  const exportToPDF = () => {
+    // Defensive check for jsPDF constructor
+    let doc: any;
+    try {
+      if (typeof jsPDF === 'function') {
+        doc = new jsPDF();
+      } else if (jsPDF && typeof (jsPDF as any).jsPDF === 'function') {
+        doc = new (jsPDF as any).jsPDF();
+      } else {
+        throw new Error('Construtor jsPDF não encontrado');
+      }
+    } catch (e) {
+      console.error('Erro ao instanciar jsPDF:', e);
+      toast.error('Erro ao gerar PDF: Construtor não disponível');
+      return;
+    }
     const title = reportType.replace(/_/g, ' ').toUpperCase();
     
     doc.setFontSize(20);

@@ -249,6 +249,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   const onScanSuccess = async (decodedText: string) => {
     try {
       setIsScanning(false);
+      toast.loading('Consultando cliente...', { id: 'v-scan' });
       
       // Tentar encontrar por QR Code principal
       let q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
@@ -260,6 +261,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         querySnapshot = await getDocs(q);
       }
       
+      toast.dismiss('v-scan');
       if (querySnapshot.empty) {
         setStatusModal({
           show: true,
@@ -277,9 +279,11 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         show: true,
         type: 'success',
         title: 'Cliente Identificado',
-        message: `Cliente: ${userData.name}\nSaldo Disponível: R$ ${userData.balance.toFixed(2)}`
+        message: `Cliente: ${userData.name}\nSaldo Disponível: R$ ${userData.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
       });
     } catch (error) {
+      console.error(error);
+      toast.dismiss('v-scan');
       handleFirestoreError(error, OperationType.LIST, 'users');
     }
   };
@@ -350,7 +354,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         show: true,
         type: 'success',
         title: 'Venda Concluída!',
-        message: `O pagamento de R$ ${cartTotal.toFixed(2)} foi processado com sucesso para ${scannedUser.name}.`
+        message: `O pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso para ${scannedUser.name}.`
       });
 
       // Update local state to reflect new balance
@@ -714,7 +718,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                                 onClick={() => setScannedUser(null)} 
                                 className="h-8 w-8 flex items-center justify-center hover:bg-white/10 rounded-xl transition-all text-slate-500 hover:text-white"
                               >
-                                <XCircle size={20} />
+                                <XCircle className="h-5 w-5" />
                               </button>
                            </div>
                            
@@ -727,7 +731,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                                 : 'bg-green-600 hover:bg-green-500 shadow-xl shadow-green-600/20 active:scale-95'
                              }`}
                            >
-                              {processing ? <Loader2 size={24} className="animate-spin" /> : 
+                              {processing ? <Loader2 className="h-6 w-6 animate-spin" /> : 
                                scannedUser.balance < cartTotal ? 'SALDO INSUFICIENTE' : 'CONCLUIR PAGAMENTO'}
                            </Button>
                         </motion.div>
