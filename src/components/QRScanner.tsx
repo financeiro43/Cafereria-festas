@@ -44,7 +44,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
           verbose: false,
           formatsToSupport: [ Html5QrcodeSupportedFormats.QR_CODE ],
           experimentalFeatures: { 
-            useBarCodeDetectorIfSupported: true 
+            useBarCodeDetectorIfSupported: false 
           } 
         });
         html5QrCodeRef.current = scanner;

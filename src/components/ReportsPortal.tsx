@@ -145,7 +145,8 @@ export default function ReportsPortal({ stalls, products, users, transactions, w
     toast.success('Excel exportado com sucesso!');
   };
 
-  const exportToPDF = () => {
+  const exportToPDF = async () => {
+    const { jsPDF } = await import('jspdf');
     const doc = new jsPDF() as any;
     const title = reportType.replace(/_/g, ' ').toUpperCase();
     
