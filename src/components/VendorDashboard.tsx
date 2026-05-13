@@ -32,6 +32,17 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(true);
+  const [statusModal, setStatusModal] = useState<{
+    show: boolean;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: string;
+  }>({
+    show: false,
+    type: 'info',
+    title: '',
+    message: ''
+  });
 
   // Monitor connection status
   useEffect(() => {
@@ -250,13 +261,24 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       }
       
       if (querySnapshot.empty) {
-        toast.error('Cliente não encontrado');
+        setStatusModal({
+          show: true,
+          type: 'error',
+          title: 'Erro de Identificação',
+          message: 'QR Code não reconhecido. Por favor, tente novamente ou verifique se o cliente está cadastrado.'
+        });
         return;
       }
 
       const userData = querySnapshot.docs[0].data() as UserProfile;
       setScannedUser({ ...userData, uid: querySnapshot.docs[0].id });
-      toast.success(`Identificado: ${userData.name}`);
+      
+      setStatusModal({
+        show: true,
+        type: 'success',
+        title: 'Cliente Identificado',
+        message: `Cliente: ${userData.name}\nSaldo Disponível: R$ ${userData.balance.toFixed(2)}`
+      });
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, 'users');
     }
@@ -269,7 +291,12 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       setProcessing(true);
       
       if (scannedUser.balance < cartTotal) {
-        toast.error('Saldo insuficiente');
+        setStatusModal({
+          show: true,
+          type: 'error',
+          title: 'Saldo Insuficiente',
+          message: `O cliente ${scannedUser.name} possui apenas R$ ${scannedUser.balance.toFixed(2)}, mas a compra é de R$ ${cartTotal.toFixed(2)}.`
+        });
         return;
       }
 
@@ -319,7 +346,13 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         handleFirestoreError(e, OperationType.CREATE, 'consumption');
       }
 
-      toast.success(`Venda de R$ ${cartTotal.toFixed(2)} concluída!`);
+      setStatusModal({
+        show: true,
+        type: 'success',
+        title: 'Venda Concluída!',
+        message: `O pagamento de R$ ${cartTotal.toFixed(2)} foi processado com sucesso para ${scannedUser.name}.`
+      });
+
       // Update local state to reflect new balance
       setScannedUser(prev => prev ? { ...prev, balance: prev.balance - cartTotal } : null);
       clearCart();
@@ -1120,6 +1153,57 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                   className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs tracking-[0.2em] gap-3 rounded-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all"
                 >
                   <CheckCircle2 className="h-6 w-6" /> CONFIRMAR ENTREGA AGORA
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {statusModal.show && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setStatusModal(prev => ({ ...prev, show: false }))}
+              className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-[40px] shadow-2xl overflow-hidden text-center p-8"
+            >
+              <div className="flex flex-col items-center gap-6">
+                <div className={`h-24 w-24 rounded-full flex items-center justify-center ${
+                  statusModal.type === 'success' ? 'bg-green-500/10 text-green-500 ring-4 ring-green-500/5' :
+                  statusModal.type === 'error' ? 'bg-red-500/10 text-red-500 ring-4 ring-red-500/5' :
+                  'bg-blue-500/10 text-blue-500 ring-4 ring-blue-500/5'
+                }`}>
+                  {statusModal.type === 'success' ? <CheckCircle2 className="h-12 w-12" /> :
+                   statusModal.type === 'error' ? <XCircle className="h-12 w-12" /> :
+                   <QrCode className="h-12 w-12" />}
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-2xl font-black text-white uppercase tracking-tighter">
+                    {statusModal.title}
+                  </h3>
+                  <p className="text-slate-400 text-sm font-medium whitespace-pre-wrap leading-relaxed">
+                    {statusModal.message}
+                  </p>
+                </div>
+
+                <Button 
+                  onClick={() => setStatusModal(prev => ({ ...prev, show: false }))}
+                  className={`w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${
+                    statusModal.type === 'success' ? 'bg-green-600 hover:bg-green-500 shadow-xl shadow-green-600/20' :
+                    statusModal.type === 'error' ? 'bg-red-600 hover:bg-red-500 shadow-xl shadow-red-600/20' :
+                    'bg-blue-600 hover:bg-blue-500'
+                  }`}
+                >
+                  Continuar
                 </Button>
               </div>
             </motion.div>

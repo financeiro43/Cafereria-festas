@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, CircleCheck as CircleCheckIcon, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, CheckCircle2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -18,8 +18,9 @@ import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 import QRScanner from './QRScanner';
+import ReportsPortal from './ReportsPortal';
 
-type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app_view' | 'recharge_pos' | 'transactions' | 'card_printer';
+type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app_view' | 'recharge_pos' | 'transactions' | 'card_printer' | 'reports';
 
 export default function AdminDashboard({ profile, forcedTab }: { profile: UserProfile, forcedTab?: AdminTab }) {
   const [activeTab, setActiveTab] = useState<AdminTab>(forcedTab || 'overview');
@@ -500,6 +501,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     { id: 'products', icon: Package, label: 'Catálogo Geral', category: 'Administração' },
     { id: 'users', icon: Users, label: 'Gestão de Usuários', category: 'Administração' },
     { id: 'transactions', icon: History, label: 'Histórico de Vendas', category: 'Administração' },
+    { id: 'reports', icon: FileText, label: 'Relatórios do Evento', category: 'Administração' },
     { id: 'card_printer', icon: Printer, label: 'Impressor de Cartões', category: 'Administração' },
     { id: 'terminal', icon: ShoppingCart, label: 'Terminal PDV (Caixa)', category: 'Canais de Venda' },
     { id: 'recharge_pos', icon: QrCode, label: 'Carga e Recarga', category: 'Canais de Venda' },
@@ -1665,6 +1667,16 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
             </div>
           )}
 
+          {activeTab === 'reports' && (
+            <ReportsPortal 
+              stalls={stalls}
+              products={products}
+              users={users}
+              transactions={transactions}
+              withdrawals={withdrawals}
+            />
+          )}
+
           {activeTab === 'settings' && (
             <div className="space-y-8 animate-in fade-in duration-500">
               <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 pb-10 border-b border-slate-100">
@@ -1979,6 +1991,17 @@ function RechargePortal() {
   const [isScanning, setIsScanning] = useState(false);
   const [amount, setAmount] = useState<string>('');
   const [processing, setProcessing] = useState(false);
+  const [statusModal, setStatusModal] = useState<{
+    show: boolean;
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: string;
+  }>({
+    show: false,
+    type: 'info',
+    title: '',
+    message: ''
+  });
 
   const onScanSuccess = async (decodedText: string) => {
     try {
@@ -1988,12 +2011,28 @@ function RechargePortal() {
         const userData = snap.docs[0].data() as UserProfile;
         setScannedUser({ ...userData, uid: snap.docs[0].id });
         setIsScanning(false);
-        toast.success(`Identificado: ${userData.name}`);
+        setStatusModal({
+          show: true,
+          type: 'success',
+          title: 'Cliente Identificado',
+          message: `O cartão de ${userData.name} foi validado com sucesso.\nSaldo Atual: R$ ${userData.balance.toFixed(2)}`
+        });
       } else {
-        toast.error('QR Code inválido ou usuário não encontrado');
+        setStatusModal({
+          show: true,
+          type: 'error',
+          title: 'Não Encontrado',
+          message: 'Este QR Code não corresponde a nenhum cliente cadastrado no sistema.'
+        });
       }
     } catch (error) {
-      toast.error('Erro ao ler QR Code');
+      console.error(error);
+      setStatusModal({
+        show: true,
+        type: 'error',
+        title: 'Erro de Leitura',
+        message: 'Ocorreu um problema ao tentar processar o QR Code.'
+      });
     }
   };
 
@@ -2019,10 +2058,21 @@ function RechargePortal() {
 
       setScannedUser(prev => prev ? { ...prev, balance: prev.balance + val } : null);
       setAmount('');
-      toast.success(`Carga de R$ ${val.toFixed(2)} realizada com sucesso!`);
+      
+      setStatusModal({
+        show: true,
+        type: 'success',
+        title: 'Recarga Concluída',
+        message: `A carga de R$ ${val.toFixed(2)} foi adicionada ao saldo de ${scannedUser.name}.\nNovo Saldo: R$ ${(scannedUser.balance + val).toFixed(2)}`
+      });
     } catch (error) {
       console.error('Erro no processamento da carga:', error);
-      toast.error('Ocorreu um erro ao processar a carga.');
+      setStatusModal({
+        show: true,
+        type: 'error',
+        title: 'Falha na Recarga',
+        message: 'Não foi possível processar o crédito. Verifique sua conexão e tente novamente.'
+      });
     } finally {
       setProcessing(false);
     }
@@ -2165,6 +2215,58 @@ function RechargePortal() {
       {isScanning && (
         <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Recarregar Cliente" />
       )}
+
+      <AnimatePresence>
+        {statusModal.show && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setStatusModal(prev => ({ ...prev, show: false }))}
+              className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-[40px] shadow-2xl overflow-hidden text-center p-8"
+            >
+              <div className="flex flex-col items-center gap-6">
+                <div className={`h-24 w-24 rounded-full flex items-center justify-center ${
+                  statusModal.type === 'success' ? 'bg-green-500/10 text-green-500 ring-4 ring-green-500/5' :
+                  statusModal.type === 'error' ? 'bg-red-500/10 text-red-500 ring-4 ring-red-500/5' :
+                  'bg-blue-500/10 text-blue-500 ring-4 ring-blue-500/5'
+                }`}>
+                  {statusModal.type === 'success' ? <CheckCircle2 className="h-12 w-12" /> :
+                   statusModal.type === 'error' ? <XCircle className="h-12 w-12" /> :
+                   <QrCode className="h-12 w-12" />}
+                </div>
+
+                <div className="space-y-2 text-white">
+                  <h3 className="text-2xl font-black uppercase tracking-tighter">
+                    {statusModal.title}
+                  </h3>
+                  <p className="text-slate-400 text-sm font-medium whitespace-pre-wrap leading-relaxed">
+                    {statusModal.message}
+                  </p>
+                </div>
+
+                <Button 
+                  onClick={() => setStatusModal(prev => ({ ...prev, show: false }))}
+                  className={`w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${
+                    statusModal.type === 'success' ? 'bg-green-600 hover:bg-green-500 shadow-xl shadow-green-600/20' :
+                    statusModal.type === 'error' ? 'bg-red-600 hover:bg-red-500 shadow-xl shadow-red-600/20' :
+                    'bg-blue-600 hover:bg-blue-500'
+                  }`}
+                >
+                  Confirmar
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
