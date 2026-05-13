@@ -752,17 +752,25 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
             exit={{ opacity: 0, scale: 1.02 }}
             className="space-y-8 pb-10"
           >
-            <div className="flex items-center gap-4 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
-               <div className="h-14 w-14 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                  <Clock className="h-7 w-7 text-white" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
+               <div className="flex items-center gap-4">
+                 <div className="h-14 w-14 bg-gradient-to-br from-blue-500 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                    <Package className="h-7 w-7 text-white" />
+                 </div>
+                 <div>
+                    <h3 className="text-2xl font-black text-white uppercase tracking-tight">Pedidos Ativos</h3>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Gerencie e entregue os pedidos do evento</p>
+                 </div>
                </div>
-               <div>
-                  <h3 className="text-2xl font-black text-white uppercase tracking-tight">Pedidos em Espera</h3>
-                  <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Acompanhe as solicitações via aplicativo</p>
+               <div className="flex items-center gap-3">
+                 <div className="bg-blue-500/10 px-4 py-2 rounded-2xl border border-blue-500/20 flex items-center gap-2">
+                   <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                   <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">{orders.length} Pedidos Pendentes</span>
+                 </div>
                </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {orders.length === 0 ? (
                 <motion.div 
                   initial={{ opacity: 0 }}
@@ -770,93 +778,128 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                   className="col-span-full py-48 text-center text-slate-500 border-4 border-dashed border-white/5 rounded-[48px] bg-white/[0.01] backdrop-blur-sm"
                 >
                   <Clock className="h-24 w-24 mx-auto opacity-10 mb-8" />
-                  <p className="text-xl font-black uppercase tracking-[0.2em] opacity-30">Sem novos pedidos</p>
+                  <p className="text-xl font-black uppercase tracking-[0.2em] opacity-30">Aguardando novos pedidos...</p>
                   <Button 
                     variant="ghost" 
                     onClick={() => setActiveTab('pos')} 
                     className="mt-6 font-black text-[10px] uppercase tracking-widest text-blue-500 hover:text-white hover:bg-blue-600/20 rounded-full px-8 py-6 h-auto transition-all"
                   >
-                    VOLTAR AO TERMINAL
+                    VOLTAR AO PDV
                   </Button>
                 </motion.div>
               ) : (
-                orders.map((order, idx) => (
-                  <motion.div
-                    key={order.id}
-                    initial={{ opacity: 0, y: 30 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.1 }}
-                  >
-                    <Card 
-                      onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
-                      className={`bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative cursor-pointer active:scale-[0.98] ${expandedOrderId === order.id ? 'ring-2 ring-blue-500/50 border-blue-500/50' : ''}`}
+                orders.map((order, idx) => {
+                  const isExpanded = expandedOrderId === order.id;
+                  return (
+                    <motion.div
+                      key={order.id}
+                      initial={{ opacity: 0, y: 30 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.05 }}
+                      layout
                     >
-                      <div className="absolute top-0 right-0 p-4 flex items-center gap-2">
-                        <span className="text-[10px] font-black px-3 py-1.5 bg-slate-950/80 rounded-xl uppercase text-slate-500 border border-white/5 tracking-widest backdrop-blur-md">
-                          #{order.id.slice(-4)}
-                        </span>
-                        <div className={`transition-transform duration-300 ${expandedOrderId === order.id ? 'rotate-180' : ''}`}>
-                          <ChevronDown className="h-4 w-4 text-slate-500" />
-                        </div>
-                      </div>
-                      
-                      <CardHeader className="bg-white/5 border-b border-white/5 p-8">
-                        <p className="text-[10px] text-blue-400 font-black uppercase tracking-[0.3em] mb-2">Comprador Mobile</p>
-                        <CardTitle className="text-2xl font-black tracking-tighter truncate pr-24">{order.studentName}</CardTitle>
-                        {expandedOrderId !== order.id && (
-                          <div className="flex items-center gap-2 mt-4">
-                            <Package className="h-3.5 w-3.5 text-slate-500" />
-                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{order.items.length} {order.items.length === 1 ? 'Item' : 'Itens'}</span>
+                      <Card 
+                        onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
+                        className={`bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative cursor-pointer active:scale-[0.99] ${isExpanded ? 'ring-2 ring-blue-500/40' : ''}`}
+                      >
+                        {/* Status Badge */}
+                        <div className="absolute top-6 right-6 flex items-center gap-2 z-20">
+                          <div className="flex items-center gap-1.5 bg-blue-500/10 px-3 py-1.5 rounded-xl border border-blue-500/20">
+                            <Clock className="h-3 w-3 text-blue-400 animate-pulse" />
+                            <span className="text-[9px] font-black uppercase text-blue-400 tracking-widest">PENDENTE</span>
                           </div>
-                        )}
-                      </CardHeader>
+                          <div className={`transition-transform duration-300 bg-white/5 p-1.5 rounded-xl border border-white/5 ${isExpanded ? 'rotate-180' : ''}`}>
+                            <ChevronDown className="h-4 w-4 text-slate-500" />
+                          </div>
+                        </div>
 
-                      <AnimatePresence>
-                        {expandedOrderId === order.id && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.3, ease: 'easeInOut' }}
-                          >
-                            <CardContent className="p-8 space-y-8">
-                              <div className="space-y-3">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2 px-1">Itens do Pedido</p>
-                                {order.items.map((item, idx) => (
-                                  <div key={idx} className="flex items-center gap-4 bg-white/[0.03] p-4 rounded-2xl border border-white/5 ring-1 ring-inset ring-white/[0.02]">
-                                    <div className="h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.8)]" />
-                                    <p className="font-black text-[12px] uppercase text-white/90 tracking-tight">{item}</p>
-                                  </div>
-                                ))}
+                        <CardHeader className={`p-8 transition-colors ${isExpanded ? 'bg-white/5' : 'bg-transparent'}`}>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">#{order.id.slice(-6).toUpperCase()}</span>
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 bg-blue-600/20 rounded-xl flex items-center justify-center font-black text-blue-400 border border-blue-500/20">
+                                {order.studentName.charAt(0).toUpperCase()}
                               </div>
+                              <CardTitle className="text-xl font-black tracking-tight">{order.studentName}</CardTitle>
+                            </div>
+                            <div className="flex items-center gap-4 mt-3">
+                              <div className="flex items-center gap-1.5 text-slate-400">
+                                <Package className="h-3.5 w-3.5" />
+                                <span className="text-[10px] font-black uppercase tracking-widest">{order.items.length} {order.items.length === 1 ? 'Item' : 'Itens'}</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-blue-400">
+                                <TrendingUp className="h-3.5 w-3.5" />
+                                <span className="text-[10px] font-black uppercase tracking-widest tabular-nums">R$ {order.total.toFixed(2)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </CardHeader>
 
-                              <div className="pt-6 border-t border-white/10 flex justify-between items-end">
-                                <div className="space-y-1">
-                                  <span className="text-[10px] text-slate-500 uppercase font-black tracking-[0.2em]">Valor Pago</span>
-                                  <div className="text-3xl font-black text-white tracking-tighter">
-                                    <span className="text-sm font-bold opacity-40 mr-1">R$</span>
-                                    {order.total.toFixed(2)}
+                        <AnimatePresence>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+                            >
+                              <CardContent className="p-8 pt-0 space-y-6">
+                                <div className="h-px bg-white/5 w-full mb-6" />
+                                
+                                <div className="space-y-3">
+                                  <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-500 flex items-center justify-between">
+                                    <span>Produtos do Pedido</span>
+                                    {order.timestamp && (
+                                       <span className="text-slate-600 lowercase font-normal italic">
+                                         at {new Date(order.timestamp.toMillis?.() || Date.now()).toLocaleTimeString()}
+                                       </span>
+                                    )}
+                                  </p>
+                                  <div className="grid gap-2">
+                                    {order.items.map((item, idx) => (
+                                      <div key={idx} className="group/item flex items-center justify-between bg-white/[0.03] p-4 rounded-2xl border border-white/5 hover:bg-white/[0.05] transition-all">
+                                        <div className="flex items-center gap-3">
+                                          <div className="h-6 w-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                                            <Package className="h-3 w-3 text-blue-500 group-hover/item:scale-110 transition-transform" />
+                                          </div>
+                                          <p className="font-black text-xs uppercase text-slate-200 tracking-tight">{item}</p>
+                                        </div>
+                                      </div>
+                                    ))}
                                   </div>
                                 </div>
-                              </div>
 
-                              <Button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  markAsDelivered(order.id);
-                                }}
-                                className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs tracking-[0.2em] gap-3 rounded-2xl shadow-xl shadow-blue-900/40 transition-all group overflow-hidden relative"
-                              >
-                                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
-                                <CheckCircle2 className="h-6 w-6" /> CONFIRMAR ENTREGA
-                              </Button>
-                            </CardContent>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </Card>
-                  </motion.div>
-                ))
+                                <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row gap-4 items-center justify-between">
+                                  <div className="text-center sm:text-left">
+                                    <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Total Confirmado</p>
+                                    <div className="text-3xl font-black text-white tracking-tighter">
+                                      <span className="text-sm font-bold opacity-30 mr-1">R$</span>
+                                      {order.total.toFixed(2)}
+                                    </div>
+                                  </div>
+
+                                  <Button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      markAsDelivered(order.id);
+                                    }}
+                                    className="w-full sm:w-auto h-14 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase tracking-[0.2em] gap-3 rounded-2xl shadow-[0_15px_30px_-5px_rgba(16,185,129,0.3)] transition-all group overflow-hidden relative px-8"
+                                  >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
+                                    <div className="flex items-center gap-2">
+                                      <PackageCheck className="h-5 w-5" />
+                                      ENTREGAR AGORA
+                                    </div>
+                                  </Button>
+                                </div>
+                              </CardContent>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </Card>
+                    </motion.div>
+                  );
+                })
               )}
             </div>
           </motion.div>
