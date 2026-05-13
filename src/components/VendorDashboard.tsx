@@ -354,7 +354,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         show: true,
         type: 'success',
         title: 'Venda Concluída!',
-        message: `O pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso para ${scannedUser.name}.`
+        message: `O pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso para ${scannedUser.name}.\n\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
       });
 
       // Update local state to reflect new balance

@@ -33,7 +33,7 @@ service cloud.firestore {
     // Role-based access helpers
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email == 'financeiro@modeloalpha.com.br' ||
+        request.auth.token.email.lower() == 'financeiro@modeloalpha.com.br' ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
@@ -71,7 +71,7 @@ service cloud.firestore {
              data.userId is string && data.userId.size() <= 128 &&
              data.amount is number &&
              data.type in ['credit', 'debit'] &&
-             data.description is string && data.description.size() <= 200 &&
+             data.description is string && data.description.size() <= 1000 &&
              data.status in ['completed', 'pending', 'failed'] &&
              data.timestamp == request.time;
     }
@@ -80,7 +80,7 @@ service cloud.firestore {
       return data.keys().hasAll(['studentId', 'stallId', 'items', 'total', 'status', 'timestamp']) &&
              data.studentId is string && data.studentId.size() <= 128 &&
              data.stallId is string && data.stallId.size() <= 128 &&
-             data.items is list && data.items.size() <= 50 &&
+             data.items is list && data.items.size() <= 100 &&
              data.total is number &&
              data.status in ['pending', 'delivered', 'cancelled'] &&
              data.timestamp == request.time;
@@ -92,6 +92,14 @@ service cloud.firestore {
              (data.redePV == null || (data.redePV is string && data.redePV.size() <= 100)) &&
              (data.redeToken == null || (data.redeToken is string && data.redeToken.size() <= 100)) &&
              (data.isProduction == null || data.isProduction is bool);
+    }
+
+    function isValidConsumption(data) {
+      return data.keys().hasAll(['studentId', 'amount', 'items', 'timestamp']) &&
+             data.studentId is string && data.studentId.size() <= 128 &&
+             data.amount is number &&
+             data.items is list && data.items.size() <= 100 &&
+             data.timestamp == request.time;
     }
 
     // --- Collection Routes ---
@@ -122,7 +130,9 @@ service cloud.firestore {
         isAdmin() ||
         (request.auth.uid == userId && (
           incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL', 'fcmToken'])
-        ))
+        )) ||
+        (isVendor() && incoming().diff(existing()).affectedKeys().hasOnly(['balance'])) ||
+        (isRecharge() && incoming().diff(existing()).affectedKeys().hasOnly(['balance']))
       );
     }
 
@@ -178,7 +188,7 @@ service cloud.firestore {
     // CONSUMPTION
     match /consumption/{consumptionId} {
        allow read: if isAdmin() || isVendor() || (isSignedIn() && resource.data.studentId == request.auth.uid);
-       allow create: if isVerified() && (isVendor() || isAdmin());
+       allow create: if isVerified() && isValidConsumption(incoming()) && (isVendor() || isAdmin());
     }
 
     // WITHDRAWALS
