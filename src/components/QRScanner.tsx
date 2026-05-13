@@ -40,19 +40,31 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
       if (!isMounted) return;
       
       try {
-        scanner = new Html5Qrcode(elementId);
+        // @ts-ignore - html5-qrcode types might be slightly outdated
+        scanner = new Html5Qrcode(elementId, { 
+          verbose: false,
+          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+        });
         html5QrCodeRef.current = scanner;
 
         const config = {
-          fps: 20,
-          qrbox: { width: 250, height: 250 },
+          fps: 15,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const size = Math.floor(minEdge * 0.7);
+            return { width: size, height: size };
+          },
           aspectRatio: undefined,
           disableFlip: false,
+          experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true
+          }
         };
 
         // Função auxiliar para iniciar o scanner
         const tryStart = async (cameraIdOrConfig: any) => {
-          return scanner?.start(
+          if (!scanner) return;
+          return scanner.start(
             cameraIdOrConfig,
             config,
             (decodedText) => {
@@ -65,31 +77,42 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
           );
         };
 
+        // Pequeno delay para garantir que o DOM está pronto e animado
+        await new Promise(resolve => setTimeout(resolve, 800));
+        if (!isMounted) return;
+
         try {
           // Tentar primeiro com câmera traseira
-          await tryStart({ facingMode: "environment" });
+          await tryStart({ facingMode: { exact: "environment" } });
         } catch (e) {
-          console.warn("Could not start with environment camera, trying any available camera...", e);
-          
-          // Tentar qualquer câmera disponível
           try {
-            const allDevices = await Html5Qrcode.getCameras();
-            const backCamera = allDevices.find(c => 
-              c.label.toLowerCase().includes('back') || 
-              c.label.toLowerCase().includes('traseira') ||
-              c.label.toLowerCase().includes('rear')
-            );
+             // Fallback para facingMode sem exact
+             await tryStart({ facingMode: "environment" });
+          } catch (e2) {
+            console.warn("Could not start with environment camera, trying any available camera...", e2);
             
-            if (backCamera) {
-              await tryStart(backCamera.id);
-            } else if (allDevices.length > 0) {
-              await tryStart(allDevices[0].id);
-            } else {
-              await tryStart({ facingMode: "user" });
+            // Tentar qualquer câmera disponível
+            try {
+              const allDevices = await Html5Qrcode.getCameras();
+              const backCamera = allDevices.find(c => 
+                c.label.toLowerCase().includes('back') || 
+                c.label.toLowerCase().includes('traseira') ||
+                c.label.toLowerCase().includes('rear') ||
+                c.label.toLowerCase().includes('0')
+              );
+              
+              if (backCamera) {
+                await tryStart(backCamera.id);
+              } else if (allDevices.length > 0) {
+                // Tenta a última câmera da lista (geralmente a melhor ultra-wide/principal em celulares)
+                await tryStart(allDevices[allDevices.length - 1].id);
+              } else {
+                await tryStart({ facingMode: "user" });
+              }
+            } catch (fallbackError) {
+              console.error("All camera start attempts failed:", fallbackError);
+              throw fallbackError;
             }
-          } catch (fallbackError) {
-            console.error("All camera start attempts failed:", fallbackError);
-            throw fallbackError;
           }
         }
 
@@ -232,7 +255,6 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
           100% { top: 100%; opacity: 0; }
         }
         #universal-qr-reader video {
-          object-fit: cover !important;
           width: 100% !important;
           height: 100% !important;
         }
