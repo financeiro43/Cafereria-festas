@@ -67,7 +67,7 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     if (profile.balance < total) {
-      toast.error('Saldo insuficiente');
+      toast.error(`Ops! Seu saldo atual de R$ ${profile.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} não é suficiente para esta compra de R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`);
       return;
     }
 
@@ -212,10 +212,10 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                         {profile.balance < total && (
                            <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl animate-pulse">
                               <p className="text-xs text-orange-600 font-bold text-center">
-                                Seu saldo de R$ {profile.balance.toFixed(2)} não é suficiente para esta compra.
+                                Seu saldo atual (R$ {profile.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) não é suficiente para esta compra.
                               </p>
                               <p className="text-[10px] text-orange-500 text-center uppercase tracking-tight font-black mt-1">
-                                Use um cartão abaixo para pagar agora
+                                Complete o pagamento com cartão abaixo
                               </p>
                            </div>
                         )}

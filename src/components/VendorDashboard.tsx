@@ -302,7 +302,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           show: true,
           type: 'error',
           title: 'Saldo Insuficiente',
-          message: `O cliente ${scannedUser.name} possui apenas R$ ${scannedUser.balance.toFixed(2)}, mas a compra é de R$ ${cartTotal.toFixed(2)}.`
+          message: `Ops! A venda não pode ser concluída pois o saldo do cliente é insuficiente.\n\nCliente: ${scannedUser.name}\nSaldo Disponível: R$ ${scannedUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nValor da Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
         });
         return;
       }
