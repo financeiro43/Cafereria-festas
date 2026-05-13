@@ -248,16 +248,19 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
 
   const onScanSuccess = async (decodedText: string) => {
     try {
+      const cleanText = decodedText.trim();
+      if (!cleanText) return;
+
       setIsScanning(false);
       toast.loading('Consultando cliente...', { id: 'v-scan' });
       
       // Tentar encontrar por QR Code principal
-      let q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
+      let q = query(collection(db, 'users'), where('qrCode', '==', cleanText));
       let querySnapshot = await getDocs(q);
       
       // Se não encontrar, tentar pelos cartões vinculados
       if (querySnapshot.empty) {
-        q = query(collection(db, 'users'), where('linkedCards', 'array-contains', decodedText));
+        q = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
         querySnapshot = await getDocs(q);
       }
       
