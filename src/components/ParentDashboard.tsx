@@ -164,24 +164,31 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         qTx = query(
           txRef,
           where('userId', '==', uid),
-          orderBy('timestamp', 'desc'),
-          limit(PAGE_SIZE)
+          limit(50) // Aumentado para pegar mais itens iniciais sem precisar de ordenação complexa no DB
         );
       } else if (lastVisible) {
         qTx = query(
           txRef,
           where('userId', '==', uid),
-          orderBy('timestamp', 'desc'),
           startAfter(lastVisible),
-          limit(PAGE_SIZE)
+          limit(50)
         );
       } else {
         return;
       }
 
       const snapshot = await getDocs(qTx);
-      const newTx = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as Transaction));
+      let newTx = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) } as Transaction));
       
+      // Ordenação manual para evitar necessidade de índice composto
+      newTx.sort((a, b) => {
+        const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 
+                      (a.timestamp?.seconds ? a.timestamp.seconds * 1000 : 0);
+        const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 
+                      (b.timestamp?.seconds ? b.timestamp.seconds * 1000 : 0);
+        return timeB - timeA;
+      });
+
       if (isFirstPage) {
         setTransactions(newTx);
       } else {
@@ -213,12 +220,11 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
     
     fetchTransactions(true, displayedUid);
     
-    // Subscribe to first page for real-time updates of the NEWEST items
+    // Subscribe to first page for real-time updates without index requirement
     const qLatest = query(
       collection(db, 'transactions'),
       where('userId', '==', displayedUid),
-      orderBy('timestamp', 'desc'),
-      limit(PAGE_SIZE)
+      limit(50)
     );
 
     const unsubLatest = onSnapshot(qLatest, (snapshot) => {

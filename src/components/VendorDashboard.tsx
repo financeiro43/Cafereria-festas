@@ -143,16 +143,24 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
     if (activeTab !== 'analytics' || !activeStallId) return;
 
     setStatsLoading(true);
-    const q = query(collection(db, 'consumption'), where('stallId', '==', activeStallId), orderBy('timestamp', 'desc'), limit(1000));
+    const q = query(collection(db, 'consumption'), where('stallId', '==', activeStallId), limit(1000));
     
     const unsub = onSnapshot(q, (snap) => {
+      const docs = snap.docs;
+      // Sort manually to avoid index requirement
+      docs.sort((a, b) => {
+        const timeA = a.data().timestamp?.toMillis ? a.data().timestamp.toMillis() : 0;
+        const timeB = b.data().timestamp?.toMillis ? b.data().timestamp.toMillis() : 0;
+        return timeB - timeA;
+      });
+
       const newStats = { 
         totalRevenue: 0, 
         totalItems: 0, 
         productSales: {} as Record<string, { count: number; revenue: number; name: string }> 
       };
       
-      snap.docs.forEach(doc => {
+      docs.forEach(doc => {
         const data = doc.data();
         newStats.totalRevenue += data.amount || 0;
         
