@@ -2005,8 +2005,17 @@ function RechargePortal() {
 
   const onScanSuccess = async (decodedText: string) => {
     try {
-      const q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
-      const snap = await getDocs(q);
+      const cleanText = decodedText.trim();
+      if (!cleanText) return;
+      
+      let q = query(collection(db, 'users'), where('qrCode', '==', cleanText));
+      let snap = await getDocs(q);
+      
+      if (snap.empty) {
+        q = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
+        snap = await getDocs(q);
+      }
+
       if (!snap.empty) {
         const userData = snap.docs[0].data() as UserProfile;
         setScannedUser({ ...userData, uid: snap.docs[0].id });

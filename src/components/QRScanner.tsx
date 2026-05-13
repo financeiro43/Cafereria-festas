@@ -14,6 +14,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
   const [isInitializing, setIsInitializing] = useState(true);
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
+  const hasScanned = useRef(false);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const elementId = "universal-qr-reader";
 
@@ -39,17 +40,12 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
       if (!isMounted) return;
       
       try {
-        scanner = new Html5Qrcode(elementId, false);
+        scanner = new Html5Qrcode(elementId);
         html5QrCodeRef.current = scanner;
 
         const config = {
-          fps: 20, // Aumentado para melhor responsividade
-          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            // Área de foco de 80% do menor eixo para facilitar a captura
-            const size = Math.floor(minEdge * 0.8);
-            return { width: size, height: size };
-          },
+          fps: 20,
+          qrbox: { width: 250, height: 250 },
           aspectRatio: undefined,
           disableFlip: false,
         };
@@ -60,6 +56,8 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
             cameraIdOrConfig,
             config,
             (decodedText) => {
+              if (!isMounted || hasScanned.current) return;
+              hasScanned.current = true;
               if (navigator.vibrate) try { navigator.vibrate(100); } catch(e){} 
               onScan(decodedText);
             },
@@ -121,11 +119,10 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
       }
     };
 
-    const timer = setTimeout(startScanner, 500); 
+    startScanner(); 
 
     return () => {
       isMounted = false;
-      clearTimeout(timer);
       if (html5QrCodeRef.current) {
         const currentScanner = html5QrCodeRef.current;
         if (currentScanner.isScanning) {
