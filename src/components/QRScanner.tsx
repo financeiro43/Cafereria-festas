@@ -58,21 +58,28 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
           disableFlip: false,
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: true
-          },
-          videoConstraints: {
-            // Preferir alta resolução para detalhes de QR codes menores
-            width: { min: 640, ideal: 1280, max: 1920 },
-            height: { min: 480, ideal: 720, max: 1080 },
-            // @ts-ignore - focusMode é suportado por alguns navegadores mobile
-            focusMode: "continuous"
           }
         };
 
-        // Função auxiliar para iniciar o scanner
+        // Resolução e modo de foco ideais para leitura de QR Code
+        const baseVideoConstraints = {
+          width: { min: 640, ideal: 1280, max: 1920 },
+          height: { min: 480, ideal: 720, max: 1080 },
+          // @ts-ignore - focusMode é suportado por alguns navegadores mobile
+          focusMode: "continuous"
+        };
+
+        // Função auxiliar para iniciar o scanner com as restrições especificadas
         const tryStart = async (cameraIdOrConfig: any) => {
           if (!scanner) return;
+          
+          // Se for um objeto de configuração (não ID de câmera), mesclar com as restrições base
+          const finalConfig = typeof cameraIdOrConfig === 'object' 
+            ? { ...baseVideoConstraints, ...cameraIdOrConfig }
+            : cameraIdOrConfig;
+
           return scanner.start(
-            cameraIdOrConfig,
+            finalConfig,
             config,
             (decodedText) => {
               if (!isMounted || hasScanned.current) return;
@@ -89,36 +96,55 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         if (!isMounted) return;
 
         try {
-          // Tentar primeiro com câmera traseira
+          // Tentar primeiro com câmera traseira (mais rigoroso)
           await tryStart({ facingMode: { exact: "environment" } });
         } catch (e) {
           try {
              // Fallback para facingMode sem exact
              await tryStart({ facingMode: "environment" });
           } catch (e2) {
-            console.warn("Could not start with environment camera, trying any available camera...", e2);
+            console.warn("Could not start with environment camera with resolution constraints, trying without constraints...", e2);
             
-            // Tentar qualquer câmera disponível
             try {
-              const allDevices = await Html5Qrcode.getCameras();
-              const backCamera = allDevices.find(c => 
-                c.label.toLowerCase().includes('back') || 
-                c.label.toLowerCase().includes('traseira') ||
-                c.label.toLowerCase().includes('rear') ||
-                c.label.toLowerCase().includes('0')
-              );
-              
-              if (backCamera) {
-                await tryStart(backCamera.id);
-              } else if (allDevices.length > 0) {
-                // Tenta a última câmera da lista (geralmente a melhor ultra-wide/principal em celulares)
-                await tryStart(allDevices[allDevices.length - 1].id);
-              } else {
-                await tryStart({ facingMode: "user" });
+              // Tentar de novo sem as restrições de resolução, apenas facingMode
+              if (scanner) {
+                await scanner.start(
+                  { facingMode: "environment" },
+                  config,
+                  (decodedText) => {
+                    if (!isMounted || hasScanned.current) return;
+                    hasScanned.current = true;
+                    if (navigator.vibrate) try { navigator.vibrate(100); } catch(e){} 
+                    onScan(decodedText);
+                  },
+                  () => {}
+                );
               }
-            } catch (fallbackError) {
-              console.error("All camera start attempts failed:", fallbackError);
-              throw fallbackError;
+            } catch (e3) {
+              console.warn("All environment modes failed, trying any available camera...", e3);
+              
+              // Tentar qualquer câmera disponível
+              try {
+                const allDevices = await Html5Qrcode.getCameras();
+                const backCamera = allDevices.find(c => 
+                  c.label.toLowerCase().includes('back') || 
+                  c.label.toLowerCase().includes('traseira') ||
+                  c.label.toLowerCase().includes('rear') ||
+                  c.label.toLowerCase().includes('0')
+                );
+                
+                if (backCamera) {
+                  await tryStart(backCamera.id);
+                } else if (allDevices.length > 0) {
+                  // Tenta a última câmera da lista (geralmente a melhor ultra-wide/principal em celulares)
+                  await tryStart(allDevices[allDevices.length - 1].id);
+                } else {
+                  await tryStart({ facingMode: "user" });
+                }
+              } catch (fallbackError) {
+                console.error("All camera start attempts failed:", fallbackError);
+                throw fallbackError;
+              }
             }
           }
         }
