@@ -144,14 +144,24 @@ async function startServer() {
         return res.status(400).json({ 
           success: false,
           error: "Configuração incompleta", 
-          message: "As credenciais da Rede (PV/Token) não foram configuradas nos segredos do projeto." 
+          message: "Credenciais REDE_PV ou REDE_TOKEN não encontradas nos segredos do projeto." 
         });
       }
 
       const redeAmount = Math.round(parseFloat(amount) * 100);
       const secureRef = String(transactionId || `R${Date.now()}`).replace(/[^a-zA-Z0-9]/g, "").substring(0, 16);
-      const axiosConfig = { auth: { username: livePV, password: liveToken } };
+      
+      // Use explicit Basic Auth headers for better compatibility
+      const authBase64 = Buffer.from(`${livePV}:${liveToken}`).toString('base64');
+      const axiosConfig = { 
+        headers: { 
+          'Authorization': `Basic ${authBase64}`,
+          'Content-Type': 'application/json' 
+        } 
+      };
+
       const redeUrl = forceSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
+      console.log(`[REDE-API] Targeted Environment: ${forceSandbox ? 'SANDBOX (Testes)' : 'PRODUCTION (Real)'}`);
 
       let redePayload: any = {
         amount: redeAmount,

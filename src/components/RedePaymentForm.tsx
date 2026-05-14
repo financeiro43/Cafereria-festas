@@ -83,22 +83,27 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       console.error('Payment processing error:', error);
       
       let errorMsg = 'Erro de conexão ou tempo limite excedido.';
+      let isNetworkError = false;
       
       if (error.response?.data) {
         const errorData = error.response.data;
         errorMsg = errorData.message || errorData.error || error.message;
       } else if (error.request) {
-        errorMsg = 'O servidor demorou muito para responder. Tente novamente em instantes.';
+        errorMsg = 'O servidor demorou muito para responder. Isso pode acontecer em conexões oscilantes ou se o banco estiver lento.';
+        isNetworkError = true;
       } else if (error.message) {
         errorMsg = error.message;
       }
       
-      if (errorMsg.includes('Unauthorized') || errorMsg.includes('Contact issuer')) {
-        errorMsg = 'Transação negada pelo banco. Verifique seu limite ou tente outro cartão.';
+      if (errorMsg.includes('Unauthorized') || errorMsg.includes('Contact issuer') || errorMsg.toLowerCase().includes('negada')) {
+        errorMsg = 'Transação negada pelo banco. Verifique seu limite, se o cartão é de crédito ou tente outro cartão.';
       }
 
       setStatus('error');
-      toast.error(errorMsg, { duration: 6000 });
+      toast.error(errorMsg, { 
+        duration: isNetworkError ? 10000 : 7000,
+        description: isNetworkError ? 'Sua recarga pode ter sido processada. Verifique seu extrato em instantes antes de tentar novamente.' : undefined
+      });
     } finally {
       clearTimeout(timer);
       setLoading(false);
@@ -174,12 +179,6 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           className="relative h-24 w-24 bg-red-500 rounded-full flex items-center justify-center text-white shadow-[0_20px_50px_rgba(239,68,68,0.3)] mb-8"
         >
           <XCircle className="h-12 w-12" strokeWidth={3} />
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: [0, 1, 0], scale: [1, 2, 2.5] }}
-            transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
-            className="absolute inset-0 bg-red-500 rounded-full"
-          />
         </motion.div>
 
         <motion.div
@@ -188,9 +187,9 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           transition={{ delay: 0.3 }}
           className="space-y-3"
         >
-           <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Ops! Algo deu errado</h3>
-           <p className="text-slate-400 font-bold text-sm max-w-[240px] leading-relaxed mx-auto">
-             Não foi possível processar seu pagamento. Verifique seus dados ou tente outro cartão.
+           <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Ops! Falhou</h3>
+           <p className="text-slate-400 font-bold text-sm max-w-[280px] leading-relaxed mx-auto">
+             Não conseguimos processar o pagamento. Se o erro persistir, verifique se seu cartão é <span className="text-white">Crédito</span>. Cartões de débito podem exigir confirmação no app do banco.
            </p>
         </motion.div>
 
@@ -198,13 +197,20 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6 }}
-          className="mt-10 w-full"
+          className="mt-10 w-full flex flex-col gap-3"
         >
           <Button 
             onClick={() => setStatus('idle')}
-            className="w-full h-14 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black uppercase tracking-[.2em] rounded-xl text-[10px]"
+            className="w-full h-14 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-[.2em] rounded-xl text-xs shadow-xl"
           >
-            Tentar Novamente
+            Tentar com outro Cartão
+          </Button>
+          <Button 
+            variant="ghost"
+            onClick={onCancel}
+            className="w-full h-12 text-slate-500 hover:text-white font-black uppercase tracking-widest text-[9px]"
+          >
+            Voltar para Carteira
           </Button>
         </motion.div>
       </div>
@@ -314,9 +320,9 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
 
       <div className="grid grid-cols-3 gap-2">
          {[
-           { id: 'pix', label: 'Pix', icon: QrCode },
-           { id: 'credit', label: 'Crédito', icon: CreditCard },
-           { id: 'debit', label: 'Débito', icon: SmartphoneNfc }
+           { id: 'pix', label: 'Pix', icon: QrCode, color: 'text-emerald-400' },
+           { id: 'credit', label: 'Crédito', icon: CreditCard, color: 'text-blue-400' },
+           { id: 'debit', label: 'Débito', icon: SmartphoneNfc, color: 'text-orange-400' }
          ].map((method) => (
            <button
              key={method.id}
@@ -324,58 +330,74 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
                setPaymentMethod(method.id as PaymentMethod);
                if (status === 'awaiting_pix') setStatus('idle');
              }}
-             className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all gap-2 ${
+             className={`flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all gap-2 relative overflow-hidden group ${
                paymentMethod === method.id 
                 ? 'bg-blue-600 border-blue-400 shadow-lg shadow-blue-600/20 text-white' 
                 : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10'
              }`}
            >
-             <method.icon className="h-5 w-5" />
+             <method.icon className={`h-5 w-5 ${paymentMethod === method.id ? 'text-white' : method.color}`} />
              <span className="text-[9px] font-black uppercase tracking-widest">{method.label}</span>
+             {paymentMethod === method.id && (
+               <motion.div 
+                 layoutId="active-method-dot"
+                 className="absolute top-1 right-1 h-1 w-1 bg-white rounded-full"
+               />
+             )}
            </button>
          ))}
       </div>
 
-      <div className="bg-slate-950 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
-         <div className="flex items-center gap-2">
+      <div className="bg-slate-950 p-4 rounded-2xl border border-white/5 flex justify-between items-center relative overflow-hidden">
+         <div className="flex items-center gap-2 relative z-10">
             <Wallet className="h-4 w-4 text-slate-500" />
-            <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Valor da Recarga</span>
+            <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Valor Final</span>
          </div>
-         <span className="text-xl font-black text-white">R$ {amount.toFixed(2)}</span>
+         <span className="text-xl font-black text-white relative z-10">R$ {amount.toFixed(2)}</span>
+         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 blur-3xl -mr-16 -mt-16" />
       </div>
 
       <AnimatePresence mode="wait">
         {paymentMethod === 'pix' ? (
-          <motion.div key="pix" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
+          <motion.div key="pix" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4">
              {status === 'awaiting_pix' ? (
                 <div className="flex flex-col items-center justify-center py-4 text-center space-y-6">
-                  <div className="p-4 bg-white rounded-[32px] shadow-2xl">
+                  <div className="p-4 bg-white rounded-[32px] shadow-2xl relative">
                     {pixData && <QRCodeSVG value={pixData.qrcode} size={180} level="H" includeMargin />}
+                    <div className="absolute -top-3 -right-3 h-10 w-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg animate-bounce">
+                      <QrCode className="h-5 w-5" />
+                    </div>
                   </div>
                   <div className="w-full space-y-3">
-                    <Button onClick={copyPix} className="w-full h-14 bg-white/5 hover:bg-white/10 border border-white/10 text-white font-black uppercase text-[10px] tracking-widest rounded-2xl flex items-center justify-center gap-3">
-                      {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                      {copied ? 'Copiado!' : 'Copiar Código Pix'}
+                    <Button onClick={copyPix} className="w-full h-14 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-500 font-black uppercase text-[10px] tracking-widest rounded-2xl flex items-center justify-center gap-3">
+                      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                      {copied ? 'Código Copiado!' : 'Copia e Cola (Pix)'}
                     </Button>
-                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Aguardando confirmação do pagamento...</p>
+                    <div className="flex items-center justify-center gap-2">
+                       <Loader2 className="h-3 w-3 text-slate-500 animate-spin" />
+                       <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Aguardando confirmação bancária...</p>
+                    </div>
                   </div>
                 </div>
              ) : (
-                <div className="py-4 space-y-6">
-                  <div className="flex items-start gap-4 p-4 bg-blue-600/10 rounded-2xl border border-blue-500/20">
-                    <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center shrink-0">
-                      <QrCode className="h-4 w-4 text-white" />
+                <div className="py-2 space-y-6">
+                  <div className="flex items-start gap-4 p-4 bg-emerald-500/5 rounded-2xl border border-emerald-500/10">
+                    <div className="h-10 w-10 bg-emerald-500/10 text-emerald-500 rounded-xl flex items-center justify-center shrink-0">
+                      <Smartphone className="h-5 w-5" />
                     </div>
-                    <p className="text-[11px] text-blue-100/80 leading-relaxed">
-                      Geraremos um QR Code dinâmico para você. O saldo cai na hora após o pagamento.
-                    </p>
+                    <div className="space-y-1">
+                      <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Pagamento Instantâneo</h4>
+                      <p className="text-[11px] text-slate-400 leading-tight">
+                        O saldo é liberado imediatamente após o pagamento do QR Code.
+                      </p>
+                    </div>
                   </div>
                   <Button 
                     onClick={() => handleProcessPayment()}
                     disabled={loading}
-                    className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-[.2em] rounded-2xl shadow-xl shadow-blue-600/20 border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all"
+                    className="w-full h-16 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black uppercase tracking-[.2em] rounded-2xl shadow-xl shadow-emerald-500/20 active:translate-y-1 transition-all text-sm"
                   >
-                    {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : 'Gerar QR Code Pix'}
+                    {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : 'Gerar Pagamento Pix'}
                   </Button>
                 </div>
              )}
@@ -383,12 +405,19 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         ) : (
           <motion.form 
             key="card" 
-            initial={{ opacity: 0, x: 20 }} 
-            animate={{ opacity: 1, x: 0 }} 
-            exit={{ opacity: 0, x: -20 }} 
+            initial={{ opacity: 0, scale: 0.95 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            exit={{ opacity: 0, scale: 0.95 }} 
             onSubmit={handleProcessPayment} 
             className="space-y-4"
           >
+            {paymentMethod === 'debit' && (
+              <div className="p-3 bg-orange-500/5 border border-orange-500/10 rounded-xl mb-2">
+                <p className="text-[10px] text-orange-400/80 leading-snug">
+                  <span className="font-black text-orange-400">AVISO:</span> Cartões de débito geralmente exigem que você confirme a compra no aplicativo do seu banco.
+                </p>
+              </div>
+            )}
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1">Número do Cartão</Label>
