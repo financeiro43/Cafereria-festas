@@ -617,10 +617,11 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                       error: 'Erro ao atualizar'
                     });
                   }}
-                  className="h-16 px-6 rounded-2xl bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white border border-blue-500/20 font-black uppercase tracking-widest text-[10px] transition-all"
+                  className="h-16 px-6 rounded-2xl bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white border border-blue-500/20 font-black uppercase tracking-widest text-[10px] transition-all flex items-center gap-3"
                   title="Atualizar App"
                 >
                   <Zap className="h-5 w-5" />
+                  <span className="hidden sm:inline">Atualizar</span>
                 </Button>
                 <Button 
                   onClick={() => auth.signOut()}

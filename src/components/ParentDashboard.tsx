@@ -338,7 +338,6 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
               </div>
               <Button 
                 variant="ghost" 
-                size="icon" 
                 onClick={() => {
                   toast.promise(async () => {
                     if ('serviceWorker' in navigator) {
@@ -352,10 +351,11 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                     error: 'Erro ao atualizar'
                   });
                 }} 
-                className="h-10 w-10 bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white rounded-xl transition-all"
+                className="h-10 px-3 bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white rounded-xl transition-all flex items-center gap-2 font-black uppercase tracking-widest text-[9px]"
                 title="Atualizar App"
               >
-                <Zap className="h-4 w-4" />
+                <Zap className="h-3 w-3" />
+                <span className="hidden xs:inline">Atualizar</span>
               </Button>
               <Button 
                 variant="ghost" 

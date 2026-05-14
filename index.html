@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -16,7 +16,7 @@
     <script>
       // Force update mechanism for PWA/Mobile
       (function() {
-        const CURRENT_VERSION = '1.0.9'; // Increment this on changes
+        const CURRENT_VERSION = '1.1.0'; // Incremented to trigger update
         const storedVersion = localStorage.getItem('app_version');
         
         if (storedVersion && storedVersion !== CURRENT_VERSION) {
@@ -29,6 +29,13 @@
               for (let registration of registrations) {
                 registration.unregister();
               }
+            });
+          }
+          
+          // Clear standard caches
+          if ('caches' in window) {
+            caches.keys().then((names) => {
+              for (const name of names) caches.delete(name);
             });
           }
           

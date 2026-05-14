@@ -188,3 +188,14 @@
     @apply font-sans;
     }
 }
+
+/* Hide Vercel Toolbar if injected */
+#vercel-toolbar, 
+.vercel-toolbar,
+[data-vercel-toolbar],
+#vercel-speed-insights-container,
+#vercel-live-feedback {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
