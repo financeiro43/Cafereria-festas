@@ -47,11 +47,13 @@ export default function MockPayment() {
           amount: amt,
           transactionId: tid,
           userId: uid
-        });
+        }, { timeout: 25000 });
 
-        if (response.data.success) {
+        if (response.data && response.data.success) {
           setStatus('success');
           toast.success('Pagamento real processado com sucesso via Rede!');
+        } else {
+          throw new Error(response.data?.message || 'Erro no processamento da Rede');
         }
       } else {
         // SIMULATION LOGIC

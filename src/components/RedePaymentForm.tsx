@@ -44,7 +44,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     setLoading(true);
     setStatus('processing');
     setShowForceCancel(false);
-    const timer = setTimeout(() => setShowForceCancel(true), 12000);
+    const timer = setTimeout(() => setShowForceCancel(true), 10000); // Changed to 10s
     const tid = `txn_${Date.now()}`;
     
     try {
@@ -62,9 +62,12 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           businessName: "Escola Cristã Modelo Alpha Ltda",
           cnpj: "04214446000170"
         }
-      }, { timeout: 30000 }); // 30s timeout on frontend
+      }, { 
+        timeout: 25000, // Reduced to 25s for better UX
+        headers: { 'Content-Type': 'application/json' }
+      });
 
-      if (response.data.success) {
+      if (response.data && response.data.success) {
         if (paymentMethod === 'pix' && response.data.pix) {
           setPixData({ qrcode: response.data.pix.qrCode, tid: response.data.tid });
           setStatus('awaiting_pix');
@@ -73,19 +76,29 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           toast.success('Recarga concluída com sucesso!');
           setTimeout(() => onSuccess(response.data.tid), 1500);
         }
+      } else {
+        throw new Error(response.data?.message || 'Erro inesperado no checkout');
       }
     } catch (error: any) {
       console.error('Payment processing error:', error);
       
-      const errorData = error.response?.data;
-      let errorMsg = errorData?.message || errorData?.error || error.message;
+      let errorMsg = 'Erro de conexão ou tempo limite excedido.';
+      
+      if (error.response?.data) {
+        const errorData = error.response.data;
+        errorMsg = errorData.message || errorData.error || error.message;
+      } else if (error.request) {
+        errorMsg = 'O servidor demorou muito para responder. Tente novamente em instantes.';
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
       
       if (errorMsg.includes('Unauthorized') || errorMsg.includes('Contact issuer')) {
         errorMsg = 'Transação negada pelo banco. Verifique seu limite ou tente outro cartão.';
       }
 
       setStatus('error');
-      toast.error(errorMsg, { duration: 5000 });
+      toast.error(errorMsg, { duration: 6000 });
     } finally {
       clearTimeout(timer);
       setLoading(false);

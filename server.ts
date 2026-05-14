@@ -191,23 +191,34 @@ async function startServer() {
         }
       }
 
-      console.log(`[REDE-API] Requesting ${paymentMethod} to ${redeUrl}`);
+      console.log(`[REDE-API] Requesting ${paymentMethod} to ${redeUrl} (Timeout: 20s)`);
       
       const response = await axios.post(redeUrl, redePayload, {
         ...axiosConfig,
-        timeout: 25000 // 25 seconds timeout
+        timeout: 20000 // Reduced to 20 seconds for safety
       });
       
-      console.log(`[REDE-API] Response Code: ${response.data.returnCode} - ${response.data.returnMessage}`);
+      const redeData = response.data || {};
+      console.log(`[REDE-API] Response Code: ${redeData.returnCode} - ${redeData.returnMessage}`);
       
-      if (response.data.returnCode === "00") {
+      if (redeData.returnCode === "00") {
         if (paymentMethod !== 'pix' && db) {
           const userRef = db.collection("users").doc(userId);
           const txnRef = db.collection("transactions").doc(transactionId);
+          
+          console.log(`[REDE-API] Starting balance update transaction for ${userId}`);
           await db.runTransaction(async (t) => {
             const userDoc = await t.get(userRef);
+            if (!userDoc.exists) throw new Error("Usuário não encontrado no banco de dados");
+            
             const currentBalance = userDoc.data()?.balance || 0;
-            t.update(userRef, { balance: currentBalance + parseFloat(amount) });
+            const newBalance = currentBalance + parseFloat(amount);
+            
+            t.update(userRef, { 
+              balance: newBalance,
+              updatedAt: FieldValue.serverTimestamp()
+            });
+            
             t.set(txnRef, {
               userId,
               amount: parseFloat(amount),
@@ -215,11 +226,15 @@ async function startServer() {
               status: "completed",
               description: `Recarga ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} via Rede`,
               timestamp: FieldValue.serverTimestamp(),
-              redeTid: response.data.tid
+              redeTid: redeData.tid
             });
+          }).catch(txError => {
+            console.error(`[REDE-API] Transaction failed: ${txError.message}`);
+            throw txError;
           });
+          console.log(`[REDE-API] Balance update successful for ${userId}`);
         } else if (paymentMethod === 'pix' && db) {
-          // For Pix, we save it as pending to be updated by the webhook later
+          // For Pix, we save it as pending
           await db.collection("transactions").doc(transactionId).set({
             userId,
             amount: parseFloat(amount),
@@ -227,17 +242,21 @@ async function startServer() {
             status: "pending",
             description: "Recarga Pix via Rede",
             timestamp: FieldValue.serverTimestamp(),
-            redeTid: response.data.tid
+            redeTid: redeData.tid
           });
         }
         
         return res.json({ 
           success: true, 
-          tid: response.data.tid,
-          pix: response.data.pix
+          tid: redeData.tid,
+          pix: redeData.pix
         });
       } else {
-        return res.status(400).json({ error: "Pagamento negado", message: response.data.returnMessage });
+        return res.status(400).json({ 
+          success: false,
+          error: "Pagamento negado", 
+          message: redeData.returnMessage || "A operadora não autorizou esta transação." 
+        });
       }
     } catch (error: any) {
       const respData = error.response?.data;
