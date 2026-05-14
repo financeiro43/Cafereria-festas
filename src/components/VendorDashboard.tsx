@@ -265,37 +265,39 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       if (!cleanText) return;
 
       setIsScanning(false);
-      toast.loading('Consultando cliente...', { id: 'v-scan' });
+      const toastId = toast.loading('Identificando cliente...', { id: 'v-scan' });
       
-      // Tentar encontrar por QR Code principal
-      let q = query(collection(db, 'users'), where('qrCode', '==', cleanText));
-      let querySnapshot = await getDocs(q);
+      // Consultar em paralelo para máxima velocidade
+      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText));
+      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
       
-      // Se não encontrar, tentar pelos cartões vinculados
-      if (querySnapshot.empty) {
-        q = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
-        querySnapshot = await getDocs(q);
-      }
+      const [snapMain, snapCards] = await Promise.all([
+        getDocs(qMain),
+        getDocs(qCards)
+      ]);
       
-      toast.dismiss('v-scan');
+      const querySnapshot = !snapMain.empty ? snapMain : snapCards;
+      
+      toast.dismiss(toastId);
       if (querySnapshot.empty) {
         setStatusModal({
           show: true,
           type: 'error',
           title: 'Erro de Identificação',
-          message: 'QR Code não reconhecido. Por favor, tente novamente ou verifique se o cliente está cadastrado.'
+          message: 'QR Code ou Cartão não reconhecido. Verifique se o cliente está cadastrado e tente novamente.'
         });
         return;
       }
 
-      const userData = querySnapshot.docs[0].data() as UserProfile;
-      setScannedUser({ ...userData, uid: querySnapshot.docs[0].id });
+      const userDoc = querySnapshot.docs[0];
+      const userData = userDoc.data() as UserProfile;
+      setScannedUser({ ...userData, uid: userDoc.id });
       
       setStatusModal({
         show: true,
         type: 'success',
         title: 'Cliente Identificado',
-        message: `Cliente: ${userData.name}\nSaldo Disponível: R$ ${userData.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+        message: `Cliente: ${userData.name}\nSaldo: R$ ${userData.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
       });
     } catch (error) {
       console.error(error);
