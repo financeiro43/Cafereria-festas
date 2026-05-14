@@ -10,6 +10,23 @@ import { toast } from 'sonner';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
 
+import { z } from 'zod';
+
+const cardSchema = z.object({
+  number: z.string()
+    .min(13, 'Número do cartão muito curto')
+    .max(19, 'Número do cartão muito longo'),
+  name: z.string()
+    .min(3, 'Digite o nome como impresso no cartão')
+    .regex(/^[a-zA-ZáéíóúâêîôûãõçÁÉÍÓÚÂÊÎÔÛÃÕÇ\s]+$/, 'O nome deve conter apenas letras'),
+  expiry: z.string()
+    .regex(/^(0[1-9]|1[0-2])\/\d{2}$/, 'Validade deve ser MM/YY'),
+  cvv: z.string()
+    .min(3, 'CVV deve ter pelo menos 3 dígitos')
+    .max(4, 'CVV muito longo')
+    .regex(/^\d+$/, 'CVV deve conter apenas números')
+});
+
 interface RedePaymentFormProps {
   amount: number;
   uid: string;
@@ -21,11 +38,13 @@ type PaymentMethod = 'credit' | 'debit' | 'pix';
 
 export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: RedePaymentFormProps) {
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_pix'>('idle');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('credit');
   const [loading, setLoading] = useState(false);
   const [showForceCancel, setShowForceCancel] = useState(false);
   const [pixData, setPixData] = useState<{ qrcode: string, tid: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [cardData, setCardData] = useState({
     number: '',
     name: '',
@@ -53,10 +72,23 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
 
   const handleProcessPayment = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    setFormErrors({});
     
-    if (paymentMethod !== 'pix' && (cardData.number.replace(/\s/g, '').length < 15 || !cardData.expiry.includes('/') || cardData.cvv.length < 3)) {
-      toast.error('Por favor, preencha os dados do cartão corretamente');
-      return;
+    if (paymentMethod !== 'pix') {
+      const validation = cardSchema.safeParse({
+        ...cardData,
+        number: cardData.number.replace(/\s/g, '')
+      });
+
+      if (!validation.success) {
+        const errors: Record<string, string> = {};
+        validation.error.issues.forEach(issue => {
+          if (issue.path[0]) errors[issue.path[0] as string] = issue.message;
+        });
+        setFormErrors(errors);
+        toast.error('Por favor, corrija os erros no formulário');
+        return;
+      }
     }
 
     setLoading(true);
@@ -82,7 +114,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           cnpj: "04214446000170"
         }
       }, { 
-        timeout: 35000, // Increased timeout to 35s
+        timeout: 35000, 
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -108,22 +140,28 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       
       if (error.response?.data) {
         const errorData = error.response.data;
-        errorMsg = errorData.message || errorData.error || error.message;
+        const msg = (errorData.message || errorData.error || error.message || '').toString();
+        
+        // Detailed translation for common Rede/Card errors
+        if (msg.includes('Insufficient Funds')) errorMsg = 'Saldo insuficiente no cartão de crédito/débito.';
+        else if (msg.includes('Expired Card')) errorMsg = 'O cartão informado está com a data de validade expirada.';
+        else if (msg.includes('Invalid Credit Card Number') || msg.includes('Invalid Card')) errorMsg = 'O número do cartão informado é inválido.';
+        else if (msg.includes('Contact issuer') || msg.includes('Unauthorized') || msg.toLowerCase().includes('negada')) errorMsg = 'Transação negada pela operadora. Entre em contato com seu banco.';
+        else if (msg.includes('Security code is invalid') || msg.includes('Invalid CVV')) errorMsg = 'O código de segurança (CVV) do cartão está incorreto.';
+        else if (msg.includes('Timeout')) errorMsg = 'Tempo limite da operadora atingido. Tente novamente.';
+        else errorMsg = msg;
       } else if (error.request) {
-        errorMsg = 'O servidor demorou muito para responder. Isso pode acontecer em conexões oscilantes ou se o banco estiver lento.';
+        errorMsg = 'O servidor Rede não respondeu a tempo. Verifique sua conexão ou tente novamente.';
         isNetworkError = true;
       } else if (error.message) {
         errorMsg = error.message;
       }
       
-      if (errorMsg.includes('Unauthorized') || errorMsg.includes('Contact issuer') || errorMsg.toLowerCase().includes('negada')) {
-        errorMsg = 'Transação negada pelo banco. Verifique seu limite, se o cartão é de crédito ou tente outro cartão.';
-      }
-
+      setPaymentError(errorMsg);
       setStatus('error');
-      toast.error(errorMsg, { 
+      toast.error('Erro no Pagamento', { 
         duration: isNetworkError ? 10000 : 7000,
-        description: isNetworkError ? 'Sua recarga pode ter sido processada. Verifique seu extrato em instantes antes de tentar novamente.' : undefined
+        description: errorMsg
       });
     } finally {
       clearTimeout(timer);
@@ -251,9 +289,14 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           className="space-y-3"
         >
            <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Ops! Falhou</h3>
-           <p className="text-slate-400 font-bold text-sm max-w-[280px] leading-relaxed mx-auto">
-             Não conseguimos processar o pagamento. Se o erro persistir, verifique se seu cartão é <span className="text-white">Crédito</span>. Cartões de débito podem exigir confirmação no app do banco.
+           <p className="text-slate-400 font-bold text-sm max-w-[320px] leading-relaxed mx-auto px-4">
+             {paymentError || 'Não conseguimos processar o pagamento no momento.'}
            </p>
+           {paymentMethod !== 'pix' && (
+             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-4">
+               Dica: Cartões de débito podem exigir aprovação no App do Banco.
+             </p>
+           )}
         </motion.div>
 
         <motion.div
@@ -508,12 +551,20 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
                     placeholder="0000 0000 0000 0000"
                     maxLength={19}
                     value={formatCardNumber(cardData.number)}
-                    onChange={(e) => setCardData({...cardData, number: e.target.value})}
-                    className="bg-slate-950 border-white/5 h-12 rounded-xl text-white font-mono tracking-widest pl-10 text-sm"
+                    onChange={(e) => {
+                      setCardData({...cardData, number: e.target.value});
+                      if (formErrors.number) setFormErrors(prev => {
+                        const next = {...prev};
+                        delete next.number;
+                        return next;
+                      });
+                    }}
+                    className={`bg-slate-950 border-white/5 h-12 rounded-xl text-white font-mono tracking-widest pl-10 text-sm ${formErrors.number ? 'border-red-500/50 ring-1 ring-red-500/20' : ''}`}
                     required
                   />
-                  <CreditCard className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-700 h-4 w-4" />
+                  <CreditCard className={`absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 ${formErrors.number ? 'text-red-500' : 'text-slate-700'}`} />
                 </div>
+                {formErrors.number && <p className="text-[9px] text-red-500 font-bold uppercase ml-1">{formErrors.number}</p>}
               </div>
 
               <div className="space-y-2">
@@ -521,10 +572,18 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
                 <Input 
                   placeholder="COMO ESTÁ NO CARTÃO"
                   value={cardData.name}
-                  onChange={(e) => setCardData({...cardData, name: e.target.value.toUpperCase()})}
-                  className="bg-slate-950 border-white/5 h-12 rounded-xl text-white font-black tracking-widest uppercase text-sm"
+                  onChange={(e) => {
+                    setCardData({...cardData, name: e.target.value.toUpperCase()});
+                    if (formErrors.name) setFormErrors(prev => {
+                      const next = {...prev};
+                      delete next.name;
+                      return next;
+                    });
+                  }}
+                  className={`bg-slate-950 border-white/5 h-12 rounded-xl text-white font-black tracking-widest uppercase text-sm ${formErrors.name ? 'border-red-500/50 ring-1 ring-red-500/20' : ''}`}
                   required
                 />
+                {formErrors.name && <p className="text-[9px] text-red-500 font-bold uppercase ml-1">{formErrors.name}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -537,11 +596,17 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
                     onChange={(e) => {
                       let val = e.target.value.replace(/\D/g, '');
                       if (val.length >= 2) val = val.substring(0,2) + '/' + val.substring(2,4);
-                      setCardData({...cardData, expiry: val})
+                      setCardData({...cardData, expiry: val});
+                      if (formErrors.expiry) setFormErrors(prev => {
+                        const next = {...prev};
+                        delete next.expiry;
+                        return next;
+                      });
                     }}
-                    className="bg-slate-950 border-white/5 h-12 rounded-xl text-white font-black text-center text-sm"
+                    className={`bg-slate-950 border-white/5 h-12 rounded-xl text-white font-black text-center text-sm ${formErrors.expiry ? 'border-red-500/50 ring-1 ring-red-500/20' : ''}`}
                     required
                   />
+                  {formErrors.expiry && <p className="text-[9px] text-red-500 font-bold uppercase ml-1">{formErrors.expiry}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label className="text-[9px] font-black uppercase tracking-widest text-slate-500 ml-1">CVV</Label>
@@ -549,10 +614,18 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
                     placeholder="000"
                     maxLength={4}
                     value={cardData.cvv}
-                    onChange={(e) => setCardData({...cardData, cvv: e.target.value})}
-                    className="bg-slate-950 border-white/5 h-12 rounded-xl text-white font-black text-center text-sm"
+                    onChange={(e) => {
+                      setCardData({...cardData, cvv: e.target.value});
+                      if (formErrors.cvv) setFormErrors(prev => {
+                        const next = {...prev};
+                        delete next.cvv;
+                        return next;
+                      });
+                    }}
+                    className={`bg-slate-950 border-white/5 h-12 rounded-xl text-white font-black text-center text-sm ${formErrors.cvv ? 'border-red-500/50 ring-1 ring-red-500/20' : ''}`}
                     required
                   />
+                  {formErrors.cvv && <p className="text-[9px] text-red-500 font-bold uppercase ml-1">{formErrors.cvv}</p>}
                 </div>
               </div>
             </div>
