@@ -12,7 +12,6 @@ import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import VendorDashboard from './VendorDashboard';
-import ShopView from './ShopView';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -20,7 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import QRScanner from './QRScanner';
 import ReportsPortal from './ReportsPortal';
 
-type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'app_view' | 'recharge_pos' | 'transactions' | 'card_printer' | 'reports';
+type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'recharge_pos' | 'transactions' | 'card_printer' | 'reports';
 
 export default function AdminDashboard({ profile, forcedTab }: { profile: UserProfile, forcedTab?: AdminTab }) {
   const [activeTab, setActiveTab] = useState<AdminTab>(forcedTab || 'overview');
@@ -509,7 +508,6 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     { id: 'card_printer', icon: Printer, label: 'Impressor de Cartões', category: 'Administração' },
     { id: 'terminal', icon: ShoppingCart, label: 'Terminal PDV (Caixa)', category: 'Canais de Venda' },
     { id: 'recharge_pos', icon: QrCode, label: 'Carga e Recarga', category: 'Canais de Venda' },
-    { id: 'app_view', icon: Smartphone, label: 'Portal do Cliente (App)', category: 'Canais de Venda' },
     { id: 'settings', icon: SettingsIcon, label: 'Configurações', category: 'Sistema' },
   ];
 
@@ -1677,28 +1675,6 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 <div className="px-3 py-1 bg-green-600 text-white text-[10px] font-black rounded-full uppercase tracking-widest">Caixa Aberto</div>
               </div>
               <RechargePortal />
-            </div>
-          )}
-
-          {activeTab === 'app_view' && (
-            <div className="bg-white -m-8 min-h-screen p-8">
-              <div className="mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
-                <div>
-                   <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">Portal do Cliente</h2>
-                   <p className="text-slate-500 text-sm">Como os clientes visualizam e compram via app</p>
-                </div>
-                <div className="flex gap-2">
-                   <div className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl">
-                      <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                      <span className="text-xs font-bold text-slate-600 uppercase tracking-widest">Preview Live</span>
-                   </div>
-                </div>
-              </div>
-              <div className="max-w-4xl mx-auto bg-slate-100 p-8 rounded-[40px] shadow-2xl border-4 border-white">
-                <div className="bg-white rounded-[32px] overflow-hidden min-h-[600px] shadow-inner">
-                   <ShopView profile={profile} />
-                </div>
-              </div>
             </div>
           )}
 

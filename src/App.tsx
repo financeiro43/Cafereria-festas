@@ -420,7 +420,7 @@ function MainApp() {
                 </div>
                 <div>
                   <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Portal do Cliente</h2>
-                  <p className="text-slate-500 text-sm font-medium leading-relaxed">Visualize a interface do cliente, acompanhe extratos e faça pedidos pelo app.</p>
+                  <p className="text-slate-500 text-sm font-medium leading-relaxed">Visualize a interface do cliente, acompanhe extratos e gerencie saldos.</p>
                 </div>
               </div>
               <div className="absolute top-8 right-8 opacity-0 group-hover:opacity-100 group-hover:translate-x-2 transition-all">
