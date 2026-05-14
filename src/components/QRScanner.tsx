@@ -48,16 +48,23 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         html5QrCodeRef.current = scanner;
 
         const config = {
-          fps: 15,
+          fps: 25, // Maior taxa de quadros para detecção mais rápida
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const size = Math.floor(minEdge * 0.7);
+            const size = Math.floor(minEdge * 0.75); // Um pouco maior para facilitar enquadramento
             return { width: size, height: size };
           },
           aspectRatio: undefined,
           disableFlip: false,
           experimentalFeatures: {
             useBarCodeDetectorIfSupported: true
+          },
+          videoConstraints: {
+            // Preferir alta resolução para detalhes de QR codes menores
+            width: { min: 640, ideal: 1280, max: 1920 },
+            height: { min: 480, ideal: 720, max: 1080 },
+            // @ts-ignore - focusMode é suportado por alguns navegadores mobile
+            focusMode: "continuous"
           }
         };
 
@@ -78,7 +85,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         };
 
         // Pequeno delay para garantir que o DOM está pronto e animado
-        await new Promise(resolve => setTimeout(resolve, 800));
+        await new Promise(resolve => setTimeout(resolve, 400));
         if (!isMounted) return;
 
         try {
@@ -257,6 +264,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         #universal-qr-reader video {
           width: 100% !important;
           height: 100% !important;
+          object-fit: cover !important;
         }
       `}</style>
     </div>
