@@ -116,20 +116,37 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const onScanSuccess = async (decodedText: string) => {
     try {
       setIsScanning(false);
-      const q = query(collection(db, 'users'), where('qrCode', '==', decodedText));
-      const querySnapshot = await getDocs(q);
+      const cleanText = decodedText.trim();
+      if (!cleanText) return;
+
+      // Try qrCode first
+      let q = query(collection(db, 'users'), where('qrCode', '==', cleanText));
+      let querySnapshot = await getDocs(q);
+      
+      // Fallback to linkedCards if not found
+      if (querySnapshot.empty) {
+        q = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
+        querySnapshot = await getDocs(q);
+      }
       
       if (querySnapshot.empty) {
         toast.error('Cartão não identificado no sistema');
         return;
       }
 
-      const userData = querySnapshot.docs[0].data() as UserProfile;
+      const userDoc = querySnapshot.docs[0];
+      const userData = { ...userDoc.data(), uid: userDoc.id } as UserProfile;
       const userRef = doc(db, 'users', profile.uid);
       
       // Se for um cartão diferente e não for o próprio
       if (userData.uid !== profile.uid) {
-        if (confirm(`Deseja vincular o cartão de ${userData.name} como uma conta associada? Você poderá gerenciar e usar este saldo para pagamentos.`)) {
+        if (profile.associatedUids?.includes(userData.uid)) {
+          toast.info(`${userData.name} já está vinculado à sua conta.`);
+          setDisplayedUid(userData.uid);
+          return;
+        }
+
+        if (confirm(`Deseja vincular a conta de ${userData.name} como um dependente? Você poderá gerenciar o saldo e visualizar o histórico.`)) {
           
           await updateDoc(userRef, {
             associatedUids: Array.from(new Set([...(profile.associatedUids || []), userData.uid]))
@@ -140,6 +157,8 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             description: 'Você já pode gerenciar este saldo.',
             duration: 5000,
           });
+          
+          setDisplayedUid(userData.uid);
           
           // Esconde animação após alguns segundos
           setTimeout(() => setShowSuccessAnimation(false), 3000);
@@ -382,9 +401,20 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                     <QRCodeSVG value={displayedProfile.qrCode} size={180} />
                   </div>
 
-                  <div className="flex items-center justify-center gap-2">
-                    <div className="h-1.5 w-1.5 bg-blue-500 rounded-full animate-pulse" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">Pronto para uso</span>
+                  <div className="flex flex-col gap-3 px-8 pb-4">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="h-1.5 w-1.5 bg-blue-500 rounded-full animate-pulse" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-blue-500">Pronto para uso</span>
+                    </div>
+
+                    <Button 
+                      onClick={() => setIsScanning(true)}
+                      variant="ghost"
+                      className="h-10 text-[9px] font-black uppercase tracking-widest text-slate-500 hover:text-blue-400 gap-2"
+                    >
+                      <PlusCircle className="h-3 w-3" />
+                      Vincular Novo Dependente
+                    </Button>
                   </div>
                 </div>
 
@@ -706,7 +736,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         <QRScanner 
           onScan={onScanSuccess} 
           onClose={() => setIsScanning(false)} 
-          title="Vincular Cartão do Cliente"
+          title="Vincular Novo Dependente"
         />
       )}
 
