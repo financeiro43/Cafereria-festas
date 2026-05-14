@@ -4,10 +4,11 @@ import { collection, onSnapshot, query, where, addDoc, serverTimestamp, doc, upd
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Stall, Product, UserProfile } from '../types';
-import { Store, ShoppingCart, ArrowLeft, CheckCircle2, Package, CreditCard, Loader2 } from 'lucide-react';
+import { Store, ShoppingCart, ArrowLeft, CheckCircle2, Package, CreditCard, Loader2, PlusCircle as PlusCircleIcon, MinusCircle as MinusCircleIcon, Trash2, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import axios from 'axios';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
+import { motion, AnimatePresence } from 'motion/react';
 
 import QRScanner from './QRScanner';
 import RedePaymentForm from './RedePaymentForm';
@@ -175,21 +176,61 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                   <p className="text-center text-slate-400 py-6">Adicione itens para continuar</p>
                 ) : (
                   <>
-                    <div className="space-y-2">
-                      {cart.map(item => (
-                        <div key={item.product.id} className="flex justify-between items-center text-sm">
-                          <div className="flex gap-2">
-                            <span className="font-bold text-slate-400">{item.quantity}x</span>
-                            <span>{item.product.name}</span>
+                    <div className="space-y-4">
+                      {profile.balance < total && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex flex-col items-center gap-2"
+                        >
+                          <div className="flex items-center gap-2 text-red-600 font-black uppercase text-[10px] tracking-widest">
+                            <Info className="h-4 w-4" /> Notificação de Saldo
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span>R$ {(item.product.price * item.quantity).toFixed(2)}</span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-red-400" onClick={() => removeFromCart(item.product.id)}>
-                              <MinusCircle className="h-4 w-4" />
-                            </Button>
+                          <p className="text-xs text-red-600 font-bold text-center leading-relaxed">
+                            Seu saldo atual (R$ {profile.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) não cobre o valor total.
+                          </p>
+                          <div className="h-px w-full bg-red-500/10 my-1" />
+                          <p className="text-[9px] text-red-500 text-center uppercase tracking-tight font-black animate-pulse">
+                            Complete o pagamento com cartão ou faça uma recarga.
+                          </p>
+                        </motion.div>
+                      )}
+
+                      <div className="space-y-2">
+                        {cart.map(item => (
+                          <div key={item.product.id} className="flex justify-between items-center p-3 bg-slate-50/50 rounded-xl border border-slate-100 group">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-bold text-slate-900 text-sm">{item.product.name}</span>
+                              <span className="text-[10px] text-blue-600 font-black">R$ {(item.product.price * item.quantity).toFixed(2)}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden h-8">
+                                <button 
+                                  onClick={() => removeFromCart(item.product.id)}
+                                  className="px-2 h-full hover:bg-slate-50 text-slate-500 active:bg-slate-100 transition-colors"
+                                >
+                                  <MinusCircle className="h-3 w-3" />
+                                </button>
+                                <div className="px-2 font-black text-xs min-w-[24px] text-center border-x border-slate-100">
+                                  {item.quantity}
+                                </div>
+                                <button 
+                                  onClick={() => addToCart(item.product)}
+                                  className="px-2 h-full hover:bg-slate-50 text-slate-500 active:bg-slate-100 transition-colors"
+                                >
+                                  <PlusCircle className="h-3 w-3" />
+                                </button>
+                              </div>
+                              <button 
+                                onClick={() => setCart(prev => prev.filter(p => p.product.id !== item.product.id))}
+                                className="h-8 w-8 flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                     <div className="pt-4 border-t flex justify-between items-center">
                       <span className="font-bold">Total</span>
@@ -201,25 +242,15 @@ export default function ShopView({ profile }: { profile: UserProfile }) {
                           disabled={loading || profile.balance < total || payingWithRede}
                           onClick={handleCheckout}
                         >
-                          <span className="text-lg">
-                            {loading ? 'Processando...' : profile.balance < total ? 'Saldo Insuficiente' : 'Pagar com Saldo'}
+                          <span className="text-lg flex items-center gap-2">
+                            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : 
+                             profile.balance < total ? 'Saldo Insuficiente' : 'Pagar com Saldo'}
                           </span>
                           {!loading && profile.balance >= total && (
                             <span className="text-[10px] opacity-70 uppercase tracking-widest">Descontar R$ {total.toFixed(2)} da sua conta</span>
                           )}
                         </Button>
                         
-                        {profile.balance < total && (
-                           <div className="p-4 bg-orange-50 border border-orange-100 rounded-2xl animate-pulse">
-                              <p className="text-xs text-orange-600 font-bold text-center">
-                                Seu saldo atual (R$ {profile.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) não é suficiente para esta compra.
-                              </p>
-                              <p className="text-[10px] text-orange-500 text-center uppercase tracking-tight font-black mt-1">
-                                Complete o pagamento com cartão abaixo
-                              </p>
-                           </div>
-                        )}
-
                         <div className="relative py-4">
                           <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-200"></span></div>
                           <div className="relative flex justify-center text-[10px] uppercase"><span className="bg-white px-4 text-slate-400 font-black tracking-widest whitespace-nowrap">OU PAGAR COM CARTÃO (REDE)</span></div>

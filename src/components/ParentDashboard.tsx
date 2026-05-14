@@ -16,10 +16,12 @@ import { toPng } from 'html-to-image';
 import QRScanner from './QRScanner';
 import RedePaymentForm from './RedePaymentForm';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import ShopView from './ShopView';
 
 enum ParentTab {
   PAYMENT = 'payment',
   RECHARGE = 'recharge',
+  SHOP = 'shop',
   HISTORY = 'history'
 }
 
@@ -455,6 +457,23 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                   </motion.div>
                 </div>
 
+                <div className="relative z-10 px-8 pb-8 flex gap-4">
+                  <Button 
+                    onClick={() => setActiveTab(ParentTab.RECHARGE)}
+                    className="flex-1 h-14 bg-emerald-500/10 hover:bg-emerald-500 border border-emerald-500/20 text-emerald-500 hover:text-white rounded-2xl font-black text-[10px] uppercase tracking-widest gap-2 shadow-lg"
+                  >
+                    <Wallet className="h-4 w-4" />
+                    Recarga
+                  </Button>
+                  <Button 
+                    onClick={() => setActiveTab(ParentTab.SHOP)}
+                    className="flex-1 h-14 bg-blue-500/10 hover:bg-blue-500 border border-blue-500/20 text-blue-500 hover:text-white rounded-2xl font-black text-[10px] uppercase tracking-widest gap-2 shadow-lg"
+                  >
+                    <ShoppingBag className="h-4 w-4" />
+                    Loja
+                  </Button>
+                </div>
+
                 <div className="absolute -bottom-10 -right-10 opacity-5">
                   <QrCode size={200} />
                 </div>
@@ -598,6 +617,18 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             </motion.div>
           )}
 
+          {activeTab === ParentTab.SHOP && (
+            <motion.div 
+              key="shop"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 1.02 }}
+              className="space-y-6 pb-20"
+            >
+              <ShopView profile={displayedProfile} />
+            </motion.div>
+          )}
+
           {activeTab === ParentTab.HISTORY && (
             <motion.div 
               key="history"
@@ -731,6 +762,23 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             <div className="relative z-10 flex flex-col items-center gap-1">
               <Wallet className={`h-5 w-5 ${activeTab === ParentTab.RECHARGE ? 'text-white' : 'text-slate-500'}`} />
               <span className={`text-[8px] font-black uppercase tracking-widest ${activeTab === ParentTab.RECHARGE ? 'text-white' : 'text-slate-500'}`}>Recarga</span>
+            </div>
+          </button>
+
+          <button 
+            onClick={() => setActiveTab(ParentTab.SHOP)}
+            className={`relative flex-1 flex flex-col items-center justify-center py-3 gap-1 transition-all ${activeTab === ParentTab.SHOP ? 'text-white' : 'text-slate-500 hover:text-slate-400'}`}
+          >
+            {activeTab === ParentTab.SHOP && (
+              <motion.div 
+                layoutId="active-portal-tab-bg"
+                className="absolute inset-x-1 inset-y-1 bg-blue-600 rounded-[24px] shadow-lg shadow-blue-500/20"
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              />
+            )}
+            <div className="relative z-10 flex flex-col items-center gap-1">
+              <ShoppingBag className={`h-5 w-5 ${activeTab === ParentTab.SHOP ? 'text-white' : 'text-slate-500'}`} />
+              <span className={`text-[8px] font-black uppercase tracking-widest ${activeTab === ParentTab.SHOP ? 'text-white' : 'text-slate-500'}`}>Loja</span>
             </div>
           </button>
           
