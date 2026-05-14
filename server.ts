@@ -310,7 +310,20 @@ async function startServer() {
       }
     } catch (error: any) {
       const respData = error.response?.data;
-      const errorMsg = respData?.[0]?.message || respData?.returnMessage || respData?.error || error.message;
+      let errorMsg = error.message;
+      
+      if (respData) {
+        if (Array.isArray(respData)) {
+          errorMsg = respData[0]?.message || respData[0]?.returnMessage || JSON.stringify(respData[0]);
+        } else if (typeof respData === 'object') {
+          errorMsg = respData.message || respData.returnMessage || respData.error || JSON.stringify(respData);
+        } else {
+          errorMsg = String(respData);
+        }
+      }
+      
+      if (typeof errorMsg !== 'string') errorMsg = JSON.stringify(errorMsg);
+      
       console.error(`[REDE-API] Error Detail:`, JSON.stringify(respData || error.message));
       res.status(error.response?.status || 500).json({ 
         error: "Erro no Gateway Rede", 

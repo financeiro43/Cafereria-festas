@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { CheckCircle2, CreditCard, Loader2, ShieldCheck, Lock, XCircle, Smartphone, SmartphoneNfc, Wallet, Copy, Check, QrCode } from 'lucide-react';
+import { CheckCircle2, CreditCard, Loader2, ShieldCheck, Lock, XCircle, Smartphone, SmartphoneNfc, Wallet, Copy, Check, QrCode, ChevronLeft } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { toast } from 'sonner';
@@ -140,9 +140,14 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       
       if (error.response?.data) {
         const errorData = error.response.data;
-        const msg = (errorData.message || errorData.error || error.message || '').toString();
+        let msg = '';
         
-        // Detailed translation for common Rede/Card errors
+        if (typeof errorData.message === 'string') msg = errorData.message;
+        else if (typeof errorData.error === 'string') msg = errorData.error;
+        else if (Array.isArray(errorData.message) && errorData.message[0]?.message) msg = errorData.message[0].message;
+        else if (errorData.details?.[0]?.message) msg = errorData.details[0].message;
+        else msg = JSON.stringify(errorData.message || errorData.error || errorData.details || error.message || '');
+        
         if (msg.includes('Insufficient Funds')) errorMsg = 'Saldo insuficiente no cartão de crédito/débito.';
         else if (msg.includes('Expired Card')) errorMsg = 'O cartão informado está com a data de validade expirada.';
         else if (msg.includes('Invalid Credit Card Number') || msg.includes('Invalid Card')) errorMsg = 'O número do cartão informado é inválido.';
@@ -249,14 +254,21 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="pt-4"
+              className="pt-4 flex flex-col gap-2"
             >
               <Button 
                 variant="ghost" 
                 onClick={() => setStatus('idle')}
-                className="text-[10px] text-slate-600 hover:text-white uppercase font-black tracking-widest"
+                className="text-[10px] text-slate-500 hover:text-white uppercase font-black tracking-widest h-10"
               >
-                Demorando muito? Voltar
+                Tentar Novamente
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={onCancel}
+                className="text-[10px] text-red-500/60 hover:text-red-500 uppercase font-black tracking-widest h-10"
+              >
+                Cancelar e Voltar para Carteira
               </Button>
             </motion.div>
           )}
@@ -415,9 +427,20 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       className="space-y-6"
     >
       <div className="flex justify-between items-start">
-         <div className="space-y-1">
-            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">Checkout Seguro</span>
-            <h2 className="text-xl font-black text-white uppercase tracking-tighter">Escolha o Pagamento</h2>
+         <div className="flex items-center gap-3">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={onCancel}
+              disabled={loading}
+              className="h-10 w-10 bg-white/5 hover:bg-white/10 rounded-xl -ml-2"
+            >
+               <ChevronLeft className="h-5 w-5 text-slate-400" />
+            </Button>
+            <div className="space-y-1">
+               <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">Checkout Seguro</span>
+               <h2 className="text-xl font-black text-white uppercase tracking-tighter">Escolha o Pagamento</h2>
+            </div>
          </div>
          <div className="bg-white/5 p-2 rounded-xl border border-white/5">
             <ShieldCheck className="text-blue-500 h-5 w-5" />
