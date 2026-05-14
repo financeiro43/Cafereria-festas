@@ -309,8 +309,13 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   const handleSale = async () => {
     if (!scannedUser || cartTotal <= 0) return;
 
+    setProcessing(true);
+    const failsafe = setTimeout(() => {
+      setProcessing(false);
+      toast.error("Tempo limite atingido.");
+    }, 25000);
+
     try {
-      setProcessing(true);
       
       if (scannedUser.balance < cartTotal) {
         setStatusModal({
@@ -382,6 +387,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       console.error('Erro no processamento da venda:', error);
       // Already handled by nested tries or generic catch if top-level logic fails
     } finally {
+      clearTimeout(failsafe);
       setProcessing(false);
     }
   };

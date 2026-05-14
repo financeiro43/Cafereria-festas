@@ -44,9 +44,11 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     setLoading(true);
     setStatus('processing');
     setShowForceCancel(false);
-    const timer = setTimeout(() => setShowForceCancel(true), 10000); // Changed to 10s
+    const timer = setTimeout(() => setShowForceCancel(true), 15000); // Increased to 15s
     const tid = `txn_${Date.now()}`;
     
+    console.log(`[REDE-FORM] Processing ${paymentMethod} payment for ${uid}, Amount: ${amount}`);
+
     try {
       const response = await axios.post('/api/rede/process-payment', {
         cardData: paymentMethod === 'pix' ? null : cardData,
@@ -54,7 +56,6 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         transactionId: tid,
         userId: uid,
         paymentMethod,
-        // Dados fiscais do cliente
         customer: {
           name: "Luis Carlos Tosto",
           cpf: "04082089888",
@@ -63,11 +64,13 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           cnpj: "04214446000170"
         }
       }, { 
-        timeout: 25000, // Reduced to 25s for better UX
+        timeout: 35000, // Increased timeout to 35s
         headers: { 'Content-Type': 'application/json' }
       });
 
-      if (response.data && response.data.success) {
+      console.log(`[REDE-FORM] Response:`, response.data);
+
+      if (response.data && (response.data.success || response.data.pix)) {
         if (paymentMethod === 'pix' && response.data.pix) {
           setPixData({ qrcode: response.data.pix.qrCode, tid: response.data.tid });
           setStatus('awaiting_pix');

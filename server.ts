@@ -210,26 +210,43 @@ async function startServer() {
 
       console.log(`[REDE-API] Requesting ${paymentMethod} to ${redeUrl} (Timeout: 20s)`);
       
-      const response = await axios.post(redeUrl, redePayload, {
-        ...axiosConfig,
-        timeout: 20000 // Reduced to 20 seconds for safety
-      });
+      let response;
+      try {
+        console.log(`[REDE-API] Calling axios.post...`);
+        response = await axios.post(redeUrl, redePayload, {
+          ...axiosConfig,
+          timeout: 20000 
+        });
+        console.log(`[REDE-API] Axios call finished with status: ${response.status}`);
+      } catch (axiosError: any) {
+        console.error(`[REDE-API] Axios error: ${axiosError.message}`);
+        if (axiosError.code === 'ECONNABORTED') {
+          console.error(`[REDE-API] Request timed out after 20 seconds`);
+        }
+        throw axiosError;
+      }
       
-      const redeData = response.data || {};
-      console.log(`[REDE-API] Response Code: ${redeData.returnCode} - ${redeData.returnMessage}`);
+      const redeData = response?.data || {};
+      console.log(`[REDE-API] Response Data: ${JSON.stringify(redeData).substring(0, 100)}...`);
+      console.log(`[REDE-API] Return Code: ${redeData.returnCode} - ${redeData.returnMessage}`);
       
       if (redeData.returnCode === "00") {
         if (paymentMethod !== 'pix' && db) {
           const userRef = db.collection("users").doc(userId);
           const txnRef = db.collection("transactions").doc(transactionId);
           
-          console.log(`[REDE-API] Starting balance update transaction for ${userId}`);
-          await db.runTransaction(async (t) => {
+          console.log(`[REDE-API] Starting balance update transaction for ${userId} (Amount: ${amount})`);
+          
+          // Use a Promise.race to ensure transaction doesn't hang indefinitely in the backend
+          const transactionPromise = db.runTransaction(async (t) => {
+            console.log(`[REDE-API] Inside runTransaction for ${userId}`);
             const userDoc = await t.get(userRef);
             if (!userDoc.exists) throw new Error("Usuário não encontrado no banco de dados");
             
             const currentBalance = userDoc.data()?.balance || 0;
             const newBalance = currentBalance + parseFloat(amount);
+            
+            console.log(`[REDE-API] Updating balance from ${currentBalance} to ${newBalance}`);
             
             t.update(userRef, { 
               balance: newBalance,
@@ -243,13 +260,29 @@ async function startServer() {
               status: "completed",
               description: `Recarga ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} via Rede`,
               timestamp: FieldValue.serverTimestamp(),
-              redeTid: redeData.tid
+              redeTid: redeData.tid,
+              nsu: redeData.nsu
             });
-          }).catch(txError => {
-            console.error(`[REDE-API] Transaction failed: ${txError.message}`);
-            throw txError;
+            return { newBalance };
           });
-          console.log(`[REDE-API] Balance update successful for ${userId}`);
+
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Firestore Transaction Timeout")), 15000)
+          );
+
+          try {
+            await Promise.race([transactionPromise, timeoutPromise]);
+            console.log(`[REDE-API] Balance update successful for ${userId}`);
+          } catch (txError: any) {
+            console.error(`[REDE-API] Transaction error for ${userId}: ${txError.message}`);
+            // We return 500 but note that payment was approved
+            return res.status(500).json({
+              success: false,
+              error: "Erro ao creditar saldo",
+              message: "Pagamento APROVADO, mas houve um erro ao atualizar seu saldo. Guarde seu comprovante (TID: " + redeData.tid + ") e contate o suporte.",
+              tid: redeData.tid
+            });
+          }
         } else if (paymentMethod === 'pix' && db) {
           // For Pix, we save it as pending
           await db.collection("transactions").doc(transactionId).set({
