@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -599,6 +599,25 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                     <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Acesso de Administrador</p>
                   </div>
                 </div>
+                <Button 
+                  onClick={() => {
+                    toast.promise(async () => {
+                      if ('serviceWorker' in navigator) {
+                        const registrations = await navigator.serviceWorker.getRegistrations();
+                        for (let reg of registrations) await reg.unregister();
+                      }
+                      window.location.reload();
+                    }, {
+                      loading: 'Limpando cache...',
+                      success: 'Atualizando...',
+                      error: 'Erro ao atualizar'
+                    });
+                  }}
+                  className="h-16 px-6 rounded-2xl bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white border border-blue-500/20 font-black uppercase tracking-widest text-[10px] transition-all"
+                  title="Atualizar App"
+                >
+                  <Zap className="h-5 w-5" />
+                </Button>
                 <Button 
                   onClick={() => auth.signOut()}
                   className="h-16 px-8 rounded-2xl bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 font-black uppercase tracking-widest text-[10px] transition-all"

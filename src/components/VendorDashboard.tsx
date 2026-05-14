@@ -472,6 +472,28 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
             <Button 
                 variant="ghost" 
                 size="icon" 
+                onClick={() => {
+                  toast.promise(async () => {
+                    if ('serviceWorker' in navigator) {
+                      const registrations = await navigator.serviceWorker.getRegistrations();
+                      for (let reg of registrations) await reg.unregister();
+                    }
+                    window.location.reload();
+                  }, {
+                    loading: 'Limpando cache...',
+                    success: 'Atualizando...',
+                    error: 'Erro ao atualizar'
+                  });
+                }} 
+                className="h-11 w-11 bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white rounded-2xl transition-all"
+                title="Atualizar App"
+              >
+              <Zap className="h-5 w-5" />
+            </Button>
+
+            <Button 
+                variant="ghost" 
+                size="icon" 
                 onClick={() => auth.signOut()} 
                 className="h-11 w-11 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-2xl transition-all"
               >
