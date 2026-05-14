@@ -320,6 +320,92 @@ async function startServer() {
     }
   });
 
+  // Manual status check for Pix (Alternative to Webhook)
+  app.get(`${API_BASE}/verify-pix/:tid`, async (req, res) => {
+    const { tid } = req.params;
+    console.log(`[REDE-API] GET /verify-pix/${tid}`);
+    
+    if (!db) return res.status(500).json({ error: "Banco de dados não inicializado" });
+
+    try {
+      // 1. Fetch transaction from our DB
+      const txnRef = db.collection("transactions").doc(tid);
+      const txnDoc = await txnRef.get();
+      
+      if (!txnDoc.exists) {
+        return res.status(404).json({ error: "Transação não encontrada" });
+      }
+
+      const txnData = txnDoc.data()!;
+      if (txnData.status === "completed") {
+        return res.json({ success: true, status: "completed", message: "Pagamento já processado" });
+      }
+
+      // 2. Fetch credentials
+      let livePV = process.env.REDE_PV || process.env.RESGATE_PV;
+      let liveToken = process.env.REDE_TOKEN || process.env.RESGATE_TOKEN;
+      let forceSandbox = process.env.REDE_SANDBOX !== 'false';
+
+      const settingsSnap = await db.collection("settings").doc("config").get();
+      if (settingsSnap.exists) {
+        const config = settingsSnap.data();
+        if (config?.redePV) livePV = config.redePV;
+        if (config?.redeToken) liveToken = config.redeToken;
+        if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
+      }
+
+      const authBase64 = Buffer.from(`${livePV}:${liveToken}`).toString('base64');
+      const axiosConfig = { 
+        headers: { 'Authorization': `Basic ${authBase64}` } 
+      };
+
+      // 3. Query Rede for transaction status
+      const redeUrl = forceSandbox 
+        ? `https://sandbox-erede.useredecloud.com.br/v1/transactions/${txnData.redeTid || tid}` 
+        : `https://api.userede.com.br/v1/transactions/${txnData.redeTid || tid}`;
+        
+      console.log(`[REDE-API] Querying Rede status: ${redeUrl}`);
+      const response = await axios.get(redeUrl, axiosConfig);
+      const redeData = response.data;
+      
+      console.log(`[REDE-API] Rede Status for ${tid}: ${redeData.returnCode} - ${redeData.returnMessage}`);
+
+      // 4. Update balance if approved
+      if (redeData.returnCode === "00" && (redeData.status === "Approved" || redeData.status === "Confirmed" || redeData.status === "Captured")) {
+        const { userId, amount } = txnData;
+        
+        await db.runTransaction(async (t) => {
+          const userRef = db.collection("users").doc(userId);
+          const userDoc = await t.get(userRef);
+          if (userDoc.exists) {
+            const currentBalance = userDoc.data()?.balance || 0;
+            t.update(userRef, { 
+              balance: currentBalance + amount,
+              updatedAt: FieldValue.serverTimestamp()
+            });
+            t.update(txnRef, { 
+              status: "completed", 
+              updatedAt: FieldValue.serverTimestamp(),
+              redeData: redeData 
+            });
+          }
+        });
+        
+        return res.json({ success: true, status: "completed", message: "Pagamento confirmado e saldo creditado!" });
+      }
+
+      return res.json({ 
+        success: false, 
+        status: txnData.status, 
+        redeStatus: redeData.status,
+        message: "O pagamento ainda não foi confirmado pela operadora."
+      });
+    } catch (error: any) {
+      console.error(`[REDE-API] Verify error: ${error.message}`);
+      res.status(500).json({ error: "Erro ao verificar status", details: error.message });
+    }
+  });
+
   // Webhook
   app.post(`${API_BASE}/webhook`, async (req, res) => {
     try {

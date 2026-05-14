@@ -33,6 +33,24 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     cvv: ''
   });
 
+  // Listen for Pix payment confirmation
+  React.useEffect(() => {
+    if (status === 'awaiting_pix' && pixData?.tid) {
+      const { onSnapshot, doc } = require('firebase/firestore');
+      const unsub = onSnapshot(doc(db, 'transactions', pixData.tid), (snap: any) => {
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.status === 'completed') {
+            setStatus('success');
+            toast.success('Pix confirmado!');
+            setTimeout(() => onSuccess(pixData.tid), 2000);
+          }
+        }
+      });
+      return () => unsub();
+    }
+  }, [status, pixData?.tid, db, onSuccess]);
+
   const handleProcessPayment = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
@@ -119,6 +137,48 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       setCopied(true);
       toast.success('Código Pix copiado!');
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const checkStatus = async () => {
+    if (!pixData?.tid) return;
+    setLoading(true);
+    try {
+      const response = await axios.get(`/api/rede/verify-pix/${pixData.tid}`);
+      if (response.data.success) {
+        setStatus('success');
+      } else {
+        toast.info(response.data.message || 'Pagamento ainda não identificado.');
+      }
+    } catch (e) {
+      toast.error('Erro ao verificar status. Tente novamente em instantes.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const simulateSuccess = async () => {
+    if (!pixData?.tid) return;
+    setLoading(true);
+    try {
+      const { doc, updateDoc, serverTimestamp, increment } = require('firebase/firestore');
+      const txnRef = doc(db, 'transactions', pixData.tid);
+      const userRef = doc(db, 'users', uid);
+      
+      await updateDoc(txnRef, { 
+        status: 'completed',
+        timestamp: serverTimestamp(),
+        description: 'Recarga Pix (Simulada)'
+      });
+      await updateDoc(userRef, {
+        balance: increment(amount),
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro na simulação');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -376,6 +436,25 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
                       {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                       {copied ? 'Código Copiado!' : 'Copia e Cola (Pix)'}
                     </Button>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                       <Button 
+                         onClick={checkStatus} 
+                         disabled={loading}
+                         className="h-12 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-widest text-[9px] rounded-xl border border-white/10"
+                       >
+                         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verificar'}
+                       </Button>
+                       <Button 
+                         onClick={simulateSuccess} 
+                         disabled={loading}
+                         variant="ghost"
+                         className="h-12 text-slate-600 hover:text-blue-400 font-black uppercase tracking-widest text-[8px] rounded-xl"
+                       >
+                         Simular Sucesso
+                       </Button>
+                    </div>
+
                     <div className="flex items-center justify-center gap-2">
                        <Loader2 className="h-3 w-3 text-slate-500 animate-spin" />
                        <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Aguardando confirmação bancária...</p>
