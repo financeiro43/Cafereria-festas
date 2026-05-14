@@ -92,7 +92,7 @@ async function startServer() {
 
       const transactionId = `${Date.now()}`;
       
-      let isReal = !!(process.env.REDE_PV && process.env.REDE_TOKEN);
+      let isReal = !!((process.env.REDE_PV || process.env.RESGATE_PV) && (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN));
       if (db && !isReal) {
         const settingsSnap = await db.collection("settings").doc("config").get();
         if (settingsSnap.exists) {
@@ -123,8 +123,8 @@ async function startServer() {
       }
 
       // Fetch dynamic settings from DB
-      let livePV = process.env.REDE_PV;
-      let liveToken = process.env.REDE_TOKEN;
+      let livePV = process.env.REDE_PV || process.env.RESGATE_PV;
+      let liveToken = process.env.REDE_TOKEN || process.env.RESGATE_TOKEN;
       let forceSandbox = process.env.REDE_SANDBOX !== 'false';
 
       if (db) {
@@ -137,8 +137,15 @@ async function startServer() {
         }
       }
 
+      console.log(`[REDE-API] Config: PV=${livePV ? livePV.substring(0, 4) + '****' : 'MISSING'}, Token=${liveToken ? 'EXISTS' : 'MISSING'}, Sandbox=${forceSandbox}`);
+
       if (!livePV || !liveToken) {
-        return res.status(400).json({ error: "Rede credentials not configured" });
+        console.error(`[REDE-API] Configuration missing: REDE_PV or REDE_TOKEN is not set.`);
+        return res.status(400).json({ 
+          success: false,
+          error: "Configuração incompleta", 
+          message: "As credenciais da Rede (PV/Token) não foram configuradas nos segredos do projeto." 
+        });
       }
 
       const redeAmount = Math.round(parseFloat(amount) * 100);
