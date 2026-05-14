@@ -142,18 +142,27 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         const errorData = error.response.data;
         let msg = '';
         
+        // Handle Rede/Gateway specific error structure
         if (typeof errorData.message === 'string') msg = errorData.message;
         else if (typeof errorData.error === 'string') msg = errorData.error;
+        else if (errorData.returnMessage) msg = errorData.returnMessage;
         else if (Array.isArray(errorData.message) && errorData.message[0]?.message) msg = errorData.message[0].message;
         else if (errorData.details?.[0]?.message) msg = errorData.details[0].message;
-        else msg = JSON.stringify(errorData.message || errorData.error || errorData.details || error.message || '');
+        else if (typeof errorData === 'object') {
+          // If the whole object has a message property (like the reported 500)
+          msg = errorData.message || errorData.error || JSON.stringify(errorData);
+        } else {
+          msg = String(errorData);
+        }
         
-        if (msg.includes('Insufficient Funds')) errorMsg = 'Saldo insuficiente no cartão de crédito/débito.';
-        else if (msg.includes('Expired Card')) errorMsg = 'O cartão informado está com a data de validade expirada.';
-        else if (msg.includes('Invalid Credit Card Number') || msg.includes('Invalid Card')) errorMsg = 'O número do cartão informado é inválido.';
-        else if (msg.includes('Contact issuer') || msg.includes('Unauthorized') || msg.toLowerCase().includes('negada')) errorMsg = 'Transação negada pela operadora. Entre em contato com seu banco.';
-        else if (msg.includes('Security code is invalid') || msg.includes('Invalid CVV')) errorMsg = 'O código de segurança (CVV) do cartão está incorreto.';
-        else if (msg.includes('Timeout')) errorMsg = 'Tempo limite da operadora atingido. Tente novamente.';
+        // Detailed translation for common Rede/Card errors
+        const lowerMsg = msg.toLowerCase();
+        if (lowerMsg.includes('insufficient funds')) errorMsg = 'Saldo insuficiente no cartão.';
+        else if (lowerMsg.includes('expired card')) errorMsg = 'Cartão com validade vencida.';
+        else if (lowerMsg.includes('invalid card')) errorMsg = 'Número do cartão inválido.';
+        else if (lowerMsg.includes('contact issuer') || lowerMsg.includes('unauthorized') || lowerMsg.includes('negada')) errorMsg = 'Transação negada pelo banco.';
+        else if (lowerMsg.includes('security code')) errorMsg = 'CVV incorreto.';
+        else if (lowerMsg.includes('server error') || lowerMsg.includes('internal error')) errorMsg = 'Erro temporário na operadora Rede (500). Tente novamente em instantes.';
         else errorMsg = msg;
       } else if (error.request) {
         errorMsg = 'O servidor Rede não respondeu a tempo. Verifique sua conexão ou tente novamente.';

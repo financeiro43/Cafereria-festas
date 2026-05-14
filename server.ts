@@ -118,8 +118,10 @@ async function startServer() {
       const { cardData, amount, transactionId, userId, paymentMethod, customer } = req.body;
       console.log(`[REDE-API] Data: uid=${userId}, amt=${amount}, tid=${transactionId}, method=${paymentMethod}`);
       
-      if (!userId || !amount || (!cardData && paymentMethod !== 'pix')) {
-          return res.status(400).json({ error: "Missing transaction data" });
+      const parsedAmount = parseFloat(amount);
+      if (!userId || isNaN(parsedAmount) || (!cardData && paymentMethod !== 'pix')) {
+          console.error(`[REDE-API] Validation failed: uid=${userId}, parsedAmt=${parsedAmount}, hasCardData=${!!cardData}`);
+          return res.status(400).json({ error: "Dados da transação inválidos ou incompletos" });
       }
 
       // Fetch dynamic settings from DB
@@ -137,22 +139,24 @@ async function startServer() {
         }
       }
 
-      console.log(`[REDE-API] Config: PV=${livePV ? livePV.substring(0, 4) + '****' : 'MISSING'}, Token=${liveToken ? 'EXISTS' : 'MISSING'}, Sandbox=${forceSandbox}`);
+      const pv = String(livePV || "").trim();
+      const token = String(liveToken || "").trim();
 
-      if (!livePV || !liveToken) {
+      console.log(`[REDE-API] Config: PV=${pv ? pv.substring(0, 4) + '****' : 'MISSING'}, Token=${token ? 'EXISTS' : 'MISSING'}, Sandbox=${forceSandbox}`);
+
+      if (!pv || !token) {
         console.error(`[REDE-API] Configuration missing: REDE_PV or REDE_TOKEN is not set.`);
-        return res.status(400).json({ 
+        return res.status(401).json({ 
           success: false,
-          error: "Configuração incompleta", 
-          message: "Credenciais REDE_PV ou REDE_TOKEN não encontradas nos segredos do projeto." 
+          error: "Credenciais ausentes", 
+          message: "Credenciais REDE_PV ou REDE_TOKEN não configuradas." 
         });
       }
 
-      const redeAmount = Math.round(parseFloat(amount) * 100);
+      const redeAmount = Math.round(parsedAmount * 100);
       const secureRef = String(transactionId || `R${Date.now()}`).replace(/[^a-zA-Z0-9]/g, "").substring(0, 16);
       
-      // Use explicit Basic Auth headers for better compatibility
-      const authBase64 = Buffer.from(`${livePV}:${liveToken}`).toString('base64');
+      const authBase64 = Buffer.from(`${pv}:${token}`).toString('base64');
       const axiosConfig = { 
         headers: { 
           'Authorization': `Basic ${authBase64}`,
@@ -161,8 +165,7 @@ async function startServer() {
       };
 
       const redeUrl = forceSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
-      console.log(`[REDE-API] Targeted Environment: ${forceSandbox ? 'SANDBOX (Testes)' : 'PRODUCTION (Real)'}`);
-
+      
       let redePayload: any = {
         amount: redeAmount,
         reference: secureRef,
@@ -171,18 +174,24 @@ async function startServer() {
 
       if (customer) {
         redePayload.customer = {
-          name: customer.name,
-          documentNumber: customer.cnpj || customer.cpf,
+          name: String(customer.name || "Luis Carlos Tosto").substring(0, 50),
+          documentNumber: String(customer.cnpj || customer.cpf || "04214446000170").replace(/\D/g, ""),
           documentType: customer.cnpj ? 'CNPJ' : 'CPF',
-          email: customer.email
+          email: customer.email || "admin@modeloalpha.com.br"
         };
       }
 
       if (paymentMethod === 'pix') {
         redePayload.kind = "pix";
       } else {
-        const [month, year] = cardData.expiry.split("/");
-        const sanitizedName = cardData.name
+        const expiryStr = String(cardData?.expiry || "/");
+        const [month, year] = expiryStr.split("/");
+        
+        if (!month || !year) {
+          throw new Error("Data de validade do cartão inválida");
+        }
+
+        const sanitizedName = String(cardData.name || "")
           .toUpperCase()
           .normalize("NFD")
           .replace(/[\u0300-\u036f]/g, "")
@@ -194,10 +203,10 @@ async function startServer() {
           capture: true,
           kind: paymentMethod === 'debit' ? "debit" : "credit",
           cardholderName: sanitizedName,
-          cardNumber: cardData.number.replace(/\s/g, ""),
+          cardNumber: String(cardData.number || "").replace(/\s/g, ""),
           expirationMonth: month.padStart(2, '0'),
           expirationYear: "20" + year.trim(),
-          securityCode: cardData.securityCode || cardData.cvv,
+          securityCode: String(cardData.securityCode || cardData.cvv || "").trim(),
         };
 
         if (paymentMethod === 'debit') {
@@ -208,27 +217,29 @@ async function startServer() {
         }
       }
 
-      console.log(`[REDE-API] Requesting ${paymentMethod} to ${redeUrl} (Timeout: 20s)`);
+      // Log payload keys (safe debugging)
+      console.log(`[REDE-API] Payload for ${paymentMethod}:`, Object.keys(redePayload));
       
       let response;
       try {
-        console.log(`[REDE-API] Calling axios.post...`);
         response = await axios.post(redeUrl, redePayload, {
           ...axiosConfig,
           timeout: 20000 
         });
-        console.log(`[REDE-API] Axios call finished with status: ${response.status}`);
       } catch (axiosError: any) {
-        console.error(`[REDE-API] Axios error: ${axiosError.message}`);
-        if (axiosError.code === 'ECONNABORTED') {
-          console.error(`[REDE-API] Request timed out after 20 seconds`);
-        }
-        throw axiosError;
+        const status = axiosError.response?.status;
+        const data = axiosError.response?.data;
+        console.error(`[REDE-API] Rede Call Failed (${status}):`, JSON.stringify(data || axiosError.message));
+        
+        // Rethrow with better context
+        const customError: any = new Error(axiosError.message);
+        customError.response = axiosError.response;
+        customError.code = axiosError.code;
+        throw customError;
       }
       
       const redeData = response?.data || {};
-      console.log(`[REDE-API] Response Data: ${JSON.stringify(redeData).substring(0, 100)}...`);
-      console.log(`[REDE-API] Return Code: ${redeData.returnCode} - ${redeData.returnMessage}`);
+      console.log(`[REDE-API] Success Response: ${redeData.returnCode} - ${redeData.returnMessage}`);
       
       if (redeData.returnCode === "00") {
         if (paymentMethod !== 'pix' && db) {
