@@ -84,7 +84,9 @@ function MainApp() {
       setUser(authUser);
       const userRef = doc(db, 'users', authUser.uid);
       
-        const unsubProfile = onSnapshot(userRef, async (snap) => {
+      // Delay listener slightly to ensure auth token is propagated to Firestore
+      const startListener = () => {
+        return onSnapshot(userRef, async (snap) => {
           if (snap.exists()) {
             const data = snap.data() as UserProfile;
             if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
@@ -104,7 +106,7 @@ function MainApp() {
               navigate(target);
             }
           } else {
-            // New user or Migration
+            // New user or Migration logic (keep existing)
             try {
               const q = query(
                 collection(db, 'users'), 
@@ -139,7 +141,7 @@ function MainApp() {
               }
             } catch (e) {
               console.error("Auth sync error:", e);
-              // Fallback to basic profile if query fails (likely permission denied if rules strict)
+              // Fallback to basic profile if query fails
               const newProfile: UserProfile = {
                 uid: authUser.uid,
                 name: authUser.displayName || 'Usuário',
@@ -154,10 +156,20 @@ function MainApp() {
             }
           }
         }, (err) => {
+          if (err.message.includes('permission')) {
+            console.warn("Retrying profile listener due to temporary permission issue...");
+            setTimeout(() => {
+               unsubProfile = startListener();
+            }, 1000);
+            return;
+          }
           console.error("Profile onSnapshot error:", err);
           handleFirestoreError(err, OperationType.GET, `users/${authUser.uid}`);
           setLoading(false);
         });
+      };
+
+      let unsubProfile = startListener();
 
       return () => unsubProfile();
     });
