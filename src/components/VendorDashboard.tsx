@@ -25,6 +25,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<'pos' | 'orders' | 'analytics'>('pos');
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [showMobileCart, setShowMobileCart] = useState(false);
   const [scannedUser, setScannedUser] = useState<UserProfile | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -252,6 +253,10 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
     });
   };
 
+  const deleteItemFromCart = (productId: string) => {
+    setCart(prev => prev.filter(item => item.id !== productId));
+  };
+
   const clearCart = () => setCart([]);
 
   const onScanSuccess = async (decodedText: string) => {
@@ -310,7 +315,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           show: true,
           type: 'error',
           title: 'Saldo Insuficiente',
-          message: `Ops! A venda não pode ser concluída pois o saldo do cliente é insuficiente.\n\nCliente: ${scannedUser.name}\nSaldo Disponível: R$ ${scannedUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nValor da Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+          message: `Eu fiz a venda e tem saldo indisponível. O saldo não é suficiente.\n\nCliente: ${scannedUser.name}\nSaldo Atual: R$ ${scannedUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nValor Necessário: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
         });
         return;
       }
@@ -658,22 +663,31 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                                   <p className="font-black text-[11px] uppercase truncate text-white/90 tracking-tight leading-tight mb-1">{item.name}</p>
                                   <p className="text-[11px] text-blue-400 font-bold tabular-nums">R$ {item.price.toFixed(2)}</p>
                                 </div>
-                                <div className="flex items-center gap-2 bg-slate-950 p-1 rounded-xl ring-1 ring-white/5 transition-transform group-hover:scale-105">
-                                  <motion.button 
-                                    whileTap={{ scale: 0.8 }}
-                                    onClick={() => removeFromCart(item.id)} 
-                                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-red-500/20 text-slate-500 hover:text-red-400 transition-colors"
+                                <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl ring-1 ring-white/10">
+                                    <motion.button 
+                                      whileTap={{ scale: 0.8 }}
+                                      onClick={() => removeFromCart(item.id)} 
+                                      className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-slate-500 hover:text-red-400 transition-colors"
+                                    >
+                                      <Minus size={14} strokeWidth={3}/>
+                                    </motion.button>
+                                    <span className="w-6 text-center text-xs font-black tabular-nums">{item.quantity}</span>
+                                    <motion.button 
+                                      whileTap={{ scale: 0.8 }}
+                                      onClick={() => addToCart(item)} 
+                                      className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-blue-400 hover:text-blue-300 transition-colors"
+                                    >
+                                      <Plus size={14} strokeWidth={3}/>
+                                    </motion.button>
+                                  </div>
+                                  
+                                  <button 
+                                    onClick={() => deleteItemFromCart(item.id)}
+                                    className="h-10 w-10 flex items-center justify-center rounded-xl bg-white/[0.02] border border-white/5 text-slate-500 hover:text-red-500 hover:bg-red-500/10 transition-all group/trash"
                                   >
-                                    <Minus size={14} strokeWidth={3}/>
-                                  </motion.button>
-                                  <span className="w-6 text-center text-xs font-black tabular-nums">{item.quantity}</span>
-                                  <motion.button 
-                                    whileTap={{ scale: 0.8 }}
-                                    onClick={() => addToCart(item)} 
-                                    className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors"
-                                  >
-                                    <Plus size={14} strokeWidth={3}/>
-                                  </motion.button>
+                                    <Trash2 className="h-4 w-4 group-hover/trash:scale-110 transition-transform" />
+                                  </button>
                                 </div>
                               </motion.div>
                             ))}
@@ -1044,17 +1058,28 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
       </div>
 
       {/* Mobile Control Bar - Premium Refinement */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/80 backdrop-blur-3xl border-t border-white/10 px-8 py-6 lg:hidden safe-area-bottom shadow-[0_-30px_60px_rgba(0,0,0,0.8)]">
-        <div className="max-w-md mx-auto flex items-center justify-between gap-8">
-          <div className="space-y-1">
-            <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] leading-none">Total Agora</span>
-            <div className="text-3xl font-black text-white tracking-tighter">
-              <span className="text-sm font-bold opacity-40 mr-1">R$</span>
-              {cartTotal.toFixed(2)}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/80 backdrop-blur-3xl border-t border-white/10 px-6 py-4 lg:hidden safe-area-bottom shadow-[0_-30px_60px_rgba(0,0,0,0.8)]">
+        <div className="max-w-md mx-auto space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] leading-none">Total Agora</span>
+              <div className="text-2xl font-black text-white tracking-tighter">
+                <span className="text-sm font-bold opacity-40 mr-1">R$</span>
+                {cartTotal.toFixed(2)}
+              </div>
             </div>
+            {cart.length > 0 && (
+              <Button 
+                onClick={() => setShowMobileCart(true)}
+                variant="ghost" 
+                className="h-10 text-[10px] font-black uppercase text-blue-400 bg-blue-500/10 rounded-xl px-4 border border-blue-500/20"
+              >
+                {cart.reduce((a, b) => a + b.quantity, 0)} Itens • Detalhes
+              </Button>
+            )}
           </div>
           
-          <div className="flex-1 flex gap-4 h-16">
+          <div className="flex gap-4 h-14">
             <AnimatePresence mode="popLayout">
               {cart.length > 0 && !scannedUser ? (
                 <motion.div 
@@ -1066,9 +1091,9 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                 >
                   <Button 
                     onClick={() => setIsScanning(true)} 
-                    className="w-full h-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[24px] shadow-2xl shadow-blue-500/30 border-b-4 border-blue-900 active:border-b-0 active:translate-y-1 transition-all"
+                    className="w-full h-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[20px] shadow-2xl shadow-blue-500/30 border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all"
                   >
-                    <QrCode className="h-6 w-6 mr-3" /> ESCANEAR
+                    <QrCode className="h-5 w-5 mr-3" /> ESCANEAR
                   </Button>
                 </motion.div>
               ) : scannedUser ? (
@@ -1082,21 +1107,21 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                   <Button 
                     onClick={handleSale}
                     disabled={processing || scannedUser.balance < cartTotal || cart.length === 0}
-                    className={`flex-1 h-full font-black uppercase text-xs tracking-widest rounded-[24px] shadow-2xl transition-all ${
+                    className={`flex-1 h-full font-black uppercase text-xs tracking-widest rounded-[20px] shadow-2xl transition-all ${
                        scannedUser.balance < cartTotal 
                        ? 'bg-slate-800 text-slate-600' 
                        : 'bg-green-600 hover:bg-green-500 shadow-green-600/20 active:translate-y-1'
                     }`}
                   >
-                    {processing ? <Loader2 className="h-6 w-6 animate-spin" /> : 
+                    {processing ? <Loader2 className="h-5 w-5 animate-spin" /> : 
                      scannedUser.balance < cartTotal ? 'SALDO BAIXO' : 'CONFIRMAR'}
                   </Button>
                   <Button 
                     variant="ghost" 
                     onClick={() => setScannedUser(null)}
-                    className="w-16 h-full bg-white/5 rounded-[24px] text-slate-500 hover:text-white border border-white/5"
+                    className="w-14 h-full bg-white/5 rounded-[20px] text-slate-500 hover:text-white border border-white/5"
                   >
-                    <XCircle className="h-7 w-7" />
+                    <XCircle className="h-6 w-6" />
                   </Button>
                 </motion.div>
               ) : (
@@ -1108,7 +1133,7 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
                 >
                   <Button 
                     onClick={() => setIsScanning(true)}
-                    className="w-full h-full bg-white/5 hover:bg-white/10 text-slate-400 font-extrabold uppercase text-[10px] tracking-widest rounded-[24px] border border-white/10"
+                    className="w-full h-full bg-white/5 hover:bg-white/10 text-slate-400 font-extrabold uppercase text-[10px] tracking-widest rounded-[20px] border border-white/10"
                   >
                     <QrCode className="h-5 w-5 mr-3 opacity-50" /> QR CODE
                   </Button>
@@ -1118,6 +1143,94 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
           </div>
         </div>
       </div>
+
+      {/* Mobile Cart Modal */}
+      <AnimatePresence>
+        {showMobileCart && (
+          <div className="fixed inset-0 z-[110] lg:hidden">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowMobileCart(false)}
+              className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="absolute bottom-0 left-0 right-0 max-h-[85vh] bg-slate-900 border-t border-white/10 rounded-t-[48px] overflow-hidden flex flex-col"
+            >
+              <div className="w-12 h-1.5 bg-white/10 rounded-full mx-auto my-4" />
+              
+              <div className="px-8 pb-4 flex items-center justify-between border-b border-white/5">
+                <div className="flex items-center gap-3">
+                  <ShoppingCart className="h-5 w-5 text-blue-400" />
+                  <h3 className="font-black text-xs uppercase tracking-widest text-white">Seu Carrinho</h3>
+                </div>
+                <Button variant="ghost" size="icon" onClick={() => setShowMobileCart(false)} className="rounded-full text-slate-500">
+                  <XCircle className="h-6 w-6" />
+                </Button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+                {cart.length === 0 ? (
+                  <div className="py-20 text-center animate-pulse">
+                    <ShoppingCart className="h-12 w-12 mx-auto text-slate-700 mb-4" />
+                    <p className="text-[10px] font-black uppercase text-slate-600 tracking-widest">Vazio</p>
+                  </div>
+                ) : (
+                  cart.map((item) => (
+                    <motion.div 
+                      key={item.id}
+                      layout
+                      className="flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border border-white/5"
+                    >
+                      <div className="flex-1 mr-4">
+                        <p className="font-black text-[11px] uppercase text-white/90 truncate">{item.name}</p>
+                        <p className="text-[10px] text-blue-400 font-bold">R$ {item.price.toFixed(2)}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl ring-1 ring-white/10">
+                          <button onClick={() => removeFromCart(item.id)} className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 transition-colors">
+                            <Minus size={14} strokeWidth={3}/>
+                          </button>
+                          <span className="w-6 text-center text-xs font-black tabular-nums">{item.quantity}</span>
+                          <button onClick={() => addToCart(item)} className="h-8 w-8 flex items-center justify-center rounded-lg text-blue-400 hover:text-blue-300 transition-colors">
+                            <Plus size={14} strokeWidth={3}/>
+                          </button>
+                        </div>
+                        <button 
+                          onClick={() => deleteItemFromCart(item.id)}
+                          className="h-9 w-9 flex items-center justify-center rounded-xl bg-red-500/10 text-red-500"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+
+              <div className="p-8 bg-slate-950/50 border-t border-white/10 flex flex-col gap-6 safe-area-bottom">
+                <div className="flex justify-between items-end">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Total</span>
+                    <div className="text-4xl font-black text-white tracking-tighter">
+                      <span className="text-xl font-bold mr-1 opacity-40">R$</span>
+                      {cartTotal.toFixed(2)}
+                    </div>
+                  </div>
+                  <Button onClick={() => setShowMobileCart(false)} className="bg-blue-600 font-black uppercase text-[10px] tracking-widest rounded-xl px-6 h-12 shadow-lg shadow-blue-600/20">
+                    ADICIONAR MAIS
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {isScanning && (
         <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Identificar Cliente" />

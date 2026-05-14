@@ -38,6 +38,9 @@ export default function ReportsPortal({
   withdrawals = [] 
 }: ReportsPortalProps) {
   const [reportType, setReportType] = useState<'sales_by_stall' | 'sales_by_product' | 'financial_summary' | 'user_balances' | 'transactions_log'>('financial_summary');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'failed'>('all');
 
   // Helper to format currency
   const formatCurrency = (val: number) => {
@@ -57,16 +60,53 @@ export default function ReportsPortal({
   };
 
   // 1. Financial Summary Data
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      const date = t.timestamp?.toDate ? t.timestamp.toDate() : new Date(t.timestamp);
+      
+      const isStatusMatch = statusFilter === 'all' || t.status === statusFilter;
+      
+      let isDateMatch = true;
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        isDateMatch = isDateMatch && date >= start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        isDateMatch = isDateMatch && date <= end;
+      }
+      
+      return isStatusMatch && isDateMatch;
+    });
+  }, [transactions, startDate, endDate, statusFilter]);
+
   const financialSummary = useMemo(() => {
-    const totalCredits = transactions
+    const totalCredits = filteredTransactions
       .filter(t => t.type === 'credit' && t.status === 'completed')
       .reduce((acc, t) => acc + (t.amount || 0), 0);
     
-    const totalDebits = transactions
+    const totalDebits = filteredTransactions
       .filter(t => t.type === 'debit' && t.status === 'completed')
       .reduce((acc, t) => acc + (t.amount || 0), 0);
     
     const totalWithdrawals = withdrawals
+      .filter(w => {
+        const date = w.timestamp?.toDate ? w.timestamp.toDate() : new Date(w.timestamp);
+        let isDateMatch = true;
+        if (startDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          isDateMatch = isDateMatch && date >= start;
+        }
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          isDateMatch = isDateMatch && date <= end;
+        }
+        return isDateMatch;
+      })
       .reduce((acc, w) => acc + (w.amount || 0), 0);
 
     return [
@@ -75,12 +115,12 @@ export default function ReportsPortal({
       { category: 'Total de Saques', amount: totalWithdrawals, desc: 'Saques realizados por vendedores' },
       { category: 'Saldo em Circulação', amount: totalCredits - totalDebits, desc: 'Saldo pendente nos cartões' },
     ];
-  }, [transactions, withdrawals]);
+  }, [filteredTransactions, withdrawals, startDate, endDate]);
 
   // 2. Sales by Stall Data
   const salesByStall = useMemo(() => {
     return stalls.map(stall => {
-      const stallSales = transactions
+      const stallSales = filteredTransactions
         .filter(t => t.type === 'debit' && t.status === 'completed' && t.vendorId === stall.id);
       
       const totalAmount = stallSales.reduce((acc, t) => acc + (t.amount || 0), 0);
@@ -92,11 +132,11 @@ export default function ReportsPortal({
         transactionCount: totalCount,
       };
     }).sort((a, b) => b.totalSales - a.totalSales);
-  }, [stalls, transactions]);
+  }, [stalls, filteredTransactions]);
 
   // 3. Transactions Log
   const transactionsLog = useMemo(() => {
-    return [...transactions]
+    return [...filteredTransactions]
       .sort((a, b) => {
         const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
         const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
@@ -117,12 +157,13 @@ export default function ReportsPortal({
           date: formatDate(t.timestamp),
           user: user?.name || 'Sistema',
           type: t.type === 'credit' ? 'CARGA' : 'COMPRA',
+          status: t.status || 'completed',
           amount: t.amount || 0,
           stall: stall,
           desc: t.description || ''
         };
       });
-  }, [transactions, users]);
+  }, [filteredTransactions, users]);
 
   // 4. Sales by Product Data
   const salesByProduct = useMemo(() => {
@@ -249,6 +290,49 @@ export default function ReportsPortal({
           </p>
         </div>
         
+        <div className="flex flex-wrap items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Início</label>
+            <input 
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Fim</label>
+            <input 
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Status</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10 min-w-[120px]"
+            >
+              <option value="all">Todos</option>
+              <option value="completed">Concluídos</option>
+              <option value="pending">Pendentes</option>
+              <option value="failed">Falhos</option>
+            </select>
+          </div>
+          {(startDate || endDate || statusFilter !== 'all') && (
+            <Button 
+              variant="ghost" 
+              onClick={() => { setStartDate(''); setEndDate(''); setStatusFilter('all'); }}
+              className="h-9 mt-4 text-[10px] font-black uppercase text-red-500 hover:text-red-600 hover:bg-red-50"
+            >
+              Limpar
+            </Button>
+          )}
+        </div>
+
         <div className="flex gap-3">
           <Button 
             onClick={exportToPDF}
@@ -272,9 +356,9 @@ export default function ReportsPortal({
             <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 px-2">Categorias</p>
             <nav className="space-y-1.5">
               {[
-                { id: 'financial_summary', label: 'Resumo Geral', icon: DollarSign },
+                { id: 'financial_summary', label: 'Resumo Financeiro', icon: DollarSign },
                 { id: 'sales_by_stall', label: 'Vendas/Barraca', icon: Store },
-                { id: 'transactions_log', label: 'Log Completo', icon: History },
+                { id: 'transactions_log', label: 'Histórico de Vendas', icon: History },
                 { id: 'user_balances', label: 'Saldos Atuais', icon: Users },
                 { id: 'sales_by_product', label: 'Catálogo/Preços', icon: Package },
               ].map((type) => (
@@ -313,7 +397,7 @@ export default function ReportsPortal({
                   <CardTitle className="text-xl font-black text-slate-900 uppercase tracking-tight">
                     {reportType === 'financial_summary' && 'Resumo Financeiro Consolidado'}
                     {reportType === 'sales_by_stall' && 'Desempenho por Ponto de Venda'}
-                    {reportType === 'transactions_log' && 'Histórico de Atividades'}
+                    {reportType === 'transactions_log' && 'Histórico de Vendas Detalhado'}
                     {reportType === 'user_balances' && 'Relatório de Créditos Ativos'}
                     {reportType === 'sales_by_product' && 'Catálogo e Precificação'}
                   </CardTitle>
@@ -397,9 +481,18 @@ export default function ReportsPortal({
                         <td className="px-6 py-4 text-xs font-bold text-slate-400">{row.date}</td>
                         <td className="px-6 py-4">
                           <span className="font-bold text-slate-700 block text-sm">{row.user}</span>
-                          <span className={`text-[9px] font-black uppercase tracking-tighter ${row.type === 'CARGA' ? 'text-green-500' : 'text-blue-500'}`}>
-                            {row.type}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[9px] font-black uppercase tracking-tighter ${row.type === 'CARGA' ? 'text-green-500' : 'text-blue-500'}`}>
+                              {row.type}
+                            </span>
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
+                              row.status === 'completed' ? 'bg-green-100 text-green-700' : 
+                              row.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {row.status}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-6 py-4 font-medium text-slate-500 text-sm">{row.stall}</td>
                         <td className={`px-6 py-4 text-right font-black ${row.type === 'CARGA' ? 'text-green-600' : 'text-slate-900'}`}>
