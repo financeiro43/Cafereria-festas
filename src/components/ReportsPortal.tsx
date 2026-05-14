@@ -160,6 +160,7 @@ export default function ReportsPortal({
           status: t.status || 'completed',
           amount: t.amount || 0,
           stall: stall,
+          paymentMethod: t.paymentMethod || 'N/A',
           desc: t.description || ''
         };
       });
@@ -208,7 +209,7 @@ export default function ReportsPortal({
         data = salesByProduct.map(row => ({ 'Produto': row.name, 'Preço Unitário (R$)': row.price.toFixed(2), 'Barraca': row.stall }));
         filename = 'catalogo_produtos';
       } else if (reportType === 'transactions_log') {
-        data = transactionsLog.map(row => ({ 'Data': row.date, 'Usuário': row.user, 'Tipo': row.type, 'Valor (R$)': row.amount.toFixed(2), 'Barraca/Ponto': row.stall, 'Descrição': row.desc }));
+        data = transactionsLog.map(row => ({ 'Data': row.date, 'Usuário': row.user, 'Tipo': row.type, 'Meio': row.paymentMethod, 'Valor (R$)': row.amount.toFixed(2), 'Barraca/Ponto': row.stall, 'Descrição': row.desc }));
         filename = 'log_transacoes';
       }
 
@@ -251,8 +252,8 @@ export default function ReportsPortal({
         head = [['Produto', 'Preço Unitário (R$)', 'Barraca']];
         body = salesByProduct.map(row => [row.name, formatCurrency(row.price), row.stall]);
       } else if (reportType === 'transactions_log') {
-        head = [['Data', 'Usuário', 'Tipo', 'Valor', 'Barraca']];
-        body = transactionsLog.map(row => [row.date, row.user, row.type, formatCurrency(row.amount), row.stall]);
+        head = [['Data', 'Usuário', 'Tipo', 'Meio', 'Valor', 'Barraca']];
+        body = transactionsLog.map(row => [row.date, row.user, row.type, row.paymentMethod, formatCurrency(row.amount), row.stall]);
       }
 
       autoTable(doc, {
@@ -434,6 +435,7 @@ export default function ReportsPortal({
                         <>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Horário</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Usuário</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Meio</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Barraca</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Valor</th>
                         </>
@@ -493,6 +495,9 @@ export default function ReportsPortal({
                               {row.status}
                             </span>
                           </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{row.paymentMethod}</span>
                         </td>
                         <td className="px-6 py-4 font-medium text-slate-500 text-sm">{row.stall}</td>
                         <td className={`px-6 py-4 text-right font-black ${row.type === 'CARGA' ? 'text-green-600' : 'text-slate-900'}`}>

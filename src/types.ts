@@ -57,6 +57,7 @@ export interface Transaction {
   items?: string[];
   stallName?: string;
   vendorId?: string;
+  paymentMethod?: string;
 }
 
 export interface ConsumptionRecord {

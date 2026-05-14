@@ -227,6 +227,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   };
 
   const [rechargeAmounts, setRechargeAmounts] = useState<{[key: string]: string}>({});
+  const [rechargePaymentMethods, setRechargePaymentMethods] = useState<{[key: string]: string}>({});
 
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserName, setNewUserName] = useState('');
@@ -350,6 +351,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
   const handleManualRecharge = async (userId: string) => {
     const amount = parseFloat(rechargeAmounts[userId] || '0');
+    const paymentMethod = rechargePaymentMethods[userId] || 'Dinheiro';
+    
     if (isNaN(amount) || amount <= 0) {
       toast.error('Insira um valor válido para recarga');
       return;
@@ -366,7 +369,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         userId,
         amount,
         type: 'credit',
-        description: 'Recarga manual (Administrador)',
+        description: `Recarga manual (${paymentMethod})`,
+        paymentMethod,
         status: 'completed',
         timestamp: serverTimestamp()
       });
@@ -1246,6 +1250,17 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                             onChange={(e) => setRechargeAmounts(prev => ({ ...prev, [user.uid]: e.target.value }))}
                           />
                         </div>
+                        <select
+                          className="text-[10px] font-black uppercase tracking-tight rounded-xl border-slate-200 bg-white px-2 focus:border-blue-500 outline-none"
+                          value={rechargePaymentMethods[user.uid] || 'Dinheiro'}
+                          onChange={(e) => setRechargePaymentMethods(prev => ({ ...prev, [user.uid]: e.target.value }))}
+                        >
+                          <option value="Dinheiro">DINHEIRO</option>
+                          <option value="Pix">PIX</option>
+                          <option value="Débito">DÉBITO</option>
+                          <option value="Crédito">CRÉDITO</option>
+                          <option value="Conta">CONTA</option>
+                        </select>
                         <Button 
                           size="sm" 
                           onClick={() => handleManualRecharge(user.uid)}
@@ -2009,6 +2024,7 @@ function RechargePortal() {
   const [scannedUser, setScannedUser] = useState<UserProfile | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [amount, setAmount] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<string>('Dinheiro');
   const [processing, setProcessing] = useState(false);
   const [statusModal, setStatusModal] = useState<{
     show: boolean;
@@ -2079,7 +2095,8 @@ function RechargePortal() {
         userName: scannedUser.name,
         amount: val,
         type: 'credit',
-        description: 'Carga/Recarga no Ponto de Venda',
+        description: `Recarga Ponto de Venda (${paymentMethod})`,
+        paymentMethod,
         status: 'completed',
         timestamp: serverTimestamp()
       });
@@ -2091,7 +2108,7 @@ function RechargePortal() {
         show: true,
         type: 'success',
         title: 'Recarga Concluída',
-        message: `A carga de R$ ${val.toFixed(2)} foi adicionada ao saldo de ${scannedUser.name}.\nNovo Saldo: R$ ${(scannedUser.balance + val).toFixed(2)}`
+        message: `A carga de R$ ${val.toFixed(2)} (${paymentMethod}) foi adicionada ao saldo de ${scannedUser.name}.\nNovo Saldo: R$ ${(scannedUser.balance + val).toFixed(2)}`
       });
     } catch (error) {
       console.error('Erro no processamento da carga:', error);
@@ -2213,6 +2230,26 @@ function RechargePortal() {
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                 />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] px-2 block">Forma de Pagamento</label>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                {['Dinheiro', 'Pix', 'Débito', 'Crédito', 'Conta'].map(method => (
+                  <button
+                    key={method}
+                    disabled={!scannedUser}
+                    onClick={() => setPaymentMethod(method)}
+                    className={`h-14 rounded-2xl text-[9px] font-black uppercase tracking-tight border-2 transition-all active:scale-95 ${
+                      paymentMethod === method
+                        ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/40'
+                        : 'bg-white/[0.03] border-white/5 hover:border-white/10 text-slate-400 disabled:opacity-20'
+                    }`}
+                  >
+                    {method}
+                  </button>
+                ))}
               </div>
             </div>
 
