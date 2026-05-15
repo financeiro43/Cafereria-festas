@@ -81,45 +81,57 @@ function MainApp() {
   const [isForgotPassOpen, setIsForgotPassOpen] = useState(false);
 
   useEffect(() => {
+    let unsubProfile: (() => void) | null = null;
+    
     const unsubAuth = onAuthStateChanged(auth, async (authUser) => {
+      // Cleanup previous profile listener if exists
+      if (unsubProfile) {
+        unsubProfile();
+        unsubProfile = null;
+      }
+
       if (!authUser) {
+        console.log("[AUTH] No user found, stopping loading");
         setUser(null);
         setProfile(null);
         setLoading(false);
         return;
       }
 
+      console.log("[AUTH] User authenticated:", authUser.email);
       setUser(authUser);
       const userRef = doc(db, 'users', authUser.uid);
       
-      let unsubProfile: (() => void) | null = null;
       let retryCount = 0;
-      const MAX_RETRIES = 5;
+      const MAX_RETRIES = 3;
 
-      const startListener = () => {
-        setLoading(true); // Ensure loading is true when starting
+      const startProfileListener = () => {
+        console.log("[AUTH] Starting profile listener for:", authUser.uid);
         return onSnapshot(userRef, async (snap) => {
           try {
             if (snap.exists()) {
               const data = snap.data() as UserProfile;
+              console.log("[AUTH] Profile found, role:", data.role);
+
               if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
                 await updateDoc(userRef, { role: 'admin' });
                 data.role = 'admin';
               }
+              
               setProfile(data);
               setLoading(false);
               
-              // AUTOMATIC REDIRECTS
-              if (location.pathname === '/' || location.pathname.includes('/login')) {
-                let target = '/portal';
-                if (data.role === 'admin') target = '/admin';
-                else if (data.role === 'vendor') target = '/pdv';
-                else if (data.role === 'recharge') target = '/recharge';
-                
+              const currentPath = window.location.pathname;
+              if (currentPath === '/' || currentPath === '/login') {
+                const target = data.role === 'admin' ? '/admin' : 
+                             data.role === 'vendor' ? '/pdv' : 
+                             data.role === 'recharge' ? '/recharge' : '/portal';
+                console.log("[AUTH] Auto-redirecting to:", target);
                 navigate(target);
               }
             } else {
-              // New user or Migration logic
+              console.log("[AUTH] Profile missing, starting migration/creation...");
+              // Check for migration
               const q = query(
                 collection(db, 'users'), 
                 where('email', '==', authUser.email?.toLowerCase()),
@@ -130,6 +142,7 @@ function MainApp() {
               if (!emailSnap.empty) {
                 const existingDoc = emailSnap.docs[0];
                 const existingData = existingDoc.data();
+                console.log("[AUTH] Migration: record found for email", authUser.email);
                 const newProfile: UserProfile = {
                   ...(existingData as any),
                   uid: authUser.uid,
@@ -141,6 +154,7 @@ function MainApp() {
                 await setDoc(userRef, newProfile);
                 if (existingDoc.id !== authUser.uid) await deleteDoc(existingDoc.ref);
               } else {
+                console.log("[AUTH] Creating new profile for:", authUser.email);
                 const newProfile: UserProfile = {
                   uid: authUser.uid,
                   name: authUser.displayName || 'Usuário',
@@ -151,37 +165,33 @@ function MainApp() {
                 };
                 await setDoc(userRef, newProfile);
               }
-              // The setDoc above will trigger the onSnapshot again, but 
-              // let's be safe and clear loading if it takes more than a moment
-              setTimeout(() => setLoading(false), 2000);
+              // setDoc will trigger the snapshot listener again
             }
           } catch (e) {
-            console.error("Auth sync error:", e);
+            console.error("[AUTH] Error in snapshot processing:", e);
             setLoading(false);
           }
         }, (err) => {
+          console.error("[AUTH] Snapshot listener error:", err);
           if (err.message.toLowerCase().includes('permission') && retryCount < MAX_RETRIES) {
             retryCount++;
-            console.warn(`[AUTH] Retrying profile listener (${retryCount}/${MAX_RETRIES}) after 2s...`);
             setTimeout(() => {
-               if (unsubProfile) {
-                 unsubProfile();
-                 unsubProfile = startListener();
-               }
-            }, 2000);
-            return;
+              if (unsubProfile) unsubProfile();
+              unsubProfile = startProfileListener();
+            }, 1500);
+          } else {
+            setLoading(false);
           }
-          console.error("Profile onSnapshot error:", err);
-          setLoading(false);
         });
       };
 
-      unsubProfile = startListener();
-
-      return () => { if (unsubProfile) unsubProfile(); };
+      unsubProfile = startProfileListener();
     });
 
-    return () => unsubAuth();
+    return () => {
+      unsubAuth();
+      if (unsubProfile) unsubProfile();
+    };
   }, [navigate]);
 
   const handleGoogleLogin = async () => {

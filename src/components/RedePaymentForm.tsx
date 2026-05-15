@@ -173,10 +173,15 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         
         description = rawMsg;
 
-        if (error.response.status === 500) {
+      if (error.response?.status === 500) {
            errorMsg = 'Erro Interno no Servidor (500)';
            description = 'O gateway da Rede retornou um erro interno. Verifique se o seu PV e Token estão em modo Produção ou Sandbox conforme configurado.';
-        } else if (error.response.status === 401) {
+           
+           if (error.response.data?.debug) {
+             const { url, sandbox } = error.response.data.debug;
+             description += ` | Ambiente: ${sandbox ? 'SANDBOX' : 'PRODUÇÃO'} | URL: ${url}`;
+           }
+        } else if (error.response?.status === 401) {
            errorMsg = 'Erro de Autenticação (401)';
            description = 'As credenciais da Rede (PV/Token) são inválidas. Revise nas configurações do Administrador.';
         } else {

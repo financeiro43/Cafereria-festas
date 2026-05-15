@@ -81,11 +81,65 @@ async function startServer() {
   // --- Rede API Integration ---
   const API_BASE = "/api/rede";
 
-  // Startup Diagnostics for Secrets
-  console.log(`[DIAGNOSTICS] REDE_PV: ${process.env.REDE_PV ? 'PRESENT' : 'MISSING'}`);
-  console.log(`[DIAGNOSTICS] REDE_TOKEN: ${process.env.REDE_TOKEN ? 'PRESENT' : 'MISSING'}`);
-  console.log(`[DIAGNOSTICS] RESGATE_PV: ${process.env.RESGATE_PV ? 'PRESENT' : 'MISSING'}`);
-  console.log(`[DIAGNOSTICS] REDE_SANDBOX: ${process.env.REDE_SANDBOX}`);
+  // Token cache to avoid hitting rate limits (Rede Tokens last 24m)
+  let redeTokenCache: { token: string; expires: number } | null = null;
+
+  const getRedeAccessToken = async (pv: string, token: string, isSandbox: boolean) => {
+    const cacheKey = `${pv}-${isSandbox}`;
+    if (redeTokenCache && Date.now() < redeTokenCache.expires) {
+      return redeTokenCache.token;
+    }
+
+    const tokenUrl = isSandbox 
+      ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
+      : "https://api.userede.com.br/redelabs/oauth2/token";
+    
+    console.log(`[REDE-API] Solicitando Novo Token OAuth: ${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'}`);
+    const authBase64 = Buffer.from(`${pv}:${token}`).toString('base64');
+    
+    try {
+      const tokenResp = await axios.post(tokenUrl, "grant_type=client_credentials", {
+        headers: {
+          'Authorization': `Basic ${authBase64}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        timeout: 15000
+      });
+      
+      const accessToken = tokenResp.data.access_token;
+      // Expire in 20 minutes (manual says 24m)
+      redeTokenCache = { token: accessToken, expires: Date.now() + 20 * 60 * 1000 };
+      return accessToken;
+    } catch (tokenErr: any) {
+      console.error(`[REDE-API] Erro OAuth (${tokenErr.response?.status}):`, tokenErr.response?.data || tokenErr.message);
+      throw new Error(`Falha na autenticação Rede: ${tokenErr.response?.data?.message || tokenErr.message}`);
+    }
+  };
+
+  // Diagnostic GET route
+  app.get(`${API_BASE}/ping`, async (req, res) => {
+    let pv = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
+    let token = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
+    let isSandbox = process.env.REDE_SANDBOX !== 'false';
+
+    if (db) {
+       const settings = await db.collection("settings").doc("config").get();
+       if (settings.exists) {
+         const d = settings.data();
+         if (d?.redePV) pv = String(d.redePV).trim();
+         if (d?.redeToken) token = String(d.redeToken).trim();
+         if (d?.isProduction !== undefined) isSandbox = !d.isProduction;
+       }
+    }
+
+    try {
+      if (!pv || !token) throw new Error("Credenciais ausentes");
+      await getRedeAccessToken(pv, token, isSandbox);
+      res.json({ status: "connected", sandbox: isSandbox, pv: pv.substring(0, 4) + '****' });
+    } catch (e: any) {
+      res.status(401).json({ status: "error", message: e.message });
+    }
+  });
 
   // Endpoint to create a checkout session
   app.post(`${API_BASE}/create-checkout`, async (req, res) => {
@@ -115,7 +169,7 @@ async function startServer() {
       
       res.json({ checkoutUrl, transactionId, isReal });
     } catch (error: any) {
-      console.error(`[REDE-API] Error: ${error.message}`);
+      console.error(`[REDE-API] Error in create-checkout: ${error.message}`);
       res.status(500).json({ error: "Internal Server Error" });
     }
   });
@@ -153,14 +207,11 @@ async function startServer() {
         }
       }
 
-      console.log(`[REDE-API] Config Ativa: PV=${livePV?.substring(0, 4)}***, Sandbox=${forceSandbox}`);
-
-      if (!livePV || !liveToken) {
-        console.error(`[REDE-API] ERRO: PV ou Token não encontrados.`);
-        return res.status(401).json({ 
-          error: "Configuração incompleta", 
-          message: "PV ou Token da Rede não configurados." 
-        });
+      let accessToken;
+      try {
+        accessToken = await getRedeAccessToken(livePV, liveToken, forceSandbox);
+      } catch (e: any) {
+        return res.status(401).json({ error: "Erro de Autenticação", message: e.message });
       }
 
       const redeAmount = Math.round(parsedAmount * 100);
@@ -168,15 +219,15 @@ async function startServer() {
       
       const axiosConfig = { 
         headers: { 
-          'Authorization': `Basic ${Buffer.from(`${livePV}:${liveToken}`).toString('base64')}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json' 
         },
         timeout: 25000
       };
 
       const redeUrl = forceSandbox 
-        ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" 
-        : "https://api.userede.com.br/v1/transactions";
+        ? "https://sandbox-erede.useredecloud.com.br/v2/transactions" 
+        : "https://api.userede.com.br/erede/v2/transactions";
       
       let redePayload: any = {
         amount: redeAmount,
@@ -186,9 +237,9 @@ async function startServer() {
 
       if (customer) {
         redePayload.customer = {
-          name: String(customer.name || "Luis Carlos Tosto").substring(0, 50),
+          name: String(customer.name || "CLIENTE").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z ]/g, "").substring(0, 50),
           documentNumber: String(customer.cnpj || customer.cpf || "04214446000170").replace(/\D/g, ""),
-          documentType: customer.cnpj ? 'CNPJ' : 'CPF',
+          documentType: (customer.cnpj || (customer.documentType === 'CNPJ')) ? 'CNPJ' : 'CPF',
           email: customer.email || "admin@modeloalpha.com.br"
         };
       }
@@ -203,11 +254,12 @@ async function startServer() {
           ...redePayload,
           capture: true,
           kind: paymentMethod === 'debit' ? "debit" : "credit",
-          cardholderName: String(cardData.holder || cardData.name || "CLIENTE").toUpperCase().substring(0, 30),
+          cardholderName: String(cardData.holder || cardData.name || "CLIENTE").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z ]/g, "").toUpperCase().substring(0, 30),
           cardNumber: String(cardData.number || "").replace(/\s/g, ""),
           expirationMonth: month.padStart(2, '0'),
           expirationYear: year.length === 2 ? `20${year}` : year,
           securityCode: String(cardData.cvv || cardData.securityCode || "").trim(),
+          installments: 1
         };
 
         if (paymentMethod === 'debit') {
@@ -215,7 +267,14 @@ async function startServer() {
         }
       }
 
-      console.log(`[REDE-API] Chamando Rede: ${redeUrl}`);
+      // Safe Logging
+      const maskedPayload = { 
+        ...redePayload, 
+        cardNumber: redePayload.cardNumber ? redePayload.cardNumber.substring(0, 6) + '******' + redePayload.cardNumber.slice(-4) : undefined,
+        securityCode: redePayload.securityCode ? '***' : undefined
+      };
+      console.log(`[REDE-API] Chamando: ${redeUrl}`);
+      console.log(`[REDE-API] Payload:`, JSON.stringify(maskedPayload));
       
       let response;
       try {
@@ -227,13 +286,18 @@ async function startServer() {
         
         let msg = axiosError.message;
         if (respData) {
-          msg = respData.returnMessage || respData.message || (Array.isArray(respData.errors) ? respData.errors[0]?.message : null) || JSON.stringify(respData);
+          msg = respData.returnMessage || respData.message || (Array.isArray(respData.errors) ? respData.errors[0]?.message : (respData.error || null)) || JSON.stringify(respData);
         }
 
         return res.status(status).json({
           error: "Erro na Operadora",
           message: msg,
-          details: respData
+          details: respData,
+          debug: {
+            url: redeUrl,
+            pv: livePV.substring(0, 4) + '****',
+            sandbox: forceSandbox
+          }
         });
       }
       
@@ -268,7 +332,15 @@ async function startServer() {
           }
         }
         
-        return res.json({ success: true, tid: redeData.tid, pix: redeData.pix });
+        const responseData: any = { success: true, tid: redeData.tid };
+        if (paymentMethod === 'pix') {
+          responseData.pix = {
+            qrCode: redeData.qrCodeResponse?.qrCodeData || redeData.pix?.qrCode || redeData.pix?.qrcode,
+            expiration: redeData.qrCodeResponse?.dateTimeExpiration
+          };
+        }
+        
+        return res.json(responseData);
       } else {
         return res.status(400).json({ 
           error: "Pagamento Negado", 
@@ -306,29 +378,43 @@ async function startServer() {
       }
 
       // 2. Fetch credentials
-      let livePV = process.env.REDE_PV || process.env.RESGATE_PV;
-      let liveToken = process.env.REDE_TOKEN || process.env.RESGATE_TOKEN;
+      let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
+      let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
       let forceSandbox = process.env.REDE_SANDBOX !== 'false';
 
       const settingsSnap = await db.collection("settings").doc("config").get();
       if (settingsSnap.exists) {
         const config = settingsSnap.data();
-        if (config?.redePV) livePV = config.redePV;
-        if (config?.redeToken) liveToken = config.redeToken;
+        if (config?.redePV || config?.REDE_PV) livePV = String(config.redePV || config.REDE_PV).trim();
+        if (config?.redeToken || config?.REDE_TOKEN) liveToken = String(config.redeToken || config.REDE_TOKEN).trim();
         if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
       }
 
+      // 3. Obtain OAuth Token for Query
+      const tokenUrl = forceSandbox 
+        ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
+        : "https://api.userede.com.br/redelabs/oauth2/token";
+      
       const authBase64 = Buffer.from(`${livePV}:${liveToken}`).toString('base64');
+      const tokenResp = await axios.post(tokenUrl, "grant_type=client_credentials", {
+        headers: {
+          'Authorization': `Basic ${authBase64}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        timeout: 10000
+      });
+      const accessToken = tokenResp.data.access_token;
+
       const axiosConfig = { 
-        headers: { 'Authorization': `Basic ${authBase64}` } 
+        headers: { 'Authorization': `Bearer ${accessToken}` } 
       };
 
-      // 3. Query Rede for transaction status
+      // 4. Query Rede for transaction status (V2)
       const redeUrl = forceSandbox 
-        ? `https://sandbox-erede.useredecloud.com.br/v1/transactions/${txnData.redeTid || tid}` 
-        : `https://api.userede.com.br/v1/transactions/${txnData.redeTid || tid}`;
+        ? `https://sandbox-erede.useredecloud.com.br/v2/transactions/${txnData.redeTid || tid}` 
+        : `https://api.userede.com.br/erede/v2/transactions/${txnData.redeTid || tid}`;
         
-      console.log(`[REDE-API] Querying Rede status: ${redeUrl}`);
+      console.log(`[REDE-API] Querying Rede status V2: ${redeUrl}`);
       const response = await axios.get(redeUrl, axiosConfig);
       const redeData = response.data;
       
@@ -396,11 +482,6 @@ async function startServer() {
     } catch (error) {
       res.status(500).json({ error: "Webhook error" });
     }
-  });
-
-  // Diagnostic GET route
-  app.get(`${API_BASE}/ping`, (req, res) => {
-    res.send("PONG - Rede API is up");
   });
 
   // --- Vite / Static Assets ---
