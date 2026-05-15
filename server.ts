@@ -93,11 +93,12 @@ async function startServer() {
       return redeTokenCache[cacheKey].token;
     }
 
+    const isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() === 'true'; // Default to false unless explicitly true
     const tokenUrl = isSandbox 
       ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
       : "https://api.userede.com.br/oauth2/token";
     
-    console.log(`[REDE-API] Solicitando Novo Token OAuth: ${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'} para PV ${keyPV.substring(0,4)}`);
+    console.log(`[REDE-API] Solicitando Novo Token OAuth (${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'}) para PV ${keyPV.substring(0,4)}`);
     const authBase64 = Buffer.from(`${keyPV}:${keyToken}`).toString('base64');
     
     try {
@@ -123,22 +124,12 @@ async function startServer() {
   app.get(`${API_BASE}/ping`, async (req, res) => {
     let pv = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
     let token = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
-    let isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() !== 'false';
-
-    if (db) {
-       const settings = await db.collection("settings").doc("config").get();
-       if (settings.exists) {
-         const d = settings.data();
-         if (d?.redePV) pv = String(d.redePV).trim();
-         if (d?.redeToken) token = String(d.redeToken).trim();
-         if (d?.isProduction !== undefined) isSandbox = !d.isProduction;
-       }
-    }
+    let isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() === 'true';
 
     try {
-      if (!pv || !token) throw new Error("Credenciais ausentes");
+      if (!pv || !token) throw new Error("Credenciais ausentes no ambiente (.env)");
       await getRedeAccessToken(pv, token, isSandbox);
-      res.json({ status: "connected", sandbox: isSandbox, pv: pv.substring(0, 4) + '****' });
+      res.json({ status: "connected", sandbox: isSandbox, pv: pv.substring(0, 4) + '****', source: 'environment' });
     } catch (e: any) {
       res.status(401).json({ status: "error", message: e.message });
     }
@@ -155,19 +146,7 @@ async function startServer() {
 
       const transactionId = `${Date.now()}`;
       
-      let isReal = !!((process.env.REDE_PV || process.env.RESGATE_PV) && (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN));
-      if (db && !isReal) {
-        try {
-          const settingsSnap = await db.collection("settings").doc("config").get();
-          if (settingsSnap.exists) {
-            const config = settingsSnap.data();
-            if ((config?.redePV || config?.REDE_PV) && (config?.redeToken || config?.REDE_TOKEN)) isReal = true;
-          }
-        } catch (e) {
-          console.warn("[REDE-API] Checkout diagnostic settings fetch failed:", e);
-        }
-      }
-
+      const isReal = !!((process.env.REDE_PV || process.env.RESGATE_PV) && (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN));
       const checkoutUrl = `/mock-payment?tid=${transactionId}&amt=${amount}&uid=${userId}${isReal ? '&real=true' : ''}`;
       
       res.json({ checkoutUrl, transactionId, isReal });
@@ -191,33 +170,21 @@ async function startServer() {
           return res.status(400).json({ error: "Dados da transação inválidos ou incompletos" });
       }
 
-      // 2. Fetch credentials - STRICT PRIORITY TO ENVIRONMENT VARIABLES
-      let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
-      let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
-      let forceSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() !== 'false';
+      // 2. Fetch credentials - STRICTLY USE ENVIRONMENT VARIABLES FOR SECURITY
+      const livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
+      const liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
+      const isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() === 'true';
 
-      // Only check DB if env vars are missing
-      if (db && (!livePV || !liveToken)) {
-        try {
-          const settingsSnap = await db.collection("settings").doc("config").get();
-          if (settingsSnap.exists) {
-            const config = settingsSnap.data();
-            if (!livePV) livePV = String(config?.redePV || config?.REDE_PV || "").trim();
-            if (!liveToken) liveToken = String(config?.redeToken || config?.REDE_TOKEN || "").trim();
-            // Only override sandbox if DB explicitly has a value and env var is not 'false'
-            if (config?.isProduction !== undefined && process.env.REDE_SANDBOX === undefined) {
-              forceSandbox = !config.isProduction;
-            }
-          }
-        } catch (dbErr: any) {
-          console.warn(`[REDE-API] Falha ao ler config do DB: ${dbErr.message}`);
-        }
+      if (!livePV || !liveToken) {
+        return res.status(500).json({ 
+          error: "Configuração Ausente", 
+          message: "PV ou Token da Rede não encontrados nas variáveis de ambiente." 
+        });
       }
 
-      const accessToken = await getRedeAccessToken(livePV, liveToken, forceSandbox);
+      const accessToken = await getRedeAccessToken(livePV, liveToken, isSandbox);
       
       const redeAmount = Math.round(parsedAmount * 100);
-      // Reference must be unique and max 16 chars
       const secureRef = `F${Date.now()}`.substring(0, 16);
       
       const axiosConfig = { 
@@ -229,8 +196,8 @@ async function startServer() {
         timeout: 30000
       };
 
-      const redeUrl = forceSandbox 
-        ? "https://sandbox-erede.useredecloud.com.br/v2/transactions" 
+      const redeUrl = isSandbox 
+        ? "https://sandbox-erede.useredecloud.com.br/erede/v2/transactions"
         : "https://api.userede.com.br/erede/v2/transactions";
       
       // Minimal V2 Payload (Manual v1.32 pg 18-20)
@@ -292,7 +259,7 @@ async function startServer() {
       if (logPayload.cardNumber) logPayload.cardNumber = logPayload.cardNumber.substring(0,6) + "******";
       if (logPayload.securityCode) logPayload.securityCode = "***";
       
-      console.log(`[REDE-API] Chamando ${forceSandbox ? 'Sandbox' : 'Produção'}: ${redeUrl}`);
+      console.log(`[REDE-API] Chamando ${isSandbox ? 'Sandbox' : 'Produção'}: ${redeUrl}`);
       console.log(`[REDE-API] Payload:`, JSON.stringify(logPayload));
       
       let response;
@@ -315,7 +282,7 @@ async function startServer() {
           debug: {
             url: redeUrl,
             pv: livePV.substring(0, 4) + '****',
-            sandbox: forceSandbox,
+            sandbox: isSandbox,
             payloadKeys: Object.keys(redePayload)
           }
         });
@@ -397,31 +364,13 @@ async function startServer() {
         return res.json({ success: true, status: "completed", message: "Pagamento já processado" });
       }
 
-      // 2. Fetch credentials - STRICT PRIORITY TO ENVIRONMENT VARIABLES
-      let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
-      let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
-      let forceSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() !== 'false';
-
-      // Only check DB if env vars are missing
-      if (db && (!livePV || !liveToken)) {
-        try {
-          const settingsSnap = await db.collection("settings").doc("config").get();
-          if (settingsSnap.exists) {
-            const config = settingsSnap.data();
-            if (!livePV) livePV = String(config?.redePV || config?.REDE_PV || "").trim();
-            if (!liveToken) liveToken = String(config?.redeToken || config?.REDE_TOKEN || "").trim();
-            // Only override sandbox if DB explicitly has a value
-            if (config?.isProduction !== undefined && process.env.REDE_SANDBOX === undefined) {
-              forceSandbox = !config.isProduction;
-            }
-          }
-        } catch (e) {
-          console.warn("[REDE-API] Checkout diagnostic settings fetch failed:", e);
-        }
-      }
+      // 2. Fetch credentials - STRICTLY USE ENVIRONMENT VARIABLES
+      const livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
+      const liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
+      const isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() === 'true';
 
       // 3. Obtain OAuth Token for Query
-      const tokenUrl = forceSandbox 
+      const tokenUrl = isSandbox 
         ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
         : "https://api.userede.com.br/oauth2/token";
       
@@ -440,7 +389,7 @@ async function startServer() {
       };
 
       // 4. Query Rede for transaction status (V2)
-      const redeUrl = forceSandbox 
+      const redeUrl = isSandbox 
         ? `https://sandbox-erede.useredecloud.com.br/v2/transactions/${txnData.redeTid || tid}` 
         : `https://api.userede.com.br/erede/v2/transactions/${txnData.redeTid || tid}`;
         

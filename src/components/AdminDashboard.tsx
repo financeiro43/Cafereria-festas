@@ -234,10 +234,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [newUserVendorIds, setNewUserVendorIds] = useState<string[]>([]);
   const [settings, setSettings] = useState({
     siteName: 'Festa Pass',
-    contactEmail: 'financeiro@modeloalpha.com.br',
-    redePV: '',
-    redeToken: '',
-    isProduction: false
+    contactEmail: 'financeiro@modeloalpha.com.br'
   });
 
   useEffect(() => {
@@ -1709,50 +1706,6 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               </header>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm space-y-8">
-                   <div>
-                     <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2 mb-6">
-                       <CreditCard className="h-5 w-5 text-blue-600" />
-                       GATEWAY REDE (PAGAMENTO)
-                     </h3>
-                     <div className="grid grid-cols-1 gap-6">
-                        <div className="space-y-2">
-                          <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">PV (Número do Estabelecimento)</Label>
-                          <Input 
-                            placeholder="Ex: 123456789"
-                            value={settings.redePV}
-                            onChange={(e) => setSettings({ ...settings, redePV: e.target.value })}
-                            className="bg-slate-50 border-slate-200 h-14 rounded-2xl font-medium"
-                          />
-                          <p className="text-[10px] text-slate-400 font-medium px-1">O seu "PV" fornecido pela Rede para integração e-commerce.</p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-[10px] uppercase font-black tracking-widest text-slate-400 ml-1">Token de Autenticação</Label>
-                          <Input 
-                            type="password"
-                            placeholder="••••••••••••••••"
-                            value={settings.redeToken}
-                            onChange={(e) => setSettings({ ...settings, redeToken: e.target.value })}
-                            className="bg-slate-50 border-slate-200 h-14 rounded-2xl font-medium"
-                          />
-                          <p className="text-[10px] text-slate-400 font-medium px-1">A chave de segurança secreta para autorizar transações.</p>
-                        </div>
-                        <div className="flex items-center gap-4 p-4 bg-blue-50 border border-blue-100 rounded-2xl">
-                          <div className={`h-10 w-20 rounded-full bg-white border border-blue-200 flex items-center p-1 cursor-pointer transition-all ${settings.isProduction ? 'justify-end bg-blue-600 border-blue-600' : 'justify-start'}`}
-                               onClick={() => setSettings({ ...settings, isProduction: !settings.isProduction })}>
-                             <div className="h-8 w-8 bg-white rounded-full shadow-md" />
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-black uppercase text-blue-900">Modo Produção</p>
-                            <p className="text-[8px] font-bold text-blue-700/60 uppercase tracking-widest">
-                              {settings.isProduction ? 'Transações Reais Ativadas' : 'Ambiente de Testes (Sandbox)'}
-                            </p>
-                          </div>
-                        </div>
-                     </div>
-                   </div>
-                </div>
-
                 <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm space-y-8">
                    <div>
                      <h3 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2 mb-6">
