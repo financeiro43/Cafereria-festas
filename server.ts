@@ -2,7 +2,6 @@
  * Rede API Integration - Environment Sync Ver: 1.0.4
  */
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import cors from "cors";
 import { initializeApp, getApps, App } from "firebase-admin/app";
@@ -463,18 +462,19 @@ async function startServer() {
     }
   });
 
-  // --- Vite / Static Assets ---
+  // --- Static Assets & Development Middleware ---
 
   if (process.env.NODE_ENV !== "production") {
-    console.log("Loading Vite middleware...");
+    console.log("Loading Vite (Dev Mode)...");
     try {
+      const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
       });
       app.use(vite.middlewares);
       console.log("Vite middleware loaded");
-    } catch (vError) {
+    } catch (vError: any) {
       console.error("Failed to load Vite middleware:", vError);
     }
   } else {
