@@ -249,17 +249,17 @@ async function startServer() {
       let redePayload: any;
 
       if (paymentMethod === 'pix') {
-        // PIX Minimal Payload
+        // PIX Standard Payload for e-Rede V2
+        const expirationSeconds = 86400; // 24 hours
         redePayload = {
           kind: "pix",
           reference: secureRef,
           amount: redeAmount,
           qrCodeResponse: true,
+          expiration: expirationSeconds,
           qrCode: {
-            // ISO 8601 without miliseconds (Rede prefers this)
-            dateTimeExpiration: new Date(Date.now() + 3600 * 24 * 1000).toISOString().split('.')[0]
+            expiration: expirationSeconds
           },
-          // For PIX, urls are optional but recommended for webhook notifications
           urls: [
             {
               url: "https://festapass.com.br/payment-callback",
@@ -328,13 +328,20 @@ async function startServer() {
             returnUrl: "https://festapass.com.br/payment-callback"
           };
 
-          // Also ensure returnUrl is in urls array for some bank redirections
-          if (!redePayload.urls.find((u: any) => u.kind === 'return')) {
-            redePayload.urls.push({
-              url: "https://festapass.com.br/payment-callback",
-              kind: "return"
-            });
-          }
+          // Also ensure returnUrl and multiple 3DS urls are in urls array for wider compatibility
+          const baseUrl = "https://festapass.com.br/payment-callback";
+          const requiredKinds = ["return", "threeDSecureSuccess", "threeDSecureFailure", "callback"];
+          
+          if (!redePayload.urls) redePayload.urls = [];
+          
+          requiredKinds.forEach(kind => {
+            if (!redePayload.urls.find((u: any) => u.kind === kind)) {
+              redePayload.urls.push({
+                url: baseUrl,
+                kind: kind
+              });
+            }
+          });
         }
       }
 
@@ -378,6 +385,10 @@ async function startServer() {
       
       const redeData = response.data;
       console.log(`[REDE-API] Resposta Rede: ${redeData.returnCode} - ${redeData.returnMessage}`);
+      if (paymentMethod === 'pix') {
+        console.log(`[REDE-API] Pix Response Data Keys: ${Object.keys(redeData).join(', ')}`);
+        if (redeData.qrCodeResponse) console.log(`[REDE-API] qrCodeResponse keys: ${Object.keys(redeData.qrCodeResponse).join(', ')}`);
+      }
 
       if (redeData.returnCode === "00") {
         if (paymentMethod !== 'pix' && db) {

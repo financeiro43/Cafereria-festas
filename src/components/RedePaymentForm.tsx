@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CheckCircle2, CreditCard, Loader2, ShieldCheck, Lock, XCircle, Smartphone, SmartphoneNfc, Wallet, Copy, Check, QrCode, ChevronLeft, Info } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { doc, runTransaction, serverTimestamp } from 'firebase/firestore';
+import { doc, runTransaction, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { toast } from 'sonner';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
@@ -55,7 +55,6 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
   // Listen for Pix payment confirmation
   React.useEffect(() => {
     if (status === 'awaiting_pix' && pixData?.tid) {
-      const { onSnapshot, doc } = require('firebase/firestore');
       const unsub = onSnapshot(doc(db, 'transactions', pixData.tid), (snap: any) => {
         if (snap.exists()) {
           const data = snap.data();
@@ -68,7 +67,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       });
       return () => unsub();
     }
-  }, [status, pixData?.tid, db, onSuccess]);
+  }, [status, pixData?.tid, onSuccess]);
 
   const handleProcessPayment = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -142,7 +141,13 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       if (response.data && (response.data.success || response.data.pix)) {
         clearTimeout(processTimeout);
         if (paymentMethod === 'pix' && response.data.pix) {
-          setPixData({ qrcode: response.data.pix.qrCode, tid: response.data.tid || tid });
+          const qrCode = response.data.pix.qrCode;
+          if (!qrCode) {
+            setPaymentError('Erro ao gerar código Pix. A operadora não retornou os dados do QR Code.');
+            setStatus('error');
+            return;
+          }
+          setPixData({ qrcode: qrCode, tid: response.data.tid || tid });
           setStatus('awaiting_pix');
         } else {
           setStatus('success');
