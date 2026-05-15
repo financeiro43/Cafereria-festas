@@ -1,5 +1,5 @@
 /**
- * Rede API Integration - Environment Sync Ver: 1.0.4
+ * Rede API Integration - Environment Sync Ver: 1.0.7
  */
 import express from "express";
 import path from "path";
@@ -94,27 +94,71 @@ async function startServer() {
 
     const tokenUrl = isSandbox 
       ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
-      : "https://api.userede.com.br/oauth2/token";
+      : "https://api.userede.com.br/redelabs/oauth2/token"; // Note: Redelabs is required for this PV on Production
     
     console.log(`[REDE-API] Solicitando Novo Token OAuth (${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'}) para PV ${keyPV.substring(0,4)}`);
     const authBase64 = Buffer.from(`${keyPV}:${keyToken}`).toString('base64');
     
+    // Use URLSearchParams for correct encoding
+    const params = new URLSearchParams();
+    params.append("grant_type", "client_credentials");
+    const body = params.toString();
+
+    console.log(`[REDE-API] URL: ${tokenUrl}`);
+    console.log(`[REDE-API] Body: ${body}`);
+    console.log(`[REDE-API] AuthHeader: Basic ${authBase64.substring(0, 10)}...`);
+
     try {
-      const tokenResp = await axios.post(tokenUrl, "grant_type=client_credentials", {
-        headers: {
-          'Authorization': `Basic ${authBase64}`,
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        timeout: 15000
+      // Use native https for max control over headers and encoding
+      const https = await import("https");
+      const accessToken = await new Promise<string>((resolve, reject) => {
+        const url = new URL(tokenUrl);
+        const options = {
+          hostname: url.hostname,
+          path: url.pathname,
+          method: 'POST',
+          headers: {
+            'Authorization': `Basic ${authBase64}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Content-Length': Buffer.byteLength(body)
+          },
+          timeout: 15000
+        };
+
+        const req = https.request(options, (res: any) => {
+          let data = '';
+          res.on('data', (chunk: any) => data += chunk);
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              try {
+                const parsed = JSON.parse(data);
+                resolve(parsed.access_token);
+              } catch (e) {
+                reject(new Error(`Failed to parse OAuth response: ${data.substring(0, 100)}`));
+              }
+            } else {
+              reject(new Error(`Rede OAuth Status ${res.statusCode}: ${data.substring(0, 200)}`));
+            }
+          });
+        });
+
+        req.on('error', (e: any) => reject(e));
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('Rede OAuth Timeout'));
+        });
+        req.write(body);
+        req.end();
       });
-      
-      const accessToken = tokenResp.data.access_token;
-      // Expire in 20 minutes (manual says 24m)
+
+      // Expire in 20 minutes
       redeTokenCache[cacheKey] = { token: accessToken, expires: Date.now() + 20 * 60 * 1000 };
       return accessToken;
     } catch (tokenErr: any) {
-      console.error(`[REDE-API] Erro OAuth PV=${pv}:`, tokenErr.response?.data || tokenErr.message);
-      throw new Error(`Falha Rede (OAuth): ${tokenErr.response?.data?.message || tokenErr.message}`);
+      console.error(`[REDE-API] Erro OAuth PV=${pv}:`, tokenErr.message);
+      throw new Error(`Falha Rede (OAuth): ${tokenErr.message}`);
     }
   };
 
@@ -124,10 +168,12 @@ async function startServer() {
     let token = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
     let isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() === 'true';
 
+    console.log(`[REDE-DEBUG] Ping V106 trigger. Code Ver: 1.0.6. PV Len: ${pv.length}`);
+
     try {
       if (!pv || !token) throw new Error("Credenciais ausentes no ambiente (.env)");
-      await getRedeAccessToken(pv, token, isSandbox);
-      res.json({ status: "connected", sandbox: isSandbox, pv: pv.substring(0, 4) + '****', source: 'environment' });
+      const accessToken = await getRedeAccessToken(pv, token, isSandbox);
+      res.json({ status: "connected", sandbox: isSandbox, pv: pv.substring(0, 4) + '****', tokenPrefix: accessToken.substring(0, 10) });
     } catch (e: any) {
       res.status(401).json({ status: "error", message: e.message });
     }
@@ -189,7 +235,8 @@ async function startServer() {
         headers: { 
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
-          'Transaction-Response': 'brand-return-opened' 
+          'Transaction-Response': 'brand-return-opened',
+          'User-Agent': 'FestaPass/1.0 (Integration; e-Rede)'
         },
         timeout: 30000
       };
@@ -368,22 +415,13 @@ async function startServer() {
       const isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() === 'true';
 
       // 3. Obtain OAuth Token for Query
-      const tokenUrl = isSandbox 
-        ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
-        : "https://api.userede.com.br/oauth2/token";
-      
-      const authBase64 = Buffer.from(`${livePV}:${liveToken}`).toString('base64');
-      const tokenResp = await axios.post(tokenUrl, "grant_type=client_credentials", {
-        headers: {
-          'Authorization': `Basic ${authBase64}`,
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        timeout: 10000
-      });
-      const accessToken = tokenResp.data.access_token;
+      const accessToken = await getRedeAccessToken(livePV, liveToken, isSandbox);
 
       const axiosConfig = { 
-        headers: { 'Authorization': `Bearer ${accessToken}` } 
+        headers: { 
+          'Authorization': `Bearer ${accessToken}`,
+          'User-Agent': 'FestaPass/1.0 (Integration; e-Rede)'
+        } 
       };
 
       // 4. Query Rede for transaction status (V2)
