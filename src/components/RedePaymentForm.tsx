@@ -86,7 +86,9 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           if (issue.path[0]) errors[issue.path[0] as string] = issue.message;
         });
         setFormErrors(errors);
-        toast.error('Por favor, corrija os erros no formulário');
+        toast.error('Verifique o formulário', { 
+          description: 'Alguns campos do cartão estão incorretos ou incompletos.' 
+        });
         return;
       }
     }
@@ -94,26 +96,31 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     setLoading(true);
     setStatus('processing');
     setShowForceCancel(false);
+    setPaymentError(null);
     
     // Safety timeout to prevent infinite spinning
     const processTimeout = setTimeout(() => {
       setStatus(prev => {
         if (prev === 'processing') {
-          setPaymentError('Tempo limite excedido. O servidor demorou muito para responder ou há um problema de rede.');
+          setPaymentError('O tempo de processamento excedeu 45 segundos. Isso pode ser instabilidade na Rede ou na sua conexão.');
           return 'error';
         }
         return prev;
       });
-    }, 40000);
+      setLoading(false);
+    }, 45000);
 
-    const timer = setTimeout(() => setShowForceCancel(true), 15000); 
+    const timer = setTimeout(() => setShowForceCancel(true), 5000); 
     const tid = `txn_${Date.now()}`;
     
-    console.log(`[REDE-FORM] Processing ${paymentMethod} payment for ${uid}, Amount: ${amount}`);
+    console.log(`[REDE-FORM] Iniciando processamento: ${paymentMethod}, Valor: ${amount}`);
 
     try {
       const response = await axios.post('/api/rede/process-payment', {
-        cardData: paymentMethod === 'pix' ? null : cardData,
+        cardData: paymentMethod === 'pix' ? null : {
+          ...cardData,
+          number: cardData.number.replace(/\s/g, '')
+        },
         amount: amount.toString(),
         transactionId: tid,
         userId: uid,
@@ -126,73 +133,77 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           cnpj: "04214446000170"
         }
       }, { 
-        timeout: 35000, 
+        timeout: 40000, 
         headers: { 'Content-Type': 'application/json' }
       });
 
-      console.log(`[REDE-FORM] Response:`, response.data);
+      console.log(`[REDE-FORM] Resposta recebida:`, response.data);
 
       if (response.data && (response.data.success || response.data.pix)) {
+        clearTimeout(processTimeout);
         if (paymentMethod === 'pix' && response.data.pix) {
-          setPixData({ qrcode: response.data.pix.qrCode, tid: response.data.tid });
+          setPixData({ qrcode: response.data.pix.qrCode, tid: response.data.tid || tid });
           setStatus('awaiting_pix');
         } else {
           setStatus('success');
-          toast.success('Recarga concluída com sucesso!');
-          setTimeout(() => onSuccess(response.data.tid), 1500);
+          toast.success('Pagamento Aprovado!', { description: 'Seu saldo foi atualizado.' });
+          setTimeout(() => onSuccess(response.data.tid || tid), 2000);
         }
       } else {
-        throw new Error(response.data?.message || 'Erro inesperado no checkout');
+        throw new Error(response.data?.message || 'Erro desconhecido na resposta da operadora');
       }
     } catch (error: any) {
-      console.error('Payment processing error:', error);
+      clearTimeout(processTimeout);
+      console.error('Erro detalhado do pagamento:', error);
       
-      let errorMsg = 'Erro de conexão ou tempo limite excedido.';
-      let isNetworkError = false;
+      let errorMsg = 'Não foi possível completar a transação.';
+      let description = 'Tente novamente em alguns instantes.';
       
-      if (error.response?.data) {
+      if (error.code === 'ECONNABORTED') {
+        errorMsg = 'Tempo Limite Excedido';
+        description = 'O servidor demorou muito para responder. Verifique se as chaves da Rede estão corretas.';
+      } else if (error.response?.data) {
         const errorData = error.response.data;
-        let msg = '';
         
-        // Handle Rede/Gateway specific error structure
-        if (typeof errorData.message === 'string') msg = errorData.message;
-        else if (typeof errorData.error === 'string') msg = errorData.error;
-        else if (errorData.returnMessage) msg = errorData.returnMessage;
-        else if (Array.isArray(errorData.message) && errorData.message[0]?.message) msg = errorData.message[0].message;
-        else if (errorData.details?.[0]?.message) msg = errorData.details[0].message;
-        else if (typeof errorData === 'object') {
-          // If the whole object has a message property (like the reported 500)
-          msg = errorData.message || errorData.error || JSON.stringify(errorData);
+        // Extract message from various possible locations in Rede/Gateway response
+        const rawMsg = errorData.message || errorData.error || errorData.returnMessage || 
+                       (Array.isArray(errorData.message) ? errorData.message[0]?.message : null) ||
+                       (errorData.details?.[0]?.message) ||
+                       (typeof errorData === 'string' ? errorData : JSON.stringify(errorData));
+        
+        description = rawMsg;
+
+        if (error.response.status === 500) {
+           errorMsg = 'Erro Interno no Servidor (500)';
+           description = 'O gateway da Rede retornou um erro interno. Verifique se o seu PV e Token estão em modo Produção ou Sandbox conforme configurado.';
+        } else if (error.response.status === 401) {
+           errorMsg = 'Erro de Autenticação (401)';
+           description = 'As credenciais da Rede (PV/Token) são inválidas. Revise nas configurações do Administrador.';
         } else {
-          msg = String(errorData);
+           errorMsg = 'Transação Negada';
+           
+           const lowerMsg = String(rawMsg).toLowerCase();
+           if (lowerMsg.includes('insufficient funds')) description = 'O cartão não possui saldo suficiente.';
+           else if (lowerMsg.includes('expired card')) description = 'O cartão informado está vencido.';
+           else if (lowerMsg.includes('invalid card')) description = 'O número do cartão é inválido.';
+           else if (lowerMsg.includes('security code')) description = 'O código CVV está incorreto.';
+           else if (lowerMsg.includes('contact issuer') || lowerMsg.includes('unauthorized')) description = 'O banco emissor negou a transação. Entre em contato com seu banco.';
         }
-        
-        // Detailed translation for common Rede/Card errors
-        const lowerMsg = msg.toLowerCase();
-        if (lowerMsg.includes('insufficient funds')) errorMsg = 'Saldo insuficiente no cartão.';
-        else if (lowerMsg.includes('expired card')) errorMsg = 'Cartão com validade vencida.';
-        else if (lowerMsg.includes('invalid card')) errorMsg = 'Número do cartão inválido.';
-        else if (lowerMsg.includes('contact issuer') || lowerMsg.includes('unauthorized') || lowerMsg.includes('negada')) errorMsg = 'Transação negada pelo banco.';
-        else if (lowerMsg.includes('security code')) errorMsg = 'CVV incorreto.';
-        else if (lowerMsg.includes('server error') || lowerMsg.includes('internal error')) errorMsg = 'Erro temporário na operadora Rede (500). Tente novamente em instantes.';
-        else errorMsg = msg;
       } else if (error.request) {
-        errorMsg = 'O servidor Rede não respondeu a tempo. Verifique sua conexão ou tente novamente.';
-        isNetworkError = true;
+        errorMsg = 'Erro de Comunicação';
+        description = 'Sem resposta do servidor. Verifique sua internet.';
       } else if (error.message) {
-        errorMsg = error.message;
+        description = error.message;
       }
       
-      setPaymentError(errorMsg);
+      setPaymentError(`${errorMsg}: ${description}`);
       setStatus('error');
-      toast.error('Erro no Pagamento', { 
-        duration: isNetworkError ? 10000 : 7000,
-        description: errorMsg
+      toast.error(errorMsg, { 
+        description: description,
+        duration: 8000
       });
     } finally {
       clearTimeout(timer);
-      // @ts-ignore
-      if (typeof processTimeout !== 'undefined') clearTimeout(processTimeout);
       setLoading(false);
     }
   };
@@ -270,31 +281,44 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           animate={{ opacity: 1, y: 0 }}
           className="mt-8 space-y-2"
         >
-          <h3 className="text-xl font-black text-white uppercase tracking-tighter">Processando Pagamento</h3>
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Aguarde a confirmação da operadora...</p>
+          <h3 className="text-xl font-black text-white uppercase tracking-tighter">Processando</h3>
+          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest max-w-[200px] mx-auto">
+            Comunicando com o gateway seguro da Rede...
+          </p>
           
-          {showForceCancel && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="pt-4 flex flex-col gap-2"
+          <div className="pt-8 flex flex-col gap-3 min-w-[240px]">
+            {showForceCancel ? (
+              <Button 
+                variant="destructive" 
+                onClick={() => {
+                  setStatus('idle');
+                  setLoading(false);
+                }}
+                className="h-12 bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] rounded-xl shadow-lg"
+              >
+                Parar Processamento
+              </Button>
+            ) : (
+              <div className="flex items-center justify-center gap-2 h-12">
+                 {[0,1,2].map(i => (
+                   <motion.div 
+                     key={i}
+                     animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
+                     transition={{ repeat: Infinity, duration: 1, delay: i * 0.2 }}
+                     className="h-1.5 w-1.5 bg-blue-500 rounded-full"
+                   />
+                 ))}
+              </div>
+            )}
+            
+            <Button 
+              variant="ghost" 
+              onClick={onCancel}
+              className="text-[10px] text-slate-500 hover:text-white uppercase font-black tracking-widest h-10"
             >
-              <Button 
-                variant="ghost" 
-                onClick={() => setStatus('idle')}
-                className="text-[10px] text-slate-500 hover:text-white uppercase font-black tracking-widest h-10"
-              >
-                Tentar Novamente
-              </Button>
-              <Button 
-                variant="ghost" 
-                onClick={onCancel}
-                className="text-[10px] text-red-500/60 hover:text-red-500 uppercase font-black tracking-widest h-10"
-              >
-                Cancelar e Voltar para Carteira
-              </Button>
-            </motion.div>
-          )}
+              Cancelar Transação
+            </Button>
+          </div>
         </motion.div>
       </div>
     );
@@ -335,13 +359,13 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
               </p>
               <ul className="space-y-2">
                 <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                   <strong>Configuração:</strong> Verifique se as chaves REDE_PV e REDE_TOKEN foram coladas corretamente nos Segredos (Settings).
+                   <strong>Atenção:</strong> Se seu Token começa com <code className="text-pink-400 font-bold">sk_live</code>, ele é do <strong>Stripe</strong>. Use o Token da <strong>Rede</strong>.
+                </li>
+                <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                   <strong>Configuração:</strong> Verifique se as chaves REDE_PV e REDE_TOKEN foram coladas corretamente.
                 </li>
                 <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
                    <strong>Modo Sandbox:</strong> Se usar chaves de Produção, mude <code className="text-blue-400">REDE_SANDBOX</code> para <code className="text-blue-400">false</code>.
-                </li>
-                <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                   <strong>Débito/Banco:</strong> Verifique se há saldo e se o banco exige autorização pelo App.
                 </li>
               </ul>
             </div>

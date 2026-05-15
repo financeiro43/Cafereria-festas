@@ -151,6 +151,9 @@ function MainApp() {
                 };
                 await setDoc(userRef, newProfile);
               }
+              // The setDoc above will trigger the onSnapshot again, but 
+              // let's be safe and clear loading if it takes more than a moment
+              setTimeout(() => setLoading(false), 2000);
             }
           } catch (e) {
             console.error("Auth sync error:", e);
@@ -179,7 +182,7 @@ function MainApp() {
     });
 
     return () => unsubAuth();
-  }, [navigate, location.pathname]);
+  }, [navigate]);
 
   const handleGoogleLogin = async () => {
     setAuthLoading(true);

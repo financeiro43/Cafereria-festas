@@ -126,75 +126,62 @@ async function startServer() {
 
     try {
       const { cardData, amount, transactionId, userId, paymentMethod, customer } = req.body;
-      console.log(`[REDE-API] Data: uid=${userId}, amt=${amount}, tid=${transactionId}, method=${paymentMethod}`);
+      console.log(`[REDE-API] Início: uid=${userId}, amt=${amount}, tid=${transactionId}, method=${paymentMethod}`);
       
       const parsedAmount = parseFloat(amount);
       if (!userId || isNaN(parsedAmount) || (!cardData && paymentMethod !== 'pix')) {
-          console.error(`[REDE-API] Validation failed: uid=${userId}, parsedAmt=${parsedAmount}, hasCardData=${!!cardData}`);
+          console.error(`[REDE-API] Falha de Validação: uid=${userId}, amt=${parsedAmount}`);
           return res.status(400).json({ error: "Dados da transação inválidos ou incompletos" });
       }
 
-      // Fetch dynamic settings from DB with timeout
       let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
       let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
       let forceSandbox = process.env.REDE_SANDBOX !== 'false';
 
-      const pvEnvSource = process.env.REDE_PV ? 'REDE_PV' : (process.env.RESGATE_PV ? 'RESGATE_PV' : 'NONE');
-      let configSource = 'ENV';
-
       if (db) {
         try {
-          const configPromise = db.collection("settings").doc("config").get();
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
-          
-          const settingsSnap = await Promise.race([configPromise, timeoutPromise]) as any;
-          
+          const settingsSnap = await db.collection("settings").doc("config").get();
           if (settingsSnap.exists) {
             const config = settingsSnap.data();
-            if (config?.redePV || config?.REDE_PV) {
-              livePV = String(config.redePV || config.REDE_PV).trim();
-              configSource = 'FIRESTORE';
-            }
-            if (config?.redeToken || config?.REDE_TOKEN) {
-              liveToken = String(config.redeToken || config.REDE_TOKEN).trim();
-              configSource = 'FIRESTORE';
-            }
+            if (config?.redePV || config?.REDE_PV) livePV = String(config.redePV || config.REDE_PV).trim();
+            if (config?.redeToken || config?.REDE_TOKEN) liveToken = String(config.redeToken || config.REDE_TOKEN).trim();
             if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
             if (config?.REDE_SANDBOX !== undefined) forceSandbox = config.REDE_SANDBOX !== 'false' && config.REDE_SANDBOX !== false;
           }
         } catch (dbErr: any) {
-          console.warn(`[REDE-API] Firestore config fetch failed or timed out: ${dbErr.message}`);
+          console.warn(`[REDE-API] Falha ao ler config do DB: ${dbErr.message}`);
         }
       }
 
-      console.log(`[REDE-API] Config: PV=${livePV ? livePV.substring(0, 4) + '****' : 'MISSING'} (Source: ${configSource}/${pvEnvSource}), Token=${liveToken ? 'EXISTS' : 'MISSING'}, Sandbox=${forceSandbox}`);
+      console.log(`[REDE-API] Config Ativa: PV=${livePV?.substring(0, 4)}***, Sandbox=${forceSandbox}`);
 
       if (!livePV || !liveToken) {
-        console.error(`[REDE-API] Configuration missing: PV or Token is not set.`);
+        console.error(`[REDE-API] ERRO: PV ou Token não encontrados.`);
         return res.status(401).json({ 
-          success: false,
-          error: "Credenciais ausentes", 
-          message: "Credenciais REDE_PV ou REDE_TOKEN não configuradas no Servidor ou no Firestore." 
+          error: "Configuração incompleta", 
+          message: "PV ou Token da Rede não configurados." 
         });
       }
 
       const redeAmount = Math.round(parsedAmount * 100);
       const secureRef = String(transactionId || `R${Date.now()}`).replace(/[^a-zA-Z0-9]/g, "").substring(0, 16);
       
-      const authBase64 = Buffer.from(`${livePV}:${liveToken}`).toString('base64');
       const axiosConfig = { 
         headers: { 
-          'Authorization': `Basic ${authBase64}`,
+          'Authorization': `Basic ${Buffer.from(`${livePV}:${liveToken}`).toString('base64')}`,
           'Content-Type': 'application/json' 
-        } 
+        },
+        timeout: 25000
       };
 
-      const redeUrl = forceSandbox ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" : "https://api.userede.com.br/v1/transactions";
+      const redeUrl = forceSandbox 
+        ? "https://sandbox-erede.useredecloud.com.br/v1/transactions" 
+        : "https://api.userede.com.br/v1/transactions";
       
       let redePayload: any = {
         amount: redeAmount,
         reference: secureRef,
-        softDescriptor: "RECESCOLA"
+        softDescriptor: "FESTAPASS"
       };
 
       if (customer) {
@@ -209,143 +196,90 @@ async function startServer() {
       if (paymentMethod === 'pix') {
         redePayload.kind = "pix";
       } else {
-        const expiryStr = String(cardData?.expiry || "/");
-        const [month, year] = expiryStr.split("/");
-        
-        if (!month || !year) {
-          throw new Error("Data de validade do cartão inválida");
-        }
-
-        const sanitizedName = String(cardData.name || "")
-          .toUpperCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[^A-Z0-9 ]/g, "")
-          .substring(0, 30);
+        const [month, year] = String(cardData?.expiry || "/").split("/");
+        if (!month || !year) throw new Error("Data de expiração inválida");
 
         redePayload = {
           ...redePayload,
           capture: true,
           kind: paymentMethod === 'debit' ? "debit" : "credit",
-          cardholderName: sanitizedName,
+          cardholderName: String(cardData.holder || cardData.name || "CLIENTE").toUpperCase().substring(0, 30),
           cardNumber: String(cardData.number || "").replace(/\s/g, ""),
           expirationMonth: month.padStart(2, '0'),
-          expirationYear: "20" + year.trim(),
-          securityCode: String(cardData.securityCode || cardData.cvv || "").trim(),
+          expirationYear: year.length === 2 ? `20${year}` : year,
+          securityCode: String(cardData.cvv || cardData.securityCode || "").trim(),
         };
 
         if (paymentMethod === 'debit') {
-          redePayload.threeDSecure = {
-            embedded: true,
-            onFailure: "continue"
-          };
+          redePayload.threeDSecure = { embedded: true, onFailure: "continue" };
         }
       }
 
-      // Log payload keys (safe debugging)
-      console.log(`[REDE-API] Payload for ${paymentMethod}:`, Object.keys(redePayload));
+      console.log(`[REDE-API] Chamando Rede: ${redeUrl}`);
       
       let response;
       try {
-        response = await axios.post(redeUrl, redePayload, {
-          ...axiosConfig,
-          timeout: 20000 
-        });
+        response = await axios.post(redeUrl, redePayload, axiosConfig);
       } catch (axiosError: any) {
-        const status = axiosError.response?.status;
-        const data = axiosError.response?.data;
-        console.error(`[REDE-API] Rede Call Failed (${status}):`, JSON.stringify(data || axiosError.message));
+        const status = axiosError.response?.status || 500;
+        const respData = axiosError.response?.data;
+        console.error(`[REDE-API] Erro Rede HTTP ${status}:`, JSON.stringify(respData || axiosError.message));
         
-        // Rethrow with better context
-        const customError: any = new Error(axiosError.message);
-        customError.response = axiosError.response;
-        customError.code = axiosError.code;
-        throw customError;
+        let msg = axiosError.message;
+        if (respData) {
+          msg = respData.returnMessage || respData.message || (Array.isArray(respData.errors) ? respData.errors[0]?.message : null) || JSON.stringify(respData);
+        }
+
+        return res.status(status).json({
+          error: "Erro na Operadora",
+          message: msg,
+          details: respData
+        });
       }
       
-      const redeData = response?.data || {};
-      console.log(`[REDE-API] Success Response: ${redeData.returnCode} - ${redeData.returnMessage}`);
-       if (redeData.returnCode === "00") {
+      const redeData = response.data;
+      console.log(`[REDE-API] Resposta Rede: ${redeData.returnCode} - ${redeData.returnMessage}`);
+
+      if (redeData.returnCode === "00") {
         if (paymentMethod !== 'pix' && db) {
-          const userRef = db.collection("users").doc(userId);
-          const txnRef = db.collection("transactions").doc(transactionId);
-          
-          console.log(`[REDE-API] Updating balance for ${userId} (Amount: ${amount})`);
-          
           try {
-            // Simplified atomic update instead of full transaction
-            await userRef.update({
-              balance: FieldValue.increment(parseFloat(amount)),
-              updatedAt: FieldValue.serverTimestamp()
-            });
+            const userRef = db.collection("users").doc(userId);
+            const userDoc = await userRef.get();
+            if (userDoc.exists) {
+              await userRef.update({
+                balance: FieldValue.increment(parsedAmount),
+                lastRecharge: FieldValue.serverTimestamp()
+              });
 
-            await txnRef.set({
-              userId,
-              amount: parseFloat(amount),
-              type: "credit",
-              status: "completed",
-              description: `Recarga ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} via Rede`,
-              timestamp: FieldValue.serverTimestamp(),
-              redeTid: redeData.tid,
-              nsu: redeData.nsu
-            });
-
-            console.log(`[REDE-API] Balance update successful for ${userId}`);
-          } catch (txError: any) {
-            console.error(`[REDE-API] Resource update error for ${userId}: ${txError.message}`);
-            return res.status(500).json({
-              success: false,
-              error: "Erro ao creditar saldo",
-              message: "Pagamento APROVADO, mas houve um erro ao atualizar seu saldo. Guarde seu comprovante (TID: " + redeData.tid + ") e contate o suporte.",
-              tid: redeData.tid
-            });
+              await db.collection("transactions").add({
+                userId,
+                amount: parsedAmount,
+                type: "credit",
+                status: "completed",
+                description: `Recarga via ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} Rede`,
+                timestamp: FieldValue.serverTimestamp(),
+                redeTid: redeData.tid,
+                nsu: redeData.nsu
+              });
+              console.log(`[REDE-API] Saldo e transação atualizados para ${userId}`);
+            }
+          } catch (dbErr: any) {
+            console.error(`[REDE-API] Erro ao salvar saldo pós-aprovado: ${dbErr.message}`);
           }
-        } else if (paymentMethod === 'pix' && db) {
-          // For Pix, we save it as pending
-          await db.collection("transactions").doc(transactionId).set({
-            userId,
-            amount: parseFloat(amount),
-            type: "credit",
-            status: "pending",
-            description: "Recarga Pix via Rede",
-            timestamp: FieldValue.serverTimestamp(),
-            redeTid: redeData.tid
-          });
         }
         
-        return res.json({ 
-          success: true, 
-          tid: redeData.tid,
-          pix: redeData.pix
-        });
+        return res.json({ success: true, tid: redeData.tid, pix: redeData.pix });
       } else {
         return res.status(400).json({ 
-          success: false,
-          error: "Pagamento negado", 
-          message: redeData.returnMessage || "A operadora não autorizou esta transação." 
+          error: "Pagamento Negado", 
+          message: redeData.returnMessage || "Transação não autorizada pela operadora." 
         });
       }
     } catch (error: any) {
-      const respData = error.response?.data;
-      let errorMsg = error.message;
-      
-      if (respData) {
-        if (Array.isArray(respData)) {
-          errorMsg = respData[0]?.message || respData[0]?.returnMessage || JSON.stringify(respData[0]);
-        } else if (typeof respData === 'object') {
-          errorMsg = respData.message || respData.returnMessage || respData.error || JSON.stringify(respData);
-        } else {
-          errorMsg = String(respData);
-        }
-      }
-      
-      if (typeof errorMsg !== 'string') errorMsg = JSON.stringify(errorMsg);
-      
-      console.error(`[REDE-API] Error Detail:`, JSON.stringify(respData || error.message));
-      res.status(error.response?.status || 500).json({ 
-        error: "Erro no Gateway Rede", 
-        message: errorMsg,
-        details: respData
+      console.error(`[REDE-API] Erro Crítico:`, error);
+      res.status(500).json({ 
+        error: "Erro Interno", 
+        message: error.message || "A server error has occurred"
       });
     }
   });
