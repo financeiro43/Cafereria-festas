@@ -306,12 +306,20 @@ async function startServer() {
           securityCode: String(cardData.cvv || cardData.securityCode || "").trim().substring(0, 4)
         };
 
-        const instCount = parseInt(req.body.installments, 10);
-        if (instCount > 1) {
-          redePayload.installments = instCount;
+        if (paymentMethod === 'credit') {
+          const instCount = parseInt(req.body.installments, 10);
+          if (instCount > 1) {
+            redePayload.installments = instCount;
+          }
         }
 
         if (paymentMethod === 'debit') {
+          // 3DS2 Requirements for risk analysis
+          redePayload.customer = {
+            name: cleanName,
+            email: customer?.email || "atendimento@festapass.com.br"
+          };
+          
           redePayload.threeDSecure = { 
             embedded: true, 
             onFailure: "decline",
@@ -319,6 +327,14 @@ async function startServer() {
             ipAddress: (req.ip || "127.0.0.1").replace('::ffff:', ''),
             returnUrl: "https://festapass.com.br/payment-callback"
           };
+
+          // Also ensure returnUrl is in urls array for some bank redirections
+          if (!redePayload.urls.find((u: any) => u.kind === 'return')) {
+            redePayload.urls.push({
+              url: "https://festapass.com.br/payment-callback",
+              kind: "return"
+            });
+          }
         }
       }
 
