@@ -84,8 +84,11 @@ async function startServer() {
   // Token cache to avoid hitting rate limits (Rede Tokens last 24m)
   let redeTokenCache: { [key: string]: { token: string; expires: number } } = {};
 
-  const getRedeAccessToken = async (pv: string, token: string, isSandbox: boolean) => {
-    const cacheKey = `${pv}-${isSandbox}`;
+      const getRedeAccessToken = async (pv: string, token: string, isSandbox: boolean) => {
+    const keyPV = String(pv || "").trim();
+    const keyToken = String(token || "").trim();
+    const cacheKey = `${keyPV}-${isSandbox}`;
+    
     if (redeTokenCache[cacheKey] && Date.now() < redeTokenCache[cacheKey].expires) {
       return redeTokenCache[cacheKey].token;
     }
@@ -94,8 +97,8 @@ async function startServer() {
       ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
       : "https://api.userede.com.br/redelabs/oauth2/token";
     
-    console.log(`[REDE-API] Solicitando Novo Token OAuth: ${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'} para PV ${pv.substring(0,4)}`);
-    const authBase64 = Buffer.from(`${pv.trim()}:${token.trim()}`).toString('base64');
+    console.log(`[REDE-API] Solicitando Novo Token OAuth: ${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'} para PV ${keyPV.substring(0,4)}`);
+    const authBase64 = Buffer.from(`${keyPV}:${keyToken}`).toString('base64');
     
     try {
       const tokenResp = await axios.post(tokenUrl, "grant_type=client_credentials", {
@@ -215,7 +218,6 @@ async function startServer() {
       }
 
       const redeAmount = Math.round(parsedAmount * 100);
-      // Ensure unique reference every time to avoid Rede's "duplicate reference" 500 error
       const secureRef = `F${Date.now()}`.substring(0, 16);
       
       const axiosConfig = { 
@@ -237,6 +239,20 @@ async function startServer() {
         capture: true
       };
 
+      // SoftDescriptor deve ser curto (max 13-22 dependendo da bandeira)
+      if (process.env.REDE_SOFT_DESCRIPTOR || !forceSandbox) {
+        redePayload.softDescriptor = (process.env.REDE_SOFT_DESCRIPTOR || "FESTAPASS").substring(0, 13).toUpperCase();
+      }
+
+      if (customer) {
+        redePayload.customer = {
+          name: String(customer.name || "CLIENTE").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z ]/g, "").substring(0, 50),
+          documentNumber: String(customer.cnpj || customer.cpf || "").replace(/\D/g, "") || "04214446000170",
+          documentType: (customer.cnpj || (customer.documentType === 'CNPJ')) ? 'CNPJ' : 'CPF',
+          email: customer.email || "administrativo@modeloalpha.com.br"
+        };
+      }
+
       if (paymentMethod === 'pix') {
         redePayload.kind = "pix";
       } else {
@@ -251,23 +267,33 @@ async function startServer() {
           .trim()
           .substring(0, 30);
 
+        const yearNum = parseInt(year, 10);
+        const fullYear = (year.length === 2 && yearNum < 100) ? 2000 + yearNum : yearNum;
+
         redePayload = {
           ...redePayload,
           kind: paymentMethod === 'debit' ? "debit" : "credit",
           cardholderName: cleanName,
           cardNumber: String(cardData.number || "").replace(/\D/g, ""),
           expirationMonth: parseInt(month, 10),
-          expirationYear: parseInt(year.length === 2 ? `20${year}` : year, 10),
+          expirationYear: fullYear,
           securityCode: String(cardData.cvv || cardData.securityCode || "").trim().substring(0, 4)
         };
 
-        // Manual pg 40/41: Device info is important for V2 stability
-        redePayload.threeDSecure = { 
-          embedded: true, 
-          onFailure: paymentMethod === 'debit' ? "decline" : "continue",
-          userAgent: req.headers['user-agent'] || "Mozilla/5.0",
-          ipAddress: "127.0.0.1" 
-        };
+        // Manual pg 20: Para pagamento à vista, omitir installments ou enviar > 1 para parcelado.
+        const instNum = parseInt(req.body.installments, 10);
+        if (instNum > 1) {
+          redePayload.installments = instNum;
+        }
+
+        if (paymentMethod === 'debit') {
+          redePayload.threeDSecure = { 
+            embedded: true, 
+            onFailure: "decline",
+            userAgent: req.headers['user-agent'] || "Mozilla/5.0",
+            ipAddress: req.ip?.replace("::ffff:", "") || "127.0.0.1" 
+          };
+        }
       }
 
       // Safe Logging
