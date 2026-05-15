@@ -251,7 +251,13 @@ async function startServer() {
         kind: paymentMethod === 'debit' ? 'debit' : 'credit',
         reference: secureRef,
         amount: redeAmount,
-        softDescriptor: "FESTAPASS"
+        softDescriptor: "FESTAPASS",
+        urls: [
+          {
+            url: "https://festapass.com.br/payment-callback", // Default callback URL required by Rede
+            kind: "callback"
+          }
+        ]
       };
 
       if (paymentMethod === 'pix') {
@@ -294,7 +300,8 @@ async function startServer() {
             embedded: true, 
             onFailure: "decline",
             userAgent: req.headers['user-agent'] || "Mozilla/5.0",
-            ipAddress: "127.0.0.1" 
+            ipAddress: (req.ip || "127.0.0.1").replace('::ffff:', ''),
+            returnUrl: "https://festapass.com.br/payment-callback"
           };
         }
       }
