@@ -245,28 +245,44 @@ async function startServer() {
         ? "https://sandbox-erede.useredecloud.com.br/erede/v2/transactions"
         : "https://api.userede.com.br/erede/v2/transactions";
       
-      // Minimal V2 Payload (Manual v1.32 pg 18-20)
-      let redePayload: any = {
-        capture: true,
-        kind: paymentMethod === 'debit' ? 'debit' : 'credit',
-        reference: secureRef,
-        amount: redeAmount,
-        softDescriptor: "FESTAPASS",
-        urls: [
-          {
-            url: "https://festapass.com.br/payment-callback", // Default callback URL required by Rede
-            kind: "callback"
-          }
-        ]
-      };
+      // Correctly structured payloads for V2
+      let redePayload: any;
 
       if (paymentMethod === 'pix') {
-        redePayload.kind = "pix";
-        redePayload.qrCodeResponse = true; // MANDATORY for Pix V2
-        redePayload.qrCode = {
-          dateTimeExpiration: new Date(Date.now() + 3600000).toISOString().split('.')[0]
+        // PIX Minimal Payload
+        redePayload = {
+          kind: "pix",
+          reference: secureRef,
+          amount: redeAmount,
+          qrCodeResponse: true,
+          qrCode: {
+            // ISO 8601 without miliseconds (Rede prefers this)
+            dateTimeExpiration: new Date(Date.now() + 3600 * 24 * 1000).toISOString().split('.')[0]
+          },
+          // For PIX, urls are optional but recommended for webhook notifications
+          urls: [
+            {
+              url: "https://festapass.com.br/payment-callback",
+              kind: "callback"
+            }
+          ]
         };
       } else {
+        // Credit/Debit Standard Payload
+        redePayload = {
+          capture: true,
+          kind: paymentMethod === 'debit' ? 'debit' : 'credit',
+          reference: secureRef,
+          amount: redeAmount,
+          softDescriptor: "FESTAPASS",
+          urls: [
+            {
+              url: "https://festapass.com.br/payment-callback",
+              kind: "callback"
+            }
+          ]
+        };
+
         const [month, year] = String(cardData?.expiry || "/").split("/");
         if (!month || !year) throw new Error("Data de expiração inválida");
 
@@ -324,7 +340,11 @@ async function startServer() {
         
         let msg = axiosError.message;
         if (respData) {
-          msg = respData.returnMessage || respData.message || (Array.isArray(respData.errors) ? respData.errors[0]?.message : (respData.error || null)) || JSON.stringify(respData);
+          if (respData.returnCode === "3095") {
+            msg = "Chave PIX não configurada no Portal Rede. Por favor, acesse o Portal Userede e configure uma chave PIX padrão para este PV.";
+          } else {
+            msg = respData.returnMessage || respData.message || (Array.isArray(respData.errors) ? respData.errors[0]?.message : (respData.error || null)) || JSON.stringify(respData);
+          }
         }
 
         return res.status(status).json({
