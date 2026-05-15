@@ -134,7 +134,7 @@ async function startServer() {
           return res.status(400).json({ error: "Dados da transação inválidos ou incompletos" });
       }
 
-      // Fetch dynamic settings from DB
+      // Fetch dynamic settings from DB with timeout
       let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
       let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
       let forceSandbox = process.env.REDE_SANDBOX !== 'false';
@@ -144,7 +144,11 @@ async function startServer() {
 
       if (db) {
         try {
-          const settingsSnap = await db.collection("settings").doc("config").get();
+          const configPromise = db.collection("settings").doc("config").get();
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
+          
+          const settingsSnap = await Promise.race([configPromise, timeoutPromise]) as any;
+          
           if (settingsSnap.exists) {
             const config = settingsSnap.data();
             if (config?.redePV || config?.REDE_PV) {
@@ -158,8 +162,8 @@ async function startServer() {
             if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
             if (config?.REDE_SANDBOX !== undefined) forceSandbox = config.REDE_SANDBOX !== 'false' && config.REDE_SANDBOX !== false;
           }
-        } catch (dbErr) {
-          console.warn("[REDE-API] Failed to fetch settings from Firestore:", dbErr);
+        } catch (dbErr: any) {
+          console.warn(`[REDE-API] Firestore config fetch failed or timed out: ${dbErr.message}`);
         }
       }
 
@@ -261,31 +265,21 @@ async function startServer() {
       
       const redeData = response?.data || {};
       console.log(`[REDE-API] Success Response: ${redeData.returnCode} - ${redeData.returnMessage}`);
-      
-      if (redeData.returnCode === "00") {
+       if (redeData.returnCode === "00") {
         if (paymentMethod !== 'pix' && db) {
           const userRef = db.collection("users").doc(userId);
           const txnRef = db.collection("transactions").doc(transactionId);
           
-          console.log(`[REDE-API] Starting balance update transaction for ${userId} (Amount: ${amount})`);
+          console.log(`[REDE-API] Updating balance for ${userId} (Amount: ${amount})`);
           
-          // Use a Promise.race to ensure transaction doesn't hang indefinitely in the backend
-          const transactionPromise = db.runTransaction(async (t) => {
-            console.log(`[REDE-API] Inside runTransaction for ${userId}`);
-            const userDoc = await t.get(userRef);
-            if (!userDoc.exists) throw new Error("Usuário não encontrado no banco de dados");
-            
-            const currentBalance = userDoc.data()?.balance || 0;
-            const newBalance = currentBalance + parseFloat(amount);
-            
-            console.log(`[REDE-API] Updating balance from ${currentBalance} to ${newBalance}`);
-            
-            t.update(userRef, { 
-              balance: newBalance,
+          try {
+            // Simplified atomic update instead of full transaction
+            await userRef.update({
+              balance: FieldValue.increment(parseFloat(amount)),
               updatedAt: FieldValue.serverTimestamp()
             });
-            
-            t.set(txnRef, {
+
+            await txnRef.set({
               userId,
               amount: parseFloat(amount),
               type: "credit",
@@ -295,19 +289,10 @@ async function startServer() {
               redeTid: redeData.tid,
               nsu: redeData.nsu
             });
-            return { newBalance };
-          });
 
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error("Firestore Transaction Timeout")), 15000)
-          );
-
-          try {
-            await Promise.race([transactionPromise, timeoutPromise]);
             console.log(`[REDE-API] Balance update successful for ${userId}`);
           } catch (txError: any) {
-            console.error(`[REDE-API] Transaction error for ${userId}: ${txError.message}`);
-            // We return 500 but note that payment was approved
+            console.error(`[REDE-API] Resource update error for ${userId}: ${txError.message}`);
             return res.status(500).json({
               success: false,
               error: "Erro ao creditar saldo",

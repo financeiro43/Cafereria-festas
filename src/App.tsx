@@ -97,28 +97,29 @@ function MainApp() {
       const MAX_RETRIES = 5;
 
       const startListener = () => {
+        setLoading(true); // Ensure loading is true when starting
         return onSnapshot(userRef, async (snap) => {
-          if (snap.exists()) {
-            const data = snap.data() as UserProfile;
-            if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
-              await updateDoc(userRef, { role: 'admin' });
-              data.role = 'admin';
-            }
-            setProfile(data);
-            setLoading(false);
-            
-            // AUTOMATIC REDIRECTS
-            if (location.pathname === '/' || location.pathname.includes('/login')) {
-              let target = '/portal';
-              if (data.role === 'admin') target = '/admin';
-              else if (data.role === 'vendor') target = '/pdv';
-              else if (data.role === 'recharge') target = '/recharge';
+          try {
+            if (snap.exists()) {
+              const data = snap.data() as UserProfile;
+              if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
+                await updateDoc(userRef, { role: 'admin' });
+                data.role = 'admin';
+              }
+              setProfile(data);
+              setLoading(false);
               
-              navigate(target);
-            }
-          } else {
-            // New user or Migration logic (keep existing)
-            try {
+              // AUTOMATIC REDIRECTS
+              if (location.pathname === '/' || location.pathname.includes('/login')) {
+                let target = '/portal';
+                if (data.role === 'admin') target = '/admin';
+                else if (data.role === 'vendor') target = '/pdv';
+                else if (data.role === 'recharge') target = '/recharge';
+                
+                navigate(target);
+              }
+            } else {
+              // New user or Migration logic
               const q = query(
                 collection(db, 'users'), 
                 where('email', '==', authUser.email?.toLowerCase()),
@@ -150,17 +151,15 @@ function MainApp() {
                 };
                 await setDoc(userRef, newProfile);
               }
-            } catch (e) {
-              console.error("Auth sync error:", e);
-              // Fallback to basic profile if query fails
-            } finally {
-              setLoading(false);
             }
+          } catch (e) {
+            console.error("Auth sync error:", e);
+            setLoading(false);
           }
         }, (err) => {
           if (err.message.toLowerCase().includes('permission') && retryCount < MAX_RETRIES) {
             retryCount++;
-            console.warn(`[AUTH] Retrying profile listener (${retryCount}/${MAX_RETRIES}) due to permission issue...`);
+            console.warn(`[AUTH] Retrying profile listener (${retryCount}/${MAX_RETRIES}) after 2s...`);
             setTimeout(() => {
                if (unsubProfile) {
                  unsubProfile();
@@ -170,7 +169,6 @@ function MainApp() {
             return;
           }
           console.error("Profile onSnapshot error:", err);
-          handleFirestoreError(err, OperationType.GET, `users/${authUser.uid}`);
           setLoading(false);
         });
       };

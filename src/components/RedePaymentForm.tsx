@@ -94,7 +94,19 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     setLoading(true);
     setStatus('processing');
     setShowForceCancel(false);
-    const timer = setTimeout(() => setShowForceCancel(true), 15000); // Increased to 15s
+    
+    // Safety timeout to prevent infinite spinning
+    const processTimeout = setTimeout(() => {
+      setStatus(prev => {
+        if (prev === 'processing') {
+          setPaymentError('Tempo limite excedido. O servidor demorou muito para responder ou há um problema de rede.');
+          return 'error';
+        }
+        return prev;
+      });
+    }, 40000);
+
+    const timer = setTimeout(() => setShowForceCancel(true), 15000); 
     const tid = `txn_${Date.now()}`;
     
     console.log(`[REDE-FORM] Processing ${paymentMethod} payment for ${uid}, Amount: ${amount}`);
@@ -179,6 +191,8 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       });
     } finally {
       clearTimeout(timer);
+      // @ts-ignore
+      if (typeof processTimeout !== 'undefined') clearTimeout(processTimeout);
       setLoading(false);
     }
   };
