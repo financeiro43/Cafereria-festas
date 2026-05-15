@@ -82,20 +82,20 @@ async function startServer() {
   const API_BASE = "/api/rede";
 
   // Token cache to avoid hitting rate limits (Rede Tokens last 24m)
-  let redeTokenCache: { token: string; expires: number } | null = null;
+  let redeTokenCache: { [key: string]: { token: string; expires: number } } = {};
 
   const getRedeAccessToken = async (pv: string, token: string, isSandbox: boolean) => {
     const cacheKey = `${pv}-${isSandbox}`;
-    if (redeTokenCache && Date.now() < redeTokenCache.expires) {
-      return redeTokenCache.token;
+    if (redeTokenCache[cacheKey] && Date.now() < redeTokenCache[cacheKey].expires) {
+      return redeTokenCache[cacheKey].token;
     }
 
     const tokenUrl = isSandbox 
       ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
       : "https://api.userede.com.br/redelabs/oauth2/token";
     
-    console.log(`[REDE-API] Solicitando Novo Token OAuth: ${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'}`);
-    const authBase64 = Buffer.from(`${pv}:${token}`).toString('base64');
+    console.log(`[REDE-API] Solicitando Novo Token OAuth: ${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'} para PV ${pv.substring(0,4)}`);
+    const authBase64 = Buffer.from(`${pv.trim()}:${token.trim()}`).toString('base64');
     
     try {
       const tokenResp = await axios.post(tokenUrl, "grant_type=client_credentials", {
@@ -108,11 +108,11 @@ async function startServer() {
       
       const accessToken = tokenResp.data.access_token;
       // Expire in 20 minutes (manual says 24m)
-      redeTokenCache = { token: accessToken, expires: Date.now() + 20 * 60 * 1000 };
+      redeTokenCache[cacheKey] = { token: accessToken, expires: Date.now() + 20 * 60 * 1000 };
       return accessToken;
     } catch (tokenErr: any) {
-      console.error(`[REDE-API] Erro OAuth (${tokenErr.response?.status}):`, tokenErr.response?.data || tokenErr.message);
-      throw new Error(`Falha na autenticação Rede: ${tokenErr.response?.data?.message || tokenErr.message}`);
+      console.error(`[REDE-API] Erro OAuth PV=${pv}:`, tokenErr.response?.data || tokenErr.message);
+      throw new Error(`Falha Rede (OAuth): ${tokenErr.response?.data?.message || tokenErr.message}`);
     }
   };
 
@@ -263,7 +263,12 @@ async function startServer() {
         };
 
         if (paymentMethod === 'debit') {
-          redePayload.threeDSecure = { embedded: true, onFailure: "continue" };
+          redePayload.threeDSecure = { 
+            embedded: true, 
+            onFailure: "decline", // Manual 1.32 pg 41: Auto-decline for debit if auth fails
+            userAgent: req.headers['user-agent'] || "Mozilla/5.0",
+            ipAddress: req.ip || "127.0.0.1"
+          };
         }
       }
 
