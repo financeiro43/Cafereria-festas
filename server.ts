@@ -95,7 +95,7 @@ async function startServer() {
 
     const tokenUrl = isSandbox 
       ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
-      : "https://api.userede.com.br/redelabs/oauth2/token";
+      : "https://api.userede.com.br/oauth2/token";
     
     console.log(`[REDE-API] Solicitando Novo Token OAuth: ${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'} para PV ${keyPV.substring(0,4)}`);
     const authBase64 = Buffer.from(`${keyPV}:${keyToken}`).toString('base64');
@@ -123,7 +123,7 @@ async function startServer() {
   app.get(`${API_BASE}/ping`, async (req, res) => {
     let pv = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
     let token = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
-    let isSandbox = process.env.REDE_SANDBOX !== 'false';
+    let isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() !== 'false';
 
     if (db) {
        const settings = await db.collection("settings").doc("config").get();
@@ -194,9 +194,9 @@ async function startServer() {
       // 2. Fetch credentials - STRICT PRIORITY TO ENVIRONMENT VARIABLES
       let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
       let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
-      let forceSandbox = process.env.REDE_SANDBOX !== 'false';
+      let forceSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() !== 'false';
 
-      // Only check DB if env vars are missing or allow override
+      // Only check DB if env vars are missing
       if (db && (!livePV || !liveToken)) {
         try {
           const settingsSnap = await db.collection("settings").doc("config").get();
@@ -204,7 +204,7 @@ async function startServer() {
             const config = settingsSnap.data();
             if (!livePV) livePV = String(config?.redePV || config?.REDE_PV || "").trim();
             if (!liveToken) liveToken = String(config?.redeToken || config?.REDE_TOKEN || "").trim();
-            // Only override sandbox if env var is not set to a hard value
+            // Only override sandbox if DB explicitly has a value and env var is not 'false'
             if (config?.isProduction !== undefined && process.env.REDE_SANDBOX === undefined) {
               forceSandbox = !config.isProduction;
             }
@@ -400,7 +400,7 @@ async function startServer() {
       // 2. Fetch credentials - STRICT PRIORITY TO ENVIRONMENT VARIABLES
       let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
       let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
-      let forceSandbox = process.env.REDE_SANDBOX !== 'false';
+      let forceSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() !== 'false';
 
       // Only check DB if env vars are missing
       if (db && (!livePV || !liveToken)) {
@@ -423,7 +423,7 @@ async function startServer() {
       // 3. Obtain OAuth Token for Query
       const tokenUrl = forceSandbox 
         ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
-        : "https://api.userede.com.br/redelabs/oauth2/token";
+        : "https://api.userede.com.br/oauth2/token";
       
       const authBase64 = Buffer.from(`${livePV}:${liveToken}`).toString('base64');
       const tokenResp = await axios.post(tokenUrl, "grant_type=client_credentials", {
