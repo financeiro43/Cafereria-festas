@@ -250,7 +250,10 @@ async function startServer() {
 
       if (paymentMethod === 'pix') {
         // PIX Standard Payload for e-Rede V2
+        // expiration is in seconds for the root, dateTimeExpiration is ISO string for qrCode object
         const expirationSeconds = 86400; // 24 hours
+        const expDate = new Date(Date.now() + expirationSeconds * 1000);
+        
         redePayload = {
           kind: "pix",
           reference: secureRef,
@@ -258,7 +261,7 @@ async function startServer() {
           qrCodeResponse: true,
           expiration: expirationSeconds,
           qrCode: {
-            expiration: expirationSeconds
+            dateTimeExpiration: expDate.toISOString().split('.')[0] // ISO 8601 without ms
           },
           urls: [
             {
@@ -328,20 +331,14 @@ async function startServer() {
             returnUrl: "https://festapass.com.br/payment-callback"
           };
 
-          // Also ensure returnUrl and multiple 3DS urls are in urls array for wider compatibility
+          // Redefine URLs for Debit ensuring all required kinds (code 160 fix)
           const baseUrl = "https://festapass.com.br/payment-callback";
-          const requiredKinds = ["return", "threeDSecureSuccess", "threeDSecureFailure", "callback"];
-          
-          if (!redePayload.urls) redePayload.urls = [];
-          
-          requiredKinds.forEach(kind => {
-            if (!redePayload.urls.find((u: any) => u.kind === kind)) {
-              redePayload.urls.push({
-                url: baseUrl,
-                kind: kind
-              });
-            }
-          });
+          redePayload.urls = [
+            { url: baseUrl, kind: "callback" },
+            { url: baseUrl, kind: "return" },
+            { url: baseUrl, kind: "threeDSecureSuccess" },
+            { url: baseUrl, kind: "threeDSecureFailure" }
+          ];
         }
       }
 
@@ -385,10 +382,6 @@ async function startServer() {
       
       const redeData = response.data;
       console.log(`[REDE-API] Resposta Rede: ${redeData.returnCode} - ${redeData.returnMessage}`);
-      if (paymentMethod === 'pix') {
-        console.log(`[REDE-API] Pix Response Data Keys: ${Object.keys(redeData).join(', ')}`);
-        if (redeData.qrCodeResponse) console.log(`[REDE-API] qrCodeResponse keys: ${Object.keys(redeData.qrCodeResponse).join(', ')}`);
-      }
 
       if (redeData.returnCode === "00") {
         if (paymentMethod !== 'pix' && db) {
@@ -420,9 +413,16 @@ async function startServer() {
         
         const responseData: any = { success: true, tid: redeData.tid };
         if (paymentMethod === 'pix') {
+          // V2 PIX Response structure can vary slightly
+          const qrCode = redeData.qrCodeResponse?.qrcode || 
+                         redeData.qrCodeResponse?.qrCodeData || 
+                         redeData.qrCode || 
+                         redeData.pix?.qrCode || 
+                         redeData.pix?.qrcode;
+          
           responseData.pix = {
-            qrCode: redeData.qrCodeResponse?.qrCodeData || redeData.pix?.qrCode || redeData.pix?.qrcode,
-            expiration: redeData.qrCodeResponse?.dateTimeExpiration
+            qrCode: qrCode,
+            expiration: redeData.qrCodeResponse?.dateTimeExpiration || redeData.qrCode?.dateTimeExpiration
           };
         }
         
