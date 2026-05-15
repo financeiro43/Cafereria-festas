@@ -191,19 +191,23 @@ async function startServer() {
           return res.status(400).json({ error: "Dados da transação inválidos ou incompletos" });
       }
 
+      // 2. Fetch credentials - STRICT PRIORITY TO ENVIRONMENT VARIABLES
       let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
       let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
       let forceSandbox = process.env.REDE_SANDBOX !== 'false';
 
-      if (db) {
+      // Only check DB if env vars are missing or allow override
+      if (db && (!livePV || !liveToken)) {
         try {
           const settingsSnap = await db.collection("settings").doc("config").get();
           if (settingsSnap.exists) {
             const config = settingsSnap.data();
-            if (config?.redePV || config?.REDE_PV) livePV = String(config.redePV || config.REDE_PV).trim();
-            if (config?.redeToken || config?.REDE_TOKEN) liveToken = String(config.redeToken || config.REDE_TOKEN).trim();
-            if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
-            if (config?.REDE_SANDBOX !== undefined) forceSandbox = config.REDE_SANDBOX !== 'false' && config.REDE_SANDBOX !== false;
+            if (!livePV) livePV = String(config?.redePV || config?.REDE_PV || "").trim();
+            if (!liveToken) liveToken = String(config?.redeToken || config?.REDE_TOKEN || "").trim();
+            // Only override sandbox if env var is not set to a hard value
+            if (config?.isProduction !== undefined && process.env.REDE_SANDBOX === undefined) {
+              forceSandbox = !config.isProduction;
+            }
           }
         } catch (dbErr: any) {
           console.warn(`[REDE-API] Falha ao ler config do DB: ${dbErr.message}`);
@@ -229,17 +233,18 @@ async function startServer() {
         ? "https://sandbox-erede.useredecloud.com.br/v2/transactions" 
         : "https://api.userede.com.br/erede/v2/transactions";
       
-      // Strict V2 Payload (Manual v1.32 pg 18-20)
+      // Minimal V2 Payload (Manual v1.32 pg 18-20)
       let redePayload: any = {
         capture: true,
         kind: paymentMethod === 'debit' ? 'debit' : 'credit',
         reference: secureRef,
-        amount: redeAmount
+        amount: redeAmount,
+        softDescriptor: "FESTAPASS"
       };
 
       if (paymentMethod === 'pix') {
         redePayload.kind = "pix";
-        // Rede Pix minimal request
+        redePayload.qrCodeResponse = true; // MANDATORY for Pix V2
         redePayload.qrCode = {
           dateTimeExpiration: new Date(Date.now() + 3600000).toISOString().split('.')[0]
         };
@@ -267,13 +272,11 @@ async function startServer() {
           securityCode: String(cardData.cvv || cardData.securityCode || "").trim().substring(0, 4)
         };
 
-        // Only send installments if > 1 (Manual pg 20)
         const instCount = parseInt(req.body.installments, 10);
         if (instCount > 1) {
           redePayload.installments = instCount;
         }
 
-        // Avoid anti-fraud blocks in production by sending device data for 3DS
         if (paymentMethod === 'debit') {
           redePayload.threeDSecure = { 
             embedded: true, 
@@ -394,17 +397,27 @@ async function startServer() {
         return res.json({ success: true, status: "completed", message: "Pagamento já processado" });
       }
 
-      // 2. Fetch credentials
+      // 2. Fetch credentials - STRICT PRIORITY TO ENVIRONMENT VARIABLES
       let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
       let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
       let forceSandbox = process.env.REDE_SANDBOX !== 'false';
 
-      const settingsSnap = await db.collection("settings").doc("config").get();
-      if (settingsSnap.exists) {
-        const config = settingsSnap.data();
-        if (config?.redePV || config?.REDE_PV) livePV = String(config.redePV || config.REDE_PV).trim();
-        if (config?.redeToken || config?.REDE_TOKEN) liveToken = String(config.redeToken || config.REDE_TOKEN).trim();
-        if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
+      // Only check DB if env vars are missing
+      if (db && (!livePV || !liveToken)) {
+        try {
+          const settingsSnap = await db.collection("settings").doc("config").get();
+          if (settingsSnap.exists) {
+            const config = settingsSnap.data();
+            if (!livePV) livePV = String(config?.redePV || config?.REDE_PV || "").trim();
+            if (!liveToken) liveToken = String(config?.redeToken || config?.REDE_TOKEN || "").trim();
+            // Only override sandbox if DB explicitly has a value
+            if (config?.isProduction !== undefined && process.env.REDE_SANDBOX === undefined) {
+              forceSandbox = !config.isProduction;
+            }
+          }
+        } catch (e) {
+          console.warn("[REDE-API] Checkout diagnostic settings fetch failed:", e);
+        }
       }
 
       // 3. Obtain OAuth Token for Query

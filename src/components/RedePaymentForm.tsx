@@ -175,7 +175,8 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
 
       if (error.response?.status === 500) {
            errorMsg = 'Erro Interno no Servidor (500)';
-           description = 'O gateway da Rede retornou um erro interno. Verifique se o seu PV e Token estão em modo Produção ou Sandbox conforme configurado.';
+           const redeMsg = error.response.data?.returnMessage || error.response.data?.message || (Array.isArray(error.response.data?.errors) ? error.response.data.errors[0]?.message : null);
+           description = redeMsg ? `Rede diz: ${redeMsg}` : 'O gateway da Rede retornou um erro interno. Verifique se o seu PV e Token estão em modo Produção ou Sandbox conforme configurado.';
            
            if (error.response.data?.debug) {
              const { url, sandbox } = error.response.data.debug;
