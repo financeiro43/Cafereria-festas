@@ -2,7 +2,6 @@
  * Rede API Integration - Environment Sync Ver: 1.0.4
  */
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import cors from "cors";
 import { initializeApp, getApps, App } from "firebase-admin/app";
@@ -465,9 +464,13 @@ async function startServer() {
   // --- Static Assets & Development Middleware ---
 
   if (process.env.NODE_ENV !== "production") {
-    console.log("Loading Vite middleware (Development)...");
+    console.log("Loading Vite (Development Mode)...");
     try {
-      const vite = await createViteServer({
+      // Use eval('import(...)') to strictly hide this from static analysis
+      // This prevents Vercel/bundlers from attempting to resolve 'vite' in production
+      const viteModule = await eval('import("vite")');
+      const { createServer } = viteModule;
+      const vite = await createServer({
         server: { middlewareMode: true },
         appType: "spa",
       });
