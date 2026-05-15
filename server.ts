@@ -210,14 +210,10 @@ async function startServer() {
         }
       }
 
-      let accessToken;
-      try {
-        accessToken = await getRedeAccessToken(livePV, liveToken, forceSandbox);
-      } catch (e: any) {
-        return res.status(401).json({ error: "Erro de Autenticação", message: e.message });
-      }
-
+      const accessToken = await getRedeAccessToken(livePV, liveToken, forceSandbox);
+      
       const redeAmount = Math.round(parsedAmount * 100);
+      // Reference must be unique and max 16 chars
       const secureRef = `F${Date.now()}`.substring(0, 16);
       
       const axiosConfig = { 
@@ -226,35 +222,27 @@ async function startServer() {
           'Content-Type': 'application/json',
           'Transaction-Response': 'brand-return-opened' 
         },
-        timeout: 25000
+        timeout: 30000
       };
 
       const redeUrl = forceSandbox 
         ? "https://sandbox-erede.useredecloud.com.br/v2/transactions" 
         : "https://api.userede.com.br/erede/v2/transactions";
       
+      // Strict V2 Payload (Manual v1.32 pg 18-20)
       let redePayload: any = {
-        amount: redeAmount,
+        capture: true,
+        kind: paymentMethod === 'debit' ? 'debit' : 'credit',
         reference: secureRef,
-        capture: true
+        amount: redeAmount
       };
-
-      // SoftDescriptor deve ser curto (max 13-22 dependendo da bandeira)
-      if (process.env.REDE_SOFT_DESCRIPTOR || !forceSandbox) {
-        redePayload.softDescriptor = (process.env.REDE_SOFT_DESCRIPTOR || "FESTAPASS").substring(0, 13).toUpperCase();
-      }
-
-      if (customer) {
-        redePayload.customer = {
-          name: String(customer.name || "CLIENTE").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z ]/g, "").substring(0, 50),
-          documentNumber: String(customer.cnpj || customer.cpf || "").replace(/\D/g, "") || "04214446000170",
-          documentType: (customer.cnpj || (customer.documentType === 'CNPJ')) ? 'CNPJ' : 'CPF',
-          email: customer.email || "administrativo@modeloalpha.com.br"
-        };
-      }
 
       if (paymentMethod === 'pix') {
         redePayload.kind = "pix";
+        // Rede Pix minimal request
+        redePayload.qrCode = {
+          dateTimeExpiration: new Date(Date.now() + 3600000).toISOString().split('.')[0]
+        };
       } else {
         const [month, year] = String(cardData?.expiry || "/").split("/");
         if (!month || !year) throw new Error("Data de expiração inválida");
@@ -272,7 +260,6 @@ async function startServer() {
 
         redePayload = {
           ...redePayload,
-          kind: paymentMethod === 'debit' ? "debit" : "credit",
           cardholderName: cleanName,
           cardNumber: String(cardData.number || "").replace(/\D/g, ""),
           expirationMonth: parseInt(month, 10),
@@ -280,30 +267,30 @@ async function startServer() {
           securityCode: String(cardData.cvv || cardData.securityCode || "").trim().substring(0, 4)
         };
 
-        // Manual pg 20: Para pagamento à vista, omitir installments ou enviar > 1 para parcelado.
-        const instNum = parseInt(req.body.installments, 10);
-        if (instNum > 1) {
-          redePayload.installments = instNum;
+        // Only send installments if > 1 (Manual pg 20)
+        const instCount = parseInt(req.body.installments, 10);
+        if (instCount > 1) {
+          redePayload.installments = instCount;
         }
 
+        // Avoid anti-fraud blocks in production by sending device data for 3DS
         if (paymentMethod === 'debit') {
           redePayload.threeDSecure = { 
             embedded: true, 
             onFailure: "decline",
             userAgent: req.headers['user-agent'] || "Mozilla/5.0",
-            ipAddress: req.ip?.replace("::ffff:", "") || "127.0.0.1" 
+            ipAddress: "127.0.0.1" 
           };
         }
       }
 
-      // Safe Logging
-      const maskedPayload = { 
-        ...redePayload, 
-        cardNumber: redePayload.cardNumber ? redePayload.cardNumber.substring(0, 6) + '******' + redePayload.cardNumber.slice(-4) : undefined,
-        securityCode: redePayload.securityCode ? '***' : undefined
-      };
-      console.log(`[REDE-API] Chamando: ${redeUrl}`);
-      console.log(`[REDE-API] Payload:`, JSON.stringify(maskedPayload));
+      // Safe Logging for verification
+      const logPayload = { ...redePayload };
+      if (logPayload.cardNumber) logPayload.cardNumber = logPayload.cardNumber.substring(0,6) + "******";
+      if (logPayload.securityCode) logPayload.securityCode = "***";
+      
+      console.log(`[REDE-API] Chamando ${forceSandbox ? 'Sandbox' : 'Produção'}: ${redeUrl}`);
+      console.log(`[REDE-API] Payload:`, JSON.stringify(logPayload));
       
       let response;
       try {
@@ -319,13 +306,14 @@ async function startServer() {
         }
 
         return res.status(status).json({
-          error: "Erro na Operadora",
+          error: "Erro na Operadora/Configuração",
           message: msg,
           details: respData,
           debug: {
             url: redeUrl,
             pv: livePV.substring(0, 4) + '****',
-            sandbox: forceSandbox
+            sandbox: forceSandbox,
+            payloadKeys: Object.keys(redePayload)
           }
         });
       }
