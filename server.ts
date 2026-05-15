@@ -215,12 +215,14 @@ async function startServer() {
       }
 
       const redeAmount = Math.round(parsedAmount * 100);
-      const secureRef = String(transactionId || `R${Date.now()}`).replace(/[^a-zA-Z0-9]/g, "").substring(0, 16);
+      // Ensure unique reference every time to avoid Rede's "duplicate reference" 500 error
+      const secureRef = `F${Date.now()}`.substring(0, 16);
       
       const axiosConfig = { 
         headers: { 
           'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json' 
+          'Content-Type': 'application/json',
+          'Transaction-Response': 'brand-return-opened' 
         },
         timeout: 25000
       };
@@ -232,17 +234,8 @@ async function startServer() {
       let redePayload: any = {
         amount: redeAmount,
         reference: secureRef,
-        softDescriptor: "FESTAPASS"
+        capture: true
       };
-
-      if (customer) {
-        redePayload.customer = {
-          name: String(customer.name || "CLIENTE").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z ]/g, "").substring(0, 50),
-          documentNumber: String(customer.cnpj || customer.cpf || "04214446000170").replace(/\D/g, ""),
-          documentType: (customer.cnpj || (customer.documentType === 'CNPJ')) ? 'CNPJ' : 'CPF',
-          email: customer.email || "admin@modeloalpha.com.br"
-        };
-      }
 
       if (paymentMethod === 'pix') {
         redePayload.kind = "pix";
@@ -250,26 +243,31 @@ async function startServer() {
         const [month, year] = String(cardData?.expiry || "/").split("/");
         if (!month || !year) throw new Error("Data de expiração inválida");
 
+        const cleanName = String(cardData.holder || cardData.name || "CLIENTE")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-zA-Z ]/g, "")
+          .toUpperCase()
+          .trim()
+          .substring(0, 30);
+
         redePayload = {
           ...redePayload,
-          capture: true,
           kind: paymentMethod === 'debit' ? "debit" : "credit",
-          cardholderName: String(cardData.holder || cardData.name || "CLIENTE").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z ]/g, "").toUpperCase().substring(0, 30),
-          cardNumber: String(cardData.number || "").replace(/\s/g, ""),
-          expirationMonth: month.padStart(2, '0'),
-          expirationYear: year.length === 2 ? `20${year}` : year,
-          securityCode: String(cardData.cvv || cardData.securityCode || "").trim(),
-          installments: 1
+          cardholderName: cleanName,
+          cardNumber: String(cardData.number || "").replace(/\D/g, ""),
+          expirationMonth: parseInt(month, 10),
+          expirationYear: parseInt(year.length === 2 ? `20${year}` : year, 10),
+          securityCode: String(cardData.cvv || cardData.securityCode || "").trim().substring(0, 4)
         };
 
-        if (paymentMethod === 'debit') {
-          redePayload.threeDSecure = { 
-            embedded: true, 
-            onFailure: "decline", // Manual 1.32 pg 41: Auto-decline for debit if auth fails
-            userAgent: req.headers['user-agent'] || "Mozilla/5.0",
-            ipAddress: req.ip || "127.0.0.1"
-          };
-        }
+        // Manual pg 40/41: Device info is important for V2 stability
+        redePayload.threeDSecure = { 
+          embedded: true, 
+          onFailure: paymentMethod === 'debit' ? "decline" : "continue",
+          userAgent: req.headers['user-agent'] || "Mozilla/5.0",
+          ipAddress: "127.0.0.1" 
+        };
       }
 
       // Safe Logging
