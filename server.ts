@@ -100,10 +100,14 @@ async function startServer() {
       
       let isReal = !!((process.env.REDE_PV || process.env.RESGATE_PV) && (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN));
       if (db && !isReal) {
-        const settingsSnap = await db.collection("settings").doc("config").get();
-        if (settingsSnap.exists) {
-          const config = settingsSnap.data();
-          if (config?.redePV && config?.redeToken) isReal = true;
+        try {
+          const settingsSnap = await db.collection("settings").doc("config").get();
+          if (settingsSnap.exists) {
+            const config = settingsSnap.data();
+            if ((config?.redePV || config?.REDE_PV) && (config?.redeToken || config?.REDE_TOKEN)) isReal = true;
+          }
+        } catch (e) {
+          console.warn("[REDE-API] Checkout diagnostic settings fetch failed:", e);
         }
       }
 
@@ -135,37 +139,45 @@ async function startServer() {
       let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
       let forceSandbox = process.env.REDE_SANDBOX !== 'false';
 
-      const pvSource = process.env.REDE_PV ? 'REDE_PV' : (process.env.RESGATE_PV ? 'RESGATE_PV' : 'NONE');
+      const pvEnvSource = process.env.REDE_PV ? 'REDE_PV' : (process.env.RESGATE_PV ? 'RESGATE_PV' : 'NONE');
+      let configSource = 'ENV';
 
       if (db) {
         try {
           const settingsSnap = await db.collection("settings").doc("config").get();
           if (settingsSnap.exists) {
             const config = settingsSnap.data();
-            if (config?.redePV) livePV = String(config.redePV).trim();
-            if (config?.redeToken) liveToken = String(config.redeToken).trim();
+            if (config?.redePV || config?.REDE_PV) {
+              livePV = String(config.redePV || config.REDE_PV).trim();
+              configSource = 'FIRESTORE';
+            }
+            if (config?.redeToken || config?.REDE_TOKEN) {
+              liveToken = String(config.redeToken || config.REDE_TOKEN).trim();
+              configSource = 'FIRESTORE';
+            }
             if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
+            if (config?.REDE_SANDBOX !== undefined) forceSandbox = config.REDE_SANDBOX !== 'false' && config.REDE_SANDBOX !== false;
           }
         } catch (dbErr) {
           console.warn("[REDE-API] Failed to fetch settings from Firestore:", dbErr);
         }
       }
 
-      console.log(`[REDE-API] Config: PV=${livePV ? livePV.substring(0, 4) + '****' : 'MISSING'} (Source: ${pvSource}), Token=${liveToken ? 'EXISTS' : 'MISSING'}, Sandbox=${forceSandbox}`);
+      console.log(`[REDE-API] Config: PV=${livePV ? livePV.substring(0, 4) + '****' : 'MISSING'} (Source: ${configSource}/${pvEnvSource}), Token=${liveToken ? 'EXISTS' : 'MISSING'}, Sandbox=${forceSandbox}`);
 
-      if (!pv || !token) {
-        console.error(`[REDE-API] Configuration missing: REDE_PV or REDE_TOKEN is not set.`);
+      if (!livePV || !liveToken) {
+        console.error(`[REDE-API] Configuration missing: PV or Token is not set.`);
         return res.status(401).json({ 
           success: false,
           error: "Credenciais ausentes", 
-          message: "Credenciais REDE_PV ou REDE_TOKEN não configuradas." 
+          message: "Credenciais REDE_PV ou REDE_TOKEN não configuradas no Servidor ou no Firestore." 
         });
       }
 
       const redeAmount = Math.round(parsedAmount * 100);
       const secureRef = String(transactionId || `R${Date.now()}`).replace(/[^a-zA-Z0-9]/g, "").substring(0, 16);
       
-      const authBase64 = Buffer.from(`${pv}:${token}`).toString('base64');
+      const authBase64 = Buffer.from(`${livePV}:${liveToken}`).toString('base64');
       const axiosConfig = { 
         headers: { 
           'Authorization': `Basic ${authBase64}`,
