@@ -81,6 +81,12 @@ async function startServer() {
   // --- Rede API Integration ---
   const API_BASE = "/api/rede";
 
+  // Startup Diagnostics for Secrets
+  console.log(`[DIAGNOSTICS] REDE_PV: ${process.env.REDE_PV ? 'PRESENT' : 'MISSING'}`);
+  console.log(`[DIAGNOSTICS] REDE_TOKEN: ${process.env.REDE_TOKEN ? 'PRESENT' : 'MISSING'}`);
+  console.log(`[DIAGNOSTICS] RESGATE_PV: ${process.env.RESGATE_PV ? 'PRESENT' : 'MISSING'}`);
+  console.log(`[DIAGNOSTICS] REDE_SANDBOX: ${process.env.REDE_SANDBOX}`);
+
   // Endpoint to create a checkout session
   app.post(`${API_BASE}/create-checkout`, async (req, res) => {
     console.log(`[REDE-API] POST /create-checkout`);
@@ -125,24 +131,27 @@ async function startServer() {
       }
 
       // Fetch dynamic settings from DB
-      let livePV = process.env.REDE_PV || process.env.RESGATE_PV;
-      let liveToken = process.env.REDE_TOKEN || process.env.RESGATE_TOKEN;
+      let livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
+      let liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
       let forceSandbox = process.env.REDE_SANDBOX !== 'false';
 
+      const pvSource = process.env.REDE_PV ? 'REDE_PV' : (process.env.RESGATE_PV ? 'RESGATE_PV' : 'NONE');
+
       if (db) {
-        const settingsSnap = await db.collection("settings").doc("config").get();
-        if (settingsSnap.exists) {
-          const config = settingsSnap.data();
-          if (config?.redePV) livePV = config.redePV;
-          if (config?.redeToken) liveToken = config.redeToken;
-          if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
+        try {
+          const settingsSnap = await db.collection("settings").doc("config").get();
+          if (settingsSnap.exists) {
+            const config = settingsSnap.data();
+            if (config?.redePV) livePV = String(config.redePV).trim();
+            if (config?.redeToken) liveToken = String(config.redeToken).trim();
+            if (config?.isProduction !== undefined) forceSandbox = !config.isProduction;
+          }
+        } catch (dbErr) {
+          console.warn("[REDE-API] Failed to fetch settings from Firestore:", dbErr);
         }
       }
 
-      const pv = String(livePV || "").trim();
-      const token = String(liveToken || "").trim();
-
-      console.log(`[REDE-API] Config: PV=${pv ? pv.substring(0, 4) + '****' : 'MISSING'}, Token=${token ? 'EXISTS' : 'MISSING'}, Sandbox=${forceSandbox}`);
+      console.log(`[REDE-API] Config: PV=${livePV ? livePV.substring(0, 4) + '****' : 'MISSING'} (Source: ${pvSource}), Token=${liveToken ? 'EXISTS' : 'MISSING'}, Sandbox=${forceSandbox}`);
 
       if (!pv || !token) {
         console.error(`[REDE-API] Configuration missing: REDE_PV or REDE_TOKEN is not set.`);

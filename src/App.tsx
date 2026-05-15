@@ -61,6 +61,14 @@ function MainApp() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [longLoading, setLongLoading] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (loading) setLongLoading(true);
+    }, 10000);
+    return () => clearTimeout(timer);
+  }, [loading]);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -84,7 +92,10 @@ function MainApp() {
       setUser(authUser);
       const userRef = doc(db, 'users', authUser.uid);
       
-      // Delay listener slightly to ensure auth token is propagated to Firestore
+      let unsubProfile: (() => void) | null = null;
+      let retryCount = 0;
+      const MAX_RETRIES = 5;
+
       const startListener = () => {
         return onSnapshot(userRef, async (snap) => {
           if (snap.exists()) {
@@ -142,25 +153,20 @@ function MainApp() {
             } catch (e) {
               console.error("Auth sync error:", e);
               // Fallback to basic profile if query fails
-              const newProfile: UserProfile = {
-                uid: authUser.uid,
-                name: authUser.displayName || 'Usuário',
-                email: authUser.email || '',
-                balance: 0,
-                role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
-                qrCode: authUser.uid
-              };
-              await setDoc(userRef, newProfile).catch(err => console.error("Final fallback error:", err));
             } finally {
               setLoading(false);
             }
           }
         }, (err) => {
-          if (err.message.includes('permission')) {
-            console.warn("Retrying profile listener due to temporary permission issue...");
+          if (err.message.toLowerCase().includes('permission') && retryCount < MAX_RETRIES) {
+            retryCount++;
+            console.warn(`[AUTH] Retrying profile listener (${retryCount}/${MAX_RETRIES}) due to permission issue...`);
             setTimeout(() => {
-               unsubProfile = startListener();
-            }, 1000);
+               if (unsubProfile) {
+                 unsubProfile();
+                 unsubProfile = startListener();
+               }
+            }, 2000);
             return;
           }
           console.error("Profile onSnapshot error:", err);
@@ -169,9 +175,9 @@ function MainApp() {
         });
       };
 
-      let unsubProfile = startListener();
+      unsubProfile = startListener();
 
-      return () => unsubProfile();
+      return () => { if (unsubProfile) unsubProfile(); };
     });
 
     return () => unsubAuth();
@@ -228,25 +234,46 @@ function MainApp() {
             </div>
           </div>
           
-          <div className="space-y-3 text-center">
-            <h2 className="text-white font-black uppercase tracking-[0.4em] text-xs">Sistema Inteligente</h2>
-            <div className="flex items-center gap-1 justify-center">
-              {[0, 1, 2].map((i) => (
-                <motion.div
-                  key={i}
-                  animate={{ 
-                    scale: [1, 1.5, 1],
-                    opacity: [0.3, 1, 0.3] 
-                  }}
-                  transition={{ 
-                    repeat: Infinity, 
-                    duration: 1,
-                    delay: i * 0.2
-                  }}
-                  className="h-1.5 w-1.5 bg-blue-500 rounded-full"
-                />
-              ))}
+          <div className="space-y-4 text-center">
+            <div className="space-y-1">
+              <h2 className="text-white font-black uppercase tracking-[0.4em] text-xs">Sistema Inteligente</h2>
+              <div className="flex items-center gap-1 justify-center">
+                {[0, 1, 2].map((i) => (
+                  <motion.div
+                    key={i}
+                    animate={{ 
+                      scale: [1, 1.5, 1],
+                      opacity: [0.3, 1, 0.3] 
+                    }}
+                    transition={{ 
+                      repeat: Infinity, 
+                      duration: 1,
+                      delay: i * 0.2
+                    }}
+                    className="h-1.5 w-1.5 bg-blue-500 rounded-full"
+                  />
+                ))}
+              </div>
             </div>
+
+            {longLoading && (
+              <motion.div 
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 1 }}
+                className="space-y-4 pt-4"
+              >
+                <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest max-w-[200px] mx-auto">
+                  A inicialização está demorando mais que o esperado...
+                </p>
+                <Button 
+                  onClick={() => window.location.reload()} 
+                  variant="outline" 
+                  className="bg-white/5 border-white/10 text-white font-black uppercase tracking-widest text-[9px] h-10 px-4"
+                >
+                  Recarregar App
+                </Button>
+              </motion.div>
+            )}
           </div>
         </motion.div>
       </div>

@@ -310,27 +310,40 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           className="space-y-3"
         >
            <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Ops! Falhou</h3>
-           <p className="text-slate-400 font-bold text-sm max-w-[320px] leading-relaxed mx-auto px-4">
+           <p className="text-slate-400 font-bold text-sm max-w-[320px] leading-relaxed mx-auto px-4 mb-6">
              {paymentError || 'Não conseguimos processar o pagamento no momento.'}
            </p>
-           {paymentMethod !== 'pix' && (
-             <p className="text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-4">
-               Dica: Cartões de débito podem exigir aprovação no App do Banco.
-             </p>
-           )}
+
+           <div className="text-left space-y-3 p-5 bg-slate-950/50 rounded-2xl border border-white/5 mx-4">
+              <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
+                <Info className="h-3.5 w-3.5" />
+                Dicas para Resolver
+              </p>
+              <ul className="space-y-2">
+                <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                   <strong>Configuração:</strong> Verifique se as chaves REDE_PV e REDE_TOKEN foram coladas corretamente nos Segredos (Settings).
+                </li>
+                <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                   <strong>Modo Sandbox:</strong> Se usar chaves de Produção, mude <code className="text-blue-400">REDE_SANDBOX</code> para <code className="text-blue-400">false</code>.
+                </li>
+                <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
+                   <strong>Débito/Banco:</strong> Verifique se há saldo e se o banco exige autorização pelo App.
+                </li>
+              </ul>
+            </div>
         </motion.div>
 
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6 }}
-          className="mt-10 w-full flex flex-col gap-3"
+          className="mt-10 w-full flex flex-col gap-3 px-4"
         >
           <Button 
             onClick={() => setStatus('idle')}
             className="w-full h-14 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-[.2em] rounded-xl text-xs shadow-xl"
           >
-            Tentar com outro Cartão
+            Tentar Novamente
           </Button>
           <Button 
             variant="ghost"
