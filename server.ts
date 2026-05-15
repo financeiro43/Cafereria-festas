@@ -2,6 +2,7 @@
  * Rede API Integration - Environment Sync Ver: 1.0.4
  */
 import express from "express";
+import { createServer as createViteServer } from "vite";
 import path from "path";
 import cors from "cors";
 import { initializeApp, getApps, App } from "firebase-admin/app";
@@ -92,7 +93,6 @@ async function startServer() {
       return redeTokenCache[cacheKey].token;
     }
 
-    const isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() === 'true'; // Default to false unless explicitly true
     const tokenUrl = isSandbox 
       ? "https://rl7-sandbox-api.useredecloud.com.br/oauth2/token"
       : "https://api.userede.com.br/oauth2/token";
@@ -465,9 +465,8 @@ async function startServer() {
   // --- Static Assets & Development Middleware ---
 
   if (process.env.NODE_ENV !== "production") {
-    console.log("Loading Vite (Dev Mode)...");
+    console.log("Loading Vite middleware (Development)...");
     try {
-      const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
