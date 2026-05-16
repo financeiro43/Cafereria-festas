@@ -4,8 +4,19 @@
 import express from "express";
 import path from "path";
 import cors from "cors";
-import { initializeApp, getApps, App } from "firebase-admin/app";
-import { getFirestore, Firestore, FieldValue } from "firebase-admin/firestore";
+import { initializeApp, getApps, FirebaseApp } from "firebase/app";
+import { 
+  getFirestore, 
+  Firestore, 
+  doc, 
+  getDoc, 
+  updateDoc, 
+  increment, 
+  serverTimestamp, 
+  collection, 
+  addDoc, 
+  runTransaction 
+} from "firebase/firestore";
 import fs from "fs";
 import dotenv from "dotenv";
 import axios from "axios";
@@ -17,40 +28,27 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Initialize Firebase Admin
+  // Initialize Firebase (Client SDK)
   let db: Firestore | null = null;
   try {
     const configPath = path.resolve(process.cwd(), "firebase-applet-config.json");
     const apps = getApps();
     
-    let firebaseApp: App;
+    let firebaseApp: FirebaseApp;
     if (apps.length === 0) {
       if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-        firebaseApp = initializeApp({ projectId: config.projectId });
+        firebaseApp = initializeApp(config);
       } else {
-        firebaseApp = initializeApp();
+        throw new Error("firebase-applet-config.json not found");
       }
     } else {
-      firebaseApp = apps[0];
+      firebaseApp = apps[0] as FirebaseApp;
     }
-
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-      if (config.firestoreDatabaseId) {
-        try {
-          db = getFirestore(firebaseApp, config.firestoreDatabaseId);
-        } catch (fError: any) {
-          db = getFirestore(firebaseApp);
-        }
-      } else {
-        db = getFirestore(firebaseApp);
-      }
-    } else {
-      db = getFirestore(firebaseApp);
-    }
+    
+    db = getFirestore(firebaseApp);
   } catch (error: any) {
-    console.error("Firebase Admin initialization failed:", error?.message);
+    console.error("Firebase initialization failed:", error?.message);
   }
 
   // IMPORTANT: Middleware and API Routes FIRST
@@ -386,21 +384,21 @@ async function startServer() {
       if (redeData.returnCode === "00") {
         if (paymentMethod !== 'pix' && db) {
           try {
-            const userRef = db.collection("users").doc(userId);
-            const userDoc = await userRef.get();
-            if (userDoc.exists) {
-              await userRef.update({
-                balance: FieldValue.increment(parsedAmount),
-                lastRecharge: FieldValue.serverTimestamp()
+            const userRef = doc(db, "users", userId);
+            const userDoc = await getDoc(userRef);
+            if (userDoc.exists()) {
+              await updateDoc(userRef, {
+                balance: increment(parsedAmount),
+                lastRecharge: serverTimestamp()
               });
 
-              await db.collection("transactions").add({
+              await addDoc(collection(db, "transactions"), {
                 userId,
                 amount: parsedAmount,
                 type: "credit",
                 status: "completed",
                 description: `Recarga via ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} Rede`,
-                timestamp: FieldValue.serverTimestamp(),
+                timestamp: serverTimestamp(),
                 redeTid: redeData.tid,
                 nsu: redeData.nsu
               });
@@ -451,10 +449,10 @@ async function startServer() {
 
     try {
       // 1. Fetch transaction from our DB
-      const txnRef = db.collection("transactions").doc(tid);
-      const txnDoc = await txnRef.get();
+      const txnRef = doc(db, "transactions", tid);
+      const txnDoc = await getDoc(txnRef);
       
-      if (!txnDoc.exists) {
+      if (!txnDoc.exists()) {
         return res.status(404).json({ error: "Transação não encontrada" });
       }
 
@@ -493,18 +491,18 @@ async function startServer() {
       if (redeData.returnCode === "00" && (redeData.status === "Approved" || redeData.status === "Confirmed" || redeData.status === "Captured")) {
         const { userId, amount } = txnData;
         
-        await db.runTransaction(async (t) => {
-          const userRef = db.collection("users").doc(userId);
+        await runTransaction(db, async (t) => {
+          const userRef = doc(db, "users", userId);
           const userDoc = await t.get(userRef);
-          if (userDoc.exists) {
+          if (userDoc.exists()) {
             const currentBalance = userDoc.data()?.balance || 0;
             t.update(userRef, { 
               balance: currentBalance + amount,
-              updatedAt: FieldValue.serverTimestamp()
+              updatedAt: serverTimestamp()
             });
             t.update(txnRef, { 
               status: "completed", 
-              updatedAt: FieldValue.serverTimestamp(),
+              updatedAt: serverTimestamp(),
               redeData: redeData 
             });
           }
@@ -531,17 +529,17 @@ async function startServer() {
       const { transactionId, status } = req.body;
       if (!db) return res.status(500).json({ error: "DB error" });
       if (status === "approved") {
-        const txnRef = db.collection("transactions").doc(transactionId);
-        const txnDoc = await txnRef.get();
-        if (txnDoc.exists && txnDoc.data()?.status === "pending") {
+        const txnRef = doc(db, "transactions", transactionId);
+        const txnDoc = await getDoc(txnRef);
+        if (txnDoc.exists() && txnDoc.data()?.status === "pending") {
           const { userId, amount } = txnDoc.data()!;
-          await db.runTransaction(async (t) => {
-            const userRef = db.collection("users").doc(userId);
+          await runTransaction(db, async (t) => {
+            const userRef = doc(db, "users", userId);
             const userDoc = await t.get(userRef);
-            if (userDoc.exists) {
+            if (userDoc.exists()) {
               const currentBalance = userDoc.data()?.balance || 0;
               t.update(userRef, { balance: currentBalance + amount });
-              t.update(txnRef, { status: "completed", updatedAt: FieldValue.serverTimestamp() });
+              t.update(txnRef, { status: "completed", updatedAt: serverTimestamp() });
             }
           });
           return res.json({ success: true });
