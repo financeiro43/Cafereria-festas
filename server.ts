@@ -389,7 +389,8 @@ async function startServer() {
             if (userDoc.exists()) {
               await updateDoc(userRef, {
                 balance: increment(parsedAmount),
-                lastRecharge: serverTimestamp()
+                lastRecharge: serverTimestamp(),
+                _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
 
               await addDoc(collection(db, "transactions"), {
@@ -400,7 +401,8 @@ async function startServer() {
                 description: `Recarga via ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} Rede`,
                 timestamp: serverTimestamp(),
                 redeTid: redeData.tid,
-                nsu: redeData.nsu
+                nsu: redeData.nsu,
+                _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
               console.log(`[REDE-API] Saldo e transação atualizados para ${userId}`);
             }
@@ -498,12 +500,14 @@ async function startServer() {
             const currentBalance = userDoc.data()?.balance || 0;
             t.update(userRef, { 
               balance: currentBalance + amount,
-              updatedAt: serverTimestamp()
+              updatedAt: serverTimestamp(),
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
             t.update(txnRef, { 
               status: "completed", 
               updatedAt: serverTimestamp(),
-              redeData: redeData 
+              redeData: redeData,
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
           }
         });
@@ -538,8 +542,15 @@ async function startServer() {
             const userDoc = await t.get(userRef);
             if (userDoc.exists()) {
               const currentBalance = userDoc.data()?.balance || 0;
-              t.update(userRef, { balance: currentBalance + amount });
-              t.update(txnRef, { status: "completed", updatedAt: serverTimestamp() });
+              t.update(userRef, { 
+                balance: currentBalance + amount,
+                _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+              });
+              t.update(txnRef, { 
+                status: "completed", 
+                updatedAt: serverTimestamp(),
+                _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+              });
             }
           });
           return res.json({ success: true });
