@@ -1524,19 +1524,14 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                           </div>
                           <div className="flex items-center justify-between pt-3 border-t border-slate-50">
                              <p className="text-[10px] font-black text-blue-600 uppercase">Saldo: R$ {card.balance.toFixed(2)}</p>
-                             <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              onClick={async () => {
-                                if(confirm('Excluir este cartão?')) {
-                                  await deleteDoc(doc(db, 'users', card.uid));
-                                  toast.success('Cartão excluído');
-                                }
-                              }}
-                              className="h-6 w-6 text-slate-300 hover:text-red-500"
-                             >
-                               <Trash2 className="h-3 w-3" />
-                             </Button>
+                              <Button 
+                               variant="ghost" 
+                               size="icon" 
+                               onClick={() => handleDeleteUser(card.uid)}
+                               className="h-6 w-6 text-slate-300 hover:text-red-500"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
                           </div>
                         </div>
                       </Card>
@@ -1904,37 +1899,68 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
-        <DialogContent className="rounded-[32px] border-none shadow-2xl p-8 max-w-sm">
-          <DialogHeader className="space-y-4">
-            <div className="h-14 w-14 rounded-2xl bg-red-500/10 flex items-center justify-center text-red-500 mx-auto">
-              <Trash2 className="h-7 w-7" />
-            </div>
-            <DialogTitle className="text-2xl font-black text-center tracking-tight uppercase">Confirmar Exclusão</DialogTitle>
-            <DialogDescription className="text-center text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
-              Esta ação é permanente e não pode ser desfeita.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-6 text-center">
-            <p className="text-slate-600 font-medium">Tem certeza que deseja remover este {deleteConfirm?.type === 'stall' ? 'ponto de venda' : deleteConfirm?.type === 'product' ? 'produto' : 'usuário'}?</p>
-          </div>
-          <DialogFooter className="flex flex-col gap-2 sm:flex-col">
-            <Button 
-              onClick={() => {
-                deleteConfirm?.action();
-                setDeleteConfirm(null);
-              }}
-              className="w-full h-14 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px]"
-            >
-              Sim, Excluir Agora
-            </Button>
-            <Button 
-              variant="ghost" 
-              onClick={() => setDeleteConfirm(null)}
-              className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] text-slate-400"
-            >
-              Cancelar
-            </Button>
-          </DialogFooter>
+        <DialogContent className="rounded-[40px] border-none shadow-2xl p-0 max-w-sm overflow-hidden bg-white">
+          <AnimatePresence mode="wait">
+            {deleteConfirm && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 1.05, y: -10 }}
+                className="w-full"
+              >
+                <div className="bg-red-50 p-10 flex flex-col items-center justify-center">
+                  <motion.div
+                    initial={{ scale: 0, rotate: -180 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+                    className="h-20 w-20 rounded-3xl bg-red-500 text-white flex items-center justify-center shadow-xl shadow-red-500/30 mb-6"
+                  >
+                    <Trash2 className="h-10 w-10" strokeWidth={2.5} />
+                  </motion.div>
+                  <DialogHeader className="space-y-2">
+                    <DialogTitle className="text-2xl font-black text-center text-red-950 uppercase tracking-tighter">
+                      Confirmar Exclusão
+                    </DialogTitle>
+                    <p className="text-center text-[10px] font-black uppercase tracking-[0.2em] text-red-500/60">
+                      Ação Irreversível • Cuidado
+                    </p>
+                  </DialogHeader>
+                </div>
+
+                <div className="p-10 space-y-8">
+                  <div className="text-center space-y-4">
+                    <p className="text-slate-600 font-medium text-lg leading-relaxed">
+                      Tem certeza que deseja remover este <span className="font-black text-slate-900 border-b-2 border-red-200">
+                        {deleteConfirm?.type === 'stall' ? 'ponto de venda' : deleteConfirm?.type === 'product' ? 'produto' : 'usuário'}
+                      </span>?
+                    </p>
+                    <p className="text-xs text-slate-400 font-bold uppercase tracking-widest bg-slate-50 py-2 rounded-xl">
+                      {deleteConfirm?.id}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <Button 
+                      onClick={() => {
+                        deleteConfirm?.action();
+                        setDeleteConfirm(null);
+                      }}
+                      className="w-full h-16 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-xs shadow-xl shadow-red-600/20 active:scale-95 transition-all"
+                    >
+                      Sim, Confirmar Exclusão
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setDeleteConfirm(null)}
+                      className="w-full h-14 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all"
+                    >
+                      Não, Manter Registro
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </DialogContent>
       </Dialog>
     </div>

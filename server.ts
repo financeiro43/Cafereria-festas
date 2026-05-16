@@ -382,32 +382,53 @@ async function startServer() {
       console.log(`[REDE-API] Resposta Rede: ${redeData.returnCode} - ${redeData.returnMessage}`);
 
       if (redeData.returnCode === "00") {
-        if (paymentMethod !== 'pix' && db) {
+        if (db) {
           try {
             const userRef = doc(db, "users", userId);
             const userDoc = await getDoc(userRef);
+            
             if (userDoc.exists()) {
-              await updateDoc(userRef, {
-                balance: increment(parsedAmount),
-                lastRecharge: serverTimestamp(),
-                _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
-              });
+              const { setDoc } = await import("firebase/firestore");
+              const txnId = redeData.tid;
+              const txnRef = doc(db, "transactions", txnId);
 
-              await addDoc(collection(db, "transactions"), {
-                userId,
-                amount: parsedAmount,
-                type: "credit",
-                status: "completed",
-                description: `Recarga via ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} Rede`,
-                timestamp: serverTimestamp(),
-                redeTid: redeData.tid,
-                nsu: redeData.nsu,
-                _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
-              });
-              console.log(`[REDE-API] Saldo e transação atualizados para ${userId}`);
+              if (paymentMethod !== 'pix') {
+                // For Credit/Debit, apply balance immediately and mark completed
+                await updateDoc(userRef, {
+                  balance: increment(parsedAmount),
+                  lastRecharge: serverTimestamp(),
+                  _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+                });
+
+                await setDoc(txnRef, {
+                  userId,
+                  amount: parsedAmount,
+                  type: "credit",
+                  status: "completed",
+                  description: `Recarga via ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} Rede`,
+                  timestamp: serverTimestamp(),
+                  redeTid: redeData.tid,
+                  nsu: redeData.nsu,
+                  _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+                });
+                console.log(`[REDE-API] Saldo e transação (Cartão) atualizados: ${txnId}`);
+              } else {
+                // For Pix, create a PENDING transaction
+                await setDoc(txnRef, {
+                  userId,
+                  amount: parsedAmount,
+                  type: "credit",
+                  status: "pending",
+                  description: `Recarga via Pix Rede`,
+                  timestamp: serverTimestamp(),
+                  redeTid: redeData.tid,
+                  _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+                });
+                console.log(`[REDE-API] Transação Pix Pendente criada: ${txnId}`);
+              }
             }
           } catch (dbErr: any) {
-            console.error(`[REDE-API] Erro ao salvar saldo pós-aprovado: ${dbErr.message}`);
+            console.error(`[REDE-API] Erro ao salvar dados no DB: ${dbErr.message}`);
           }
         }
         

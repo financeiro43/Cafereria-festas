@@ -60,8 +60,10 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           const data = snap.data();
           if (data.status === 'completed') {
             setStatus('success');
-            toast.success('Pix confirmado!');
-            setTimeout(() => onSuccess(pixData.tid), 2000);
+            toast.success('Pagamento Confirmado!');
+            // No need for multiple timeouts here, status 'success' will show the UI
+            // Parent will handle closing the modal via onSuccess
+            onSuccess(pixData.tid);
           }
         }
       });
@@ -178,7 +180,10 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         
         description = rawMsg;
 
-      if (error.response?.status === 500) {
+        if (errorData.returnCode === "203") {
+          errorMsg = "Serviço de Autenticação (3DS) não Ativo";
+          description = "Seu PV da Rede não possui o serviço de autenticação 3DS habilitado. Isso é obrigatório para Transações de Débito. Use Crédito ou fale com a Rede para ativar o 3DS.";
+        } else if (error.response?.status === 500) {
            errorMsg = 'Erro Interno no Servidor (500)';
            const redeMsg = error.response.data?.returnMessage || error.response.data?.message || (Array.isArray(error.response.data?.errors) ? error.response.data.errors[0]?.message : null);
            description = redeMsg ? `Rede diz: ${redeMsg}` : 'O gateway da Rede retornou um erro interno. Verifique se o seu PV e Token estão em modo Produção ou Sandbox conforme configurado.';
