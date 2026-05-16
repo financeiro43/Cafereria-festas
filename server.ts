@@ -531,32 +531,34 @@ async function startServer() {
         ? `https://sandbox-erede.useredecloud.com.br/erede/v2/transactions/${queryId}` 
         : `https://api.userede.com.br/erede/v2/transactions/${queryId}`;
         
-      console.log(`[REDE-API] Requisição e.Rede V2 p/ ${queryId}`);
+      console.log(`[REDE-API] Verificando no ambiente: ${isSandbox ? 'SANDBOX' : 'PRODUÇÃO'} | ID: ${queryId}`);
       const response = await axios.get(redeUrl, axiosConfig);
       const redeData = response.data;
       
       console.log(`[REDE-API] Resposta Recebida:`, JSON.stringify(redeData));
 
-      // 5. Success Logic (Robust detection)
+      // 5. Success Logic (Robust detection across multiple fields and cases)
       const successCodes = ["00", "0"];
       const successStatuses = [
         "Approved", "Confirmed", "Captured", "Paid", "Success", "Authorized", 
         "captured", "approved", "paid", "confirmed", "success", "authorized",
         "CONFIRMADO", "APROVADO", "PAGO", "CAPTURADO", "SUCESSO", "AUTORIZADO",
-        "Confirmed_Pix", "Paid_Pix", "Authenticated", "AUTHORIZED", "SUCCESS", "PAID"
+        "Confirmed_Pix", "Paid_Pix", "Authenticated", "AUTHORIZED", "SUCCESS", "PAID",
+        "CAPTURED", "CONFIRMED"
       ];
       
       const rawStatus = String(redeData.status || "").trim();
       const rawCode = String(redeData.returnCode || "");
       
-      // Primary check: Return Code + Status Match
+      // Detection Logic:
+      // A) Code 00/0 and any success-related status
       const isStandardSuccess = successCodes.includes(rawCode) && 
                               (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
       
-      // Secondary check: Known successful return code even with alternative status
-      const isCodeSuccess = successCodes.includes(rawCode) && (!rawStatus || rawStatus === "undefined");
+      // B) Known successful return code even if status is missing/generic
+      const isCodeSuccess = successCodes.includes(rawCode) && (!rawStatus || rawStatus === "undefined" || rawStatus === "null");
       
-      // Tertiary check: Known successful status even with missing or zero return code
+      // C) Known successful status even if code is missing/generic
       const isStatusSuccess = rawStatus && (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
 
       const isApproved = isStandardSuccess || isCodeSuccess || isStatusSuccess;

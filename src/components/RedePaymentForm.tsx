@@ -278,33 +278,6 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     }
   };
 
-  const simulateSuccess = async () => {
-    if (!pixData?.tid) return;
-    setLoading(true);
-    try {
-      const txnRef = doc(db, 'transactions', pixData.tid);
-      const userRef = doc(db, 'users', uid);
-      
-      await updateDoc(txnRef, { 
-        status: 'completed',
-        timestamp: serverTimestamp(),
-        description: 'Recarga Pix (Simulada)',
-        _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
-      });
-      await updateDoc(userRef, {
-        balance: increment(amount),
-        updatedAt: serverTimestamp(),
-        _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
-      });
-      toast.success('Simulação concluída!');
-    } catch (e) {
-      console.error(e);
-      toast.error('Erro na simulação. Pode ser restrição de segurança.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const formatCardNumber = (value: string) => {
     return value.replace(/\W/gi, '').replace(/(.{4})/g, '$1 ').trim();
   };
@@ -609,21 +582,14 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
                       {copied ? 'Código Copiado!' : 'Copia e Cola (Pix)'}
                     </Button>
                     
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="flex w-full">
                        <Button 
                          onClick={checkStatus} 
                          disabled={loading}
-                         className="h-12 bg-white/5 hover:bg-white/10 text-white font-black uppercase tracking-widest text-[9px] rounded-xl border border-white/10"
+                         className="w-full h-14 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-[.2em] rounded-2xl shadow-xl flex items-center justify-center gap-2"
                        >
-                         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verificar'}
-                       </Button>
-                       <Button 
-                         onClick={simulateSuccess} 
-                         disabled={loading}
-                         variant="ghost"
-                         className="h-12 text-slate-600 hover:text-blue-400 font-black uppercase tracking-widest text-[8px] rounded-xl"
-                       >
-                         Simular Sucesso
+                         {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
+                         {loading ? 'Verificando...' : 'Verificar Pagamento'}
                        </Button>
                     </div>
 
