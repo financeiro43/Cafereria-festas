@@ -75,6 +75,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         try {
           // Add timestamp as query param to bust all possible caches
           const response = await axios.get(`/api/rede/verify-pix/${pixData.tid}?t=${Date.now()}`);
+          console.log('[REDE-FORM] Polling Check:', response.data);
           if (response.data.success) {
             console.log('[REDE-FORM] Polling confirmou pagamento!');
             setStatus('success');
@@ -260,6 +261,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     setLoading(true);
     try {
       const response = await axios.get(`/api/rede/verify-pix/${pixData.tid}?t=${Date.now()}`);
+      console.log('[REDE-FORM] Verificação manual:', response.data);
       if (response.data.success) {
         setStatus('success');
         toast.success('Pagamento Confirmado!');

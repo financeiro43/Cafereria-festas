@@ -248,18 +248,22 @@ async function startServer() {
 
       if (paymentMethod === 'pix') {
         // PIX Standard Payload for e-Rede V2
-        // expiration is in seconds for the root, dateTimeExpiration is ISO string for qrCode object
         const expirationSeconds = 86400; // 24 hours
         const expDate = new Date(Date.now() + expirationSeconds * 1000);
         
         redePayload = {
+          capture: false, // Pix is never captured automatically in the same sense as cards
           kind: "pix",
           reference: secureRef,
           amount: redeAmount,
           qrCodeResponse: true,
           expiration: expirationSeconds,
           qrCode: {
-            dateTimeExpiration: expDate.toISOString().split('.')[0] // ISO 8601 without ms
+            dateTimeExpiration: expDate.toISOString().split('.')[0] + 'Z' // Ensure Z suffix for ISO 8601
+          },
+          customer: {
+            name: customer?.name || "CLIENTE FESTAPASS",
+            email: customer?.email || "atendimento@festapass.com.br"
           },
           urls: [
             {
@@ -276,6 +280,10 @@ async function startServer() {
           reference: secureRef,
           amount: redeAmount,
           softDescriptor: "FESTAPASS",
+          customer: {
+            name: customer?.name || "CLIENTE FESTAPASS",
+            email: customer?.email || "atendimento@festapass.com.br"
+          },
           urls: [
             {
               url: "https://festapass.com.br/payment-callback",
@@ -315,12 +323,7 @@ async function startServer() {
         }
 
         if (paymentMethod === 'debit') {
-          // 3DS2 Requirements for risk analysis
-          redePayload.customer = {
-            name: cleanName,
-            email: customer?.email || "atendimento@festapass.com.br"
-          };
-          
+          // 3DS2 Requirements for risk analysis - Overwrite specific fields for Debit
           redePayload.threeDSecure = { 
             embedded: true, 
             onFailure: "decline",
@@ -354,14 +357,18 @@ async function startServer() {
       } catch (axiosError: any) {
         const status = axiosError.response?.status || 500;
         const respData = axiosError.response?.data;
-        console.error(`[REDE-API] Erro Rede HTTP ${status}:`, JSON.stringify(respData || axiosError.message));
+        
+        // CRITICAL: Robust logging of the exact error from Rede
+        console.error(`[REDE-API] Erro Rede HTTP ${status}:`, JSON.stringify(respData || axiosError.message, null, 2));
         
         let msg = axiosError.message;
         if (respData) {
           if (respData.returnCode === "3095") {
             msg = "Chave PIX não configurada no Portal Rede. Por favor, acesse o Portal Userede e configure uma chave PIX padrão para este PV.";
+          } else if (respData.errors && Array.isArray(respData.errors) && respData.errors.length > 0) {
+            msg = respData.errors.map((e: any) => `${e.message} (${e.parameter})`).join('; ');
           } else {
-            msg = respData.returnMessage || respData.message || (Array.isArray(respData.errors) ? respData.errors[0]?.message : (respData.error || null)) || JSON.stringify(respData);
+            msg = respData.returnMessage || respData.message || (respData.error || null) || JSON.stringify(respData);
           }
         }
 
@@ -381,7 +388,9 @@ async function startServer() {
       const redeData = response.data;
       console.log(`[REDE-API] Resposta Rede: ${redeData.returnCode} - ${redeData.returnMessage}`);
 
-      if (redeData.returnCode === "00") {
+      const isSuccess = redeData.returnCode === "00" || redeData.returnCode === "0";
+
+      if (isSuccess) {
         if (db) {
           try {
             const userRef = doc(db, "users", userId);
@@ -472,6 +481,7 @@ async function startServer() {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
+    res.setHeader("Vary", "*");
 
     if (!db) return res.status(500).json({ error: "Banco de dados não inicializado" });
 
@@ -506,21 +516,26 @@ async function startServer() {
       };
 
       // 4. Query Rede for transaction status (V2)
-      // Fix: Added missing /erede in sandbox URL and ensured tid is correctly passed
       const redeUrl = isSandbox 
         ? `https://sandbox-erede.useredecloud.com.br/erede/v2/transactions/${txnData.redeTid || tid}` 
         : `https://api.userede.com.br/erede/v2/transactions/${txnData.redeTid || tid}`;
         
-      console.log(`[REDE-API] Verificando Rede V2: ${redeUrl}`);
+      console.log(`[REDE-API] Verificando Rede V2 TID=${tid}: ${redeUrl}`);
       const response = await axios.get(redeUrl, axiosConfig);
       const redeData = response.data;
       
-      console.log(`[REDE-API] Resposta Transação ${tid}:`, JSON.stringify(redeData));
+      console.log(`[REDE-API] Resposta Rede para ${tid}:`, JSON.stringify(redeData));
 
       // 5. Update balance if approved
       // Expanded possible success statuses for Pix/Cards
-      const successStatuses = ["Approved", "Confirmed", "Captured", "Paid", "Success", "Authorized", "captured", "approved", "paid"];
-      const isApproved = (redeData.returnCode === "00" || redeData.returnCode === "0") && successStatuses.includes(redeData.status);
+      const successStatuses = [
+        "Approved", "Confirmed", "Captured", "Paid", "Success", "Authorized", 
+        "captured", "approved", "paid", "confirmed", "success", "authorized",
+        "CONFIRMADO", "APROVADO", "PAGO", "CAPTURADO", "SUCESSO", "AUTORIZADO",
+        "Confirmed_Pix", "Paid_Pix"
+      ];
+      const isApproved = (redeData.returnCode === "00" || redeData.returnCode === "0") && 
+                        (successStatuses.includes(redeData.status) || successStatuses.includes(String(redeData.status).toUpperCase()));
 
       if (isApproved) {
         const { userId, amount } = txnData;
