@@ -55,19 +55,40 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
   // Listen for Pix payment confirmation
   React.useEffect(() => {
     if (status === 'awaiting_pix' && pixData?.tid) {
+      // 1. Real-time listener (Primary)
       const unsub = onSnapshot(doc(db, 'transactions', pixData.tid), (snap: any) => {
         if (snap.exists()) {
           const data = snap.data();
           if (data.status === 'completed') {
+            console.log('[REDE-FORM] Snapshot confirmou pagamento!');
             setStatus('success');
             toast.success('Pagamento Confirmado!');
-            // No need for multiple timeouts here, status 'success' will show the UI
-            // Parent will handle closing the modal via onSuccess
             onSuccess(pixData.tid);
           }
         }
+      }, (err) => {
+        console.error('[REDE-FORM] Erro no snapshot:', err);
       });
-      return () => unsub();
+
+      // 2. Polling Fallback (Backup)
+      const pollInterval = setInterval(async () => {
+        try {
+          const response = await axios.get(`/api/rede/verify-pix/${pixData.tid}`);
+          if (response.data.success) {
+            console.log('[REDE-FORM] Polling confirmou pagamento!');
+            setStatus('success');
+            onSuccess(pixData.tid!);
+            clearInterval(pollInterval);
+          }
+        } catch (e) {
+          console.error('[REDE-FORM] Erro no polling de confirmação:', e);
+        }
+      }, 7000); // Poll every 7 seconds
+
+      return () => {
+        unsub();
+        clearInterval(pollInterval);
+      };
     }
   }, [status, pixData?.tid, onSuccess]);
 
@@ -240,6 +261,8 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       const response = await axios.get(`/api/rede/verify-pix/${pixData.tid}`);
       if (response.data.success) {
         setStatus('success');
+        toast.success('Pagamento Confirmado!');
+        onSuccess(pixData.tid);
       } else {
         toast.info(response.data.message || 'Pagamento ainda não identificado.');
       }
