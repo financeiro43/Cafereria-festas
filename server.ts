@@ -537,13 +537,13 @@ async function startServer() {
       
       console.log(`[REDE-API] Resposta Recebida:`, JSON.stringify(redeData));
 
-      // 5. Success Logic (Robust detection across multiple fields and cases)
+      // 5. Success Logic (Robust detection)
       const successCodes = ["00", "0"];
       const successStatuses = [
         "Approved", "Confirmed", "Captured", "Paid", "Success", "Authorized", 
         "captured", "approved", "paid", "confirmed", "success", "authorized",
         "CONFIRMADO", "APROVADO", "PAGO", "CAPTURADO", "SUCESSO", "AUTORIZADO",
-        "Confirmed_Pix", "Paid_Pix", "Authenticated"
+        "Confirmed_Pix", "Paid_Pix", "Authenticated", "AUTHORIZED", "SUCCESS", "PAID"
       ];
       
       const rawStatus = String(redeData.status || "").trim();
@@ -554,19 +554,18 @@ async function startServer() {
                               (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
       
       // Secondary check: Known successful return code even with alternative status
-      const isCodeSuccess = successCodes.includes(rawCode) && (rawStatus === "" || !rawStatus);
+      const isCodeSuccess = successCodes.includes(rawCode) && (!rawStatus || rawStatus === "undefined");
       
-      // Tertiary check: Known successful status even with missing return code
-      const isStatusSuccess = successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase());
+      // Tertiary check: Known successful status even with missing or zero return code
+      const isStatusSuccess = rawStatus && (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
 
       const isApproved = isStandardSuccess || isCodeSuccess || isStatusSuccess;
 
       if (isApproved) {
         const { userId, amount } = txnData;
-        console.log(`[REDE-API] PAGAMENTO APROVADO! User: ${userId} | Valor: ${amount}`);
+        console.log(`[REDE-API] PAGAMENTO APROVADO! User: ${userId} | Valor: ${amount} | Status: ${rawStatus} | Code: ${rawCode}`);
         
         try {
-          // Atomic update using runTransaction to prevent race conditions
           await runTransaction(db, async (t) => {
             const userRef = doc(db, "users", userId);
             const userDoc = await t.get(userRef);
@@ -583,23 +582,32 @@ async function startServer() {
               t.update(txnRef, { 
                 status: "completed", 
                 updatedAt: serverTimestamp(),
-                redeData: redeData, // Log the full response for auditing
+                redeData: redeData,
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
+            } else {
+              console.error(`[REDE-API] ERRO: Usuário ${userId} não encontrado no Firestore durante a atualização de saldo.`);
+              throw new Error("User document missing");
             }
           });
           
-          console.log(`[REDE-API] Saldo creditado e transação finalizada.`);
+          console.log(`[REDE-API] Saldo creditado e transação finalizada com sucesso.`);
           return res.json({ 
             success: true, 
             status: "completed", 
             pago: true,
             message: "Pagamento confirmado e saldo creditado com sucesso!",
-            redeStatus: rawStatus
+            redeStatus: rawStatus,
+            redeCode: rawCode
           });
         } catch (transErr: any) {
-          console.error(`[REDE-API] Erro atômico no Firestore:`, transErr.message);
-          throw transErr;
+          console.error(`[REDE-API] ERRO FIRESTORE NO SERVER: Code=${transErr.code} | Message=${transErr.message}`);
+          return res.status(500).json({ 
+            success: false, 
+            error: "Erro ao atualizar saldo no banco de dados", 
+            details: transErr.message,
+            code: transErr.code
+          });
         }
       }
 
