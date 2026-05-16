@@ -473,9 +473,10 @@ async function startServer() {
   });
 
   // Manual status check for Pix (Alternative to Webhook)
+  // Production-grade verification with robust status detection
   app.get(`${API_BASE}/verify-pix/:tid`, async (req, res) => {
     const { tid } = req.params;
-    console.log(`[REDE-API] GET /verify-pix/${tid}`);
+    console.log(`[REDE-API] Verificando TID/Referência: ${tid}`);
     
     // Prevent caching for verification endpoint
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -483,68 +484,93 @@ async function startServer() {
     res.setHeader("Expires", "0");
     res.setHeader("Vary", "*");
 
-    if (!db) return res.status(500).json({ error: "Banco de dados não inicializado" });
+    if (!db) return res.status(500).json({ error: "Banco de dados não disponível" });
 
     try {
-      // 1. Fetch transaction from our DB
+      // 1. Fetch transaction metadata from Firestore
       const txnRef = doc(db, "transactions", tid);
       const txnDoc = await getDoc(txnRef);
       
       if (!txnDoc.exists()) {
-        console.error(`[REDE-API] Transação ${tid} não encontrada no Firestore.`);
-        return res.status(404).json({ error: "Transação não encontrada" });
+        console.error(`[REDE-API] Transação ${tid} não encontrada no banco local.`);
+        return res.status(404).json({ error: "Transação não encontrada", details: "ID inválido ou transação não iniciada." });
       }
 
       const txnData = txnDoc.data()!;
+      
+      // If already completed, return success immediately
       if (txnData.status === "completed") {
-        return res.json({ success: true, status: "completed", message: "Pagamento já processado" });
+        return res.json({ 
+          success: true, 
+          status: "completed", 
+          pago: true,
+          message: "Pagamento já confirmado anteriormente." 
+        });
       }
 
-      // 2. Fetch credentials - STRICTLY USE ENVIRONMENT VARIABLES
+      // 2. Fetch credentials
       const livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
       const liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
       const isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() === 'true';
 
-      // 3. Obtain OAuth Token for Query
+      // 3. Obtain OAuth Token
       const accessToken = await getRedeAccessToken(livePV, liveToken, isSandbox);
 
       const axiosConfig = { 
         headers: { 
           'Authorization': `Bearer ${accessToken}`,
-          'User-Agent': 'FestaPass/1.0 (Integration; e-Rede)'
-        } 
+          'User-Agent': 'FestaPass/1.0 (Integration; e-Rede; Production-Proxy)'
+        },
+        timeout: 10000 
       };
 
-      // 4. Query Rede for transaction status (V2)
+      // 4. Query Rede for transaction status (V2 API)
+      // We look for both tid from route and internal redeTid stored in document
+      const queryId = txnData.redeTid || tid;
       const redeUrl = isSandbox 
-        ? `https://sandbox-erede.useredecloud.com.br/erede/v2/transactions/${txnData.redeTid || tid}` 
-        : `https://api.userede.com.br/erede/v2/transactions/${txnData.redeTid || tid}`;
+        ? `https://sandbox-erede.useredecloud.com.br/erede/v2/transactions/${queryId}` 
+        : `https://api.userede.com.br/erede/v2/transactions/${queryId}`;
         
-      console.log(`[REDE-API] Verificando Rede V2 TID=${tid}: ${redeUrl}`);
+      console.log(`[REDE-API] Requisição e.Rede V2 p/ ${queryId}`);
       const response = await axios.get(redeUrl, axiosConfig);
       const redeData = response.data;
       
-      console.log(`[REDE-API] Resposta Rede para ${tid}:`, JSON.stringify(redeData));
+      console.log(`[REDE-API] Resposta Recebida:`, JSON.stringify(redeData));
 
-      // 5. Update balance if approved
-      // Expanded possible success statuses for Pix/Cards
+      // 5. Success Logic (Robust detection across multiple fields and cases)
+      const successCodes = ["00", "0"];
       const successStatuses = [
         "Approved", "Confirmed", "Captured", "Paid", "Success", "Authorized", 
         "captured", "approved", "paid", "confirmed", "success", "authorized",
         "CONFIRMADO", "APROVADO", "PAGO", "CAPTURADO", "SUCESSO", "AUTORIZADO",
-        "Confirmed_Pix", "Paid_Pix"
+        "Confirmed_Pix", "Paid_Pix", "Authenticated"
       ];
-      const isApproved = (redeData.returnCode === "00" || redeData.returnCode === "0") && 
-                        (successStatuses.includes(redeData.status) || successStatuses.includes(String(redeData.status).toUpperCase()));
+      
+      const rawStatus = String(redeData.status || "").trim();
+      const rawCode = String(redeData.returnCode || "");
+      
+      // Primary check: Return Code + Status Match
+      const isStandardSuccess = successCodes.includes(rawCode) && 
+                              (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
+      
+      // Secondary check: Known successful return code even with alternative status
+      const isCodeSuccess = successCodes.includes(rawCode) && (rawStatus === "" || !rawStatus);
+      
+      // Tertiary check: Known successful status even with missing return code
+      const isStatusSuccess = successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase());
+
+      const isApproved = isStandardSuccess || isCodeSuccess || isStatusSuccess;
 
       if (isApproved) {
         const { userId, amount } = txnData;
-        console.log(`[REDE-API] Transação Aprovada! Atualizando saldo para user ${userId}...`);
+        console.log(`[REDE-API] PAGAMENTO APROVADO! User: ${userId} | Valor: ${amount}`);
         
         try {
+          // Atomic update using runTransaction to prevent race conditions
           await runTransaction(db, async (t) => {
             const userRef = doc(db, "users", userId);
             const userDoc = await t.get(userRef);
+            
             if (userDoc.exists()) {
               const currentBalance = userDoc.data()?.balance || 0;
               t.update(userRef, { 
@@ -553,41 +579,48 @@ async function startServer() {
                 updatedAt: serverTimestamp(),
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
+              
               t.update(txnRef, { 
                 status: "completed", 
                 updatedAt: serverTimestamp(),
-                redeData: redeData,
+                redeData: redeData, // Log the full response for auditing
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
             }
           });
-          console.log(`[REDE-API] Saldo e transação finalizados com sucesso.`);
+          
+          console.log(`[REDE-API] Saldo creditado e transação finalizada.`);
           return res.json({ 
             success: true, 
             status: "completed", 
             pago: true,
-            message: "Pagamento confirmado e saldo creditado!",
-            redeStatus: redeData.status
+            message: "Pagamento confirmado e saldo creditado com sucesso!",
+            redeStatus: rawStatus
           });
         } catch (transErr: any) {
-          console.error(`[REDE-API] Falha na Transação Firestore: ${transErr.message}`);
+          console.error(`[REDE-API] Erro atômico no Firestore:`, transErr.message);
           throw transErr;
         }
       }
 
-      console.log(`[REDE-API] Transação ainda pendente ou negada. Código: ${redeData.returnCode}, Status: ${redeData.status}`);
+      // 6. If not approved, return current pending state
+      console.log(`[REDE-API] Transação pendente/negada. Code: ${rawCode}, Status: ${rawStatus}`);
       return res.json({ 
         success: false, 
         pago: false,
-        status: txnData.status, 
-        redeStatus: redeData.status,
-        message: "O pagamento ainda não foi confirmado pela operadora."
+        status: "pending", 
+        redeStatus: rawStatus || "Pendente",
+        message: `O pagamento consta como "${rawStatus || 'Processando'}" na Rede. Por favor, aguarde a confirmação.`
       });
+
     } catch (error: any) {
-      console.error(`[REDE-API] Erro na Verificação Pix:`, error.response?.data || error.message);
+      const errorMsg = error.response?.data?.returnMessage || error.message;
+      console.error(`[REDE-API] Falha crítica na verificação:`, error.response?.data || error.message);
+      
       res.status(500).json({ 
-        error: "Erro ao verificar status", 
-        details: error.response?.data?.returnMessage || error.message 
+        error: "Erro na verificação", 
+        details: errorMsg,
+        status: "error"
       });
     }
   });

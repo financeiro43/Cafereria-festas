@@ -81,6 +81,8 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
             setStatus('success');
             onSuccess(pixData.tid!);
             clearInterval(pollInterval);
+          } else {
+            console.log('[REDE-FORM] Polling Status:', response.data.redeStatus);
           }
         } catch (e) {
           console.error('[REDE-FORM] Erro no polling de confirmação:', e);
