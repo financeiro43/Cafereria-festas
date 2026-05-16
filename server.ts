@@ -519,8 +519,8 @@ async function startServer() {
 
       // 5. Update balance if approved
       // Expanded possible success statuses for Pix/Cards
-      const successStatuses = ["Approved", "Confirmed", "Captured", "Paid", "Success", "Authorized"];
-      const isApproved = redeData.returnCode === "00" && successStatuses.includes(redeData.status);
+      const successStatuses = ["Approved", "Confirmed", "Captured", "Paid", "Success", "Authorized", "captured", "approved", "paid"];
+      const isApproved = (redeData.returnCode === "00" || redeData.returnCode === "0") && successStatuses.includes(redeData.status);
 
       if (isApproved) {
         const { userId, amount } = txnData;
@@ -547,7 +547,13 @@ async function startServer() {
             }
           });
           console.log(`[REDE-API] Saldo e transação finalizados com sucesso.`);
-          return res.json({ success: true, status: "completed", message: "Pagamento confirmado e saldo creditado!" });
+          return res.json({ 
+            success: true, 
+            status: "completed", 
+            pago: true,
+            message: "Pagamento confirmado e saldo creditado!",
+            redeStatus: redeData.status
+          });
         } catch (transErr: any) {
           console.error(`[REDE-API] Falha na Transação Firestore: ${transErr.message}`);
           throw transErr;
@@ -557,6 +563,7 @@ async function startServer() {
       console.log(`[REDE-API] Transação ainda pendente ou negada. Código: ${redeData.returnCode}, Status: ${redeData.status}`);
       return res.json({ 
         success: false, 
+        pago: false,
         status: txnData.status, 
         redeStatus: redeData.status,
         message: "O pagamento ainda não foi confirmado pela operadora."
