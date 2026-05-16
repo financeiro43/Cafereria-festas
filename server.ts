@@ -544,18 +544,20 @@ async function startServer() {
         "captured", "approved", "paid", "confirmed", "success", "authorized",
         "CONFIRMADO", "APROVADO", "PAGO", "CAPTURADO", "SUCESSO", "AUTORIZADO",
         "Confirmed_Pix", "Paid_Pix", "Authenticated", "AUTHORIZED", "SUCCESS", "PAID",
-        "CAPTURED", "CONFIRMED"
+        "CAPTURED", "CONFIRMED", "APPROVED_PIX", "PAID_PIX", "CONFIRMED_PIX"
       ];
       
       const rawStatus = String(redeData.status || "").trim();
       const rawCode = String(redeData.returnCode || "");
       
+      console.log(`[REDE-API] Analisando Status: "${rawStatus}" | Code: "${rawCode}"`);
+
       // Detection Logic:
       // A) Code 00/0 and any success-related status
       const isStandardSuccess = successCodes.includes(rawCode) && 
                               (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
       
-      // B) Known successful return code even if status is missing/generic
+      // B) Known successful return code even if status is missing/generic (caution for Pix)
       const isCodeSuccess = successCodes.includes(rawCode) && (!rawStatus || rawStatus === "undefined" || rawStatus === "null");
       
       // C) Known successful status even if code is missing/generic
@@ -568,12 +570,19 @@ async function startServer() {
         console.log(`[REDE-API] PAGAMENTO APROVADO! User: ${userId} | Valor: ${amount} | Status: ${rawStatus} | Code: ${rawCode}`);
         
         try {
+          // Verify if UID exists before proceeding (Safety Check)
+          const userRef = doc(db, "users", userId);
+          const userDoc = await getDoc(userRef);
+          
+          if (!userDoc.exists()) {
+             console.error(`[REDE-API] ERRO CRÍTICO: Usuário ${userId} não existe no Firestore.`);
+             return res.status(404).json({ success: false, error: "Usuário não encontrado no sistema local." });
+          }
+
           await runTransaction(db, async (t) => {
-            const userRef = doc(db, "users", userId);
-            const userDoc = await t.get(userRef);
-            
-            if (userDoc.exists()) {
-              const currentBalance = userDoc.data()?.balance || 0;
+            const uDoc = await t.get(userRef);
+            if (uDoc.exists()) {
+              const currentBalance = uDoc.data()?.balance || 0;
               t.update(userRef, { 
                 balance: currentBalance + amount,
                 lastRecharge: serverTimestamp(),
@@ -587,40 +596,38 @@ async function startServer() {
                 redeData: redeData,
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
-            } else {
-              console.error(`[REDE-API] ERRO: Usuário ${userId} não encontrado no Firestore durante a atualização de saldo.`);
-              throw new Error("User document missing");
             }
           });
           
-          console.log(`[REDE-API] Saldo creditado e transação finalizada com sucesso.`);
+          console.log(`[REDE-API] Sucesso: Saldo creditado e transação finalizada.`);
           return res.json({ 
             success: true, 
             status: "completed", 
             pago: true,
-            message: "Pagamento confirmado e saldo creditado com sucesso!",
+            message: "Pagamento confirmado e saldo creditado!",
             redeStatus: rawStatus,
             redeCode: rawCode
           });
         } catch (transErr: any) {
-          console.error(`[REDE-API] ERRO FIRESTORE NO SERVER: Code=${transErr.code} | Message=${transErr.message}`);
+          console.error(`[REDE-API] ERRO NO FIRESTORE (runTransaction):`, transErr);
           return res.status(500).json({ 
             success: false, 
-            error: "Erro ao atualizar saldo no banco de dados", 
+            error: "Erro ao processar transação no banco", 
             details: transErr.message,
             code: transErr.code
           });
         }
       }
 
-      // 6. If not approved, return current pending state
-      console.log(`[REDE-API] Transação pendente/negada. Code: ${rawCode}, Status: ${rawStatus}`);
+      // 6. If not approved, return current pending state with Rede context
+      console.log(`[REDE-API] Pagamento não confirmado na Rede ainda. Status Atual: ${rawStatus}`);
       return res.json({ 
         success: false, 
         pago: false,
         status: "pending", 
         redeStatus: rawStatus || "Pendente",
-        message: `O pagamento consta como "${rawStatus || 'Processando'}" na Rede. Por favor, aguarde a confirmação.`
+        redeCode: rawCode,
+        message: `O pagamento ainda consta como "${rawStatus || 'Processando'}" na Rede. Verifique se o Pix foi realmente transferido.`
       });
 
     } catch (error: any) {

@@ -73,21 +73,24 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       // 2. Polling Fallback (Backup)
       const pollInterval = setInterval(async () => {
         try {
+          const tid = pixData.tid;
           // Add timestamp as query param to bust all possible caches
-          const response = await axios.get(`/api/rede/verify-pix/${pixData.tid}?t=${Date.now()}`);
-          console.log('[REDE-FORM] Polling Check:', response.data);
+          const response = await axios.get(`/api/rede/verify-pix/${tid}?t=${Date.now()}`);
+          console.log('[REDE-FORM] Auto-Verificação Pix:', response.data);
+          
           if (response.data.success) {
-            console.log('[REDE-FORM] Polling confirmou pagamento!');
+            console.log('[REDE-FORM] Auto-Verificação confirmou pagamento!');
             setStatus('success');
-            onSuccess(pixData.tid!);
+            toast.success('Pagamento Confirmado!', { 
+              description: 'Seu saldo já foi creditado automaticamente.' 
+            });
+            onSuccess(tid);
             clearInterval(pollInterval);
-          } else {
-            console.log('[REDE-FORM] Polling Status:', response.data.redeStatus);
           }
         } catch (e) {
-          console.error('[REDE-FORM] Erro no polling de confirmação:', e);
+          console.error('[REDE-FORM] Erro no polling:', e);
         }
-      }, 7000); // Poll every 7 seconds
+      }, 8000); // Poll every 8 seconds
 
       return () => {
         unsub();
@@ -264,15 +267,26 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     try {
       const response = await axios.get(`/api/rede/verify-pix/${pixData.tid}?t=${Date.now()}`);
       console.log('[REDE-FORM] Verificação manual:', response.data);
+      
       if (response.data.success) {
         setStatus('success');
-        toast.success('Pagamento Confirmado!');
+        toast.success('Pagamento Confirmado!', {
+          description: 'O saldo já foi adicionado à sua conta.'
+        });
         onSuccess(pixData.tid);
       } else {
-        toast.info(response.data.message || 'Pagamento ainda não identificado.');
+        const redeStatus = response.data.redeStatus || 'Pendente';
+        const redeCode = response.data.redeCode || '---';
+        
+        toast.info(`Status: ${redeStatus}`, {
+          description: `Código Rede: ${redeCode}. O pagamento ainda não foi processado pela operadora.`,
+          duration: 5000
+        });
       }
-    } catch (e) {
-      toast.error('Erro ao verificar status. Tente novamente em instantes.');
+    } catch (e: any) {
+      console.error('[REDE-FORM] Erro checkStatus:', e);
+      const msg = e.response?.data?.details || e.response?.data?.message || 'Falha na conexão com o servidor.';
+      toast.error('Erro na Verificação', { description: msg });
     } finally {
       setLoading(false);
     }
