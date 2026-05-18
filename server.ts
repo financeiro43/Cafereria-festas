@@ -548,10 +548,11 @@ async function startServer() {
         "CONCLUIDO", "TRANSACAO_CONCLUIDA", "LIQUIDADO"
       ];
       
-      const rawStatus = String(redeData.status || redeData.returnMessage || "").trim();
-      const rawCode = String(redeData.returnCode || "");
+      const authData = redeData.authorization || {};
+      const rawStatus = String(redeData.status || authData.status || redeData.returnMessage || "").trim();
+      const rawCode = String(redeData.returnCode || authData.returnCode || "").trim();
       
-      console.log(`[REDE-API] Analisando Status: "${rawStatus}" | Code: "${rawCode}"`);
+      console.log(`[REDE-API] Analisando Status: "${rawStatus}" | Code: "${rawCode}" | Nest: ${authData.status ? 'AuthObj' : 'Root'}`);
 
       // Detection Logic:
       // A) Code 00/0 and any success-related status
