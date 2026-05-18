@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { UserProfile, Product, Stall, Order, CartItem } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { QrCode, ShoppingCart, Users, LogOut, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2, Search, ChevronLeft, ChevronRight, BarChart3, TrendingUp, Package, Zap, ChevronDown, ChevronUp, Wifi, WifiOff } from 'lucide-react';
+import { QrCode, ShoppingCart, Users, LogOut, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2, Search, ChevronLeft, ChevronRight, BarChart3, TrendingUp, Package, Zap, ChevronDown, ChevronUp, Wifi, WifiOff, Receipt, CheckCircle2, UserCheck, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -86,6 +86,12 @@ export default function VendorDashboard({
     productSales: {} as Record<string, { count: number; revenue: number; name: string }> 
   });
   const [statsLoading, setStatsLoading] = useState(false);
+  const [lastSale, setLastSale] = useState<{
+    userName: string;
+    total: number;
+    items: string[];
+    timestamp: Date;
+  } | null>(null);
 
   useEffect(() => {
     if (profile.role === 'admin') {
@@ -394,6 +400,14 @@ export default function VendorDashboard({
         type: 'success',
         title: 'Venda Concluída!',
         message: `O pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso para ${scannedUser.name}.\n\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+      });
+
+      // Guardar detalhes para conferência na aba Pedidos
+      setLastSale({
+        userName: scannedUser.name,
+        total: cartTotal,
+        items: cart.map(item => `${item.quantity}x ${item.name}`),
+        timestamp: new Date()
       });
 
       // Clear cart and client for the next sale
@@ -839,6 +853,74 @@ export default function VendorDashboard({
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Seção de Última Venda Realizada - Para Conferência */}
+              {lastSale && (
+                <motion.div 
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="col-span-full"
+                >
+                  <Card className="bg-emerald-500/10 border-emerald-500/20 text-emerald-100 rounded-[32px] overflow-hidden">
+                    <CardHeader className="bg-emerald-500/10 border-b border-emerald-500/10 p-5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                            <CheckCircle2 className="h-5 w-5 text-white" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-sm font-black uppercase tracking-widest text-emerald-400">Última Venda Realizada</CardTitle>
+                            <CardDescription className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-widest">Concluída há pouco para conferência</CardDescription>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-black tabular-nums bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-500/10">
+                          {lastSale.timestamp.toLocaleTimeString('pt-BR')}
+                        </span>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                        <div className="space-y-4">
+                          <div className="bg-black/20 p-4 rounded-2xl border border-emerald-500/10">
+                             <div className="flex items-center gap-2 mb-2">
+                                <UserCheck className="h-4 w-4 text-emerald-500" />
+                                <span className="text-[10px] font-black uppercase text-emerald-500/70">Cliente</span>
+                             </div>
+                             <p className="font-black text-lg uppercase tracking-tight">{lastSale.userName}</p>
+                          </div>
+                          <div className="bg-black/20 p-4 rounded-2xl border border-emerald-500/10">
+                             <div className="flex items-center gap-2 mb-2">
+                                <Receipt className="h-4 w-4 text-emerald-500" />
+                                <span className="text-[10px] font-black uppercase text-emerald-500/70">Total Pago</span>
+                             </div>
+                             <p className="font-black text-3xl tracking-tighter">
+                               <span className="text-base font-bold opacity-50 mr-1">R$</span>
+                               {lastSale.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                             </p>
+                          </div>
+                        </div>
+                        
+                        <div className="bg-emerald-950/20 p-6 rounded-3xl border-2 border-emerald-500/10 relative overflow-hidden">
+                           <div className="absolute top-0 right-0 p-4 opacity-5">
+                             <ShoppingCart className="h-24 w-24" />
+                           </div>
+                           <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-4 flex items-center gap-2">
+                             <Package className="h-3 w-3" /> Itens Vendidos
+                           </h4>
+                           <ul className="space-y-2">
+                              {lastSale.items.map((item, i) => (
+                                <li key={i} className="flex justify-between items-center text-xs font-bold text-emerald-100/90 py-2 border-b border-white/5 last:border-0">
+                                   <span className="bg-emerald-500/20 px-2 py-0.5 rounded text-[10px] font-black mr-2">{item.split('x')[0]}x</span>
+                                   <span className="flex-1 truncate uppercase">{item.split('x')[1].trim()}</span>
+                                </li>
+                              ))}
+                           </ul>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )}
+
               {orders.length === 0 ? (
                 <motion.div 
                   initial={{ opacity: 0 }}
@@ -1431,21 +1513,4 @@ export default function VendorDashboard({
   );
 }
 
-function CheckCircle2({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <path d="m9 11 3 3L22 4" />
-    </svg>
-  );
-}
 
-function XCircle({ className }: { className?: string }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <circle cx="12" cy="12" r="10" />
-      <path d="m15 9-6 6" />
-      <path d="m9 9 6 6" />
-    </svg>
-  );
-}
