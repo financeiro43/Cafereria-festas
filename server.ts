@@ -538,16 +538,17 @@ async function startServer() {
       console.log(`[REDE-API] Resposta Recebida:`, JSON.stringify(redeData));
 
       // 5. Success Logic (Robust detection across multiple fields and cases)
-      const successCodes = ["00", "0"];
+      const successCodes = ["00", "0", "1", "000"]; // Added 1 and 000 as potential success codes
       const successStatuses = [
         "Approved", "Confirmed", "Captured", "Paid", "Success", "Authorized", 
         "captured", "approved", "paid", "confirmed", "success", "authorized",
         "CONFIRMADO", "APROVADO", "PAGO", "CAPTURADO", "SUCESSO", "AUTORIZADO",
         "Confirmed_Pix", "Paid_Pix", "Authenticated", "AUTHORIZED", "SUCCESS", "PAID",
-        "CAPTURED", "CONFIRMED", "APPROVED_PIX", "PAID_PIX", "CONFIRMED_PIX"
+        "CAPTURED", "CONFIRMED", "APPROVED_PIX", "PAID_PIX", "CONFIRMED_PIX",
+        "CONCLUIDO", "TRANSACAO_CONCLUIDA", "LIQUIDADO"
       ];
       
-      const rawStatus = String(redeData.status || "").trim();
+      const rawStatus = String(redeData.status || redeData.returnMessage || "").trim();
       const rawCode = String(redeData.returnCode || "");
       
       console.log(`[REDE-API] Analisando Status: "${rawStatus}" | Code: "${rawCode}"`);
@@ -558,7 +559,7 @@ async function startServer() {
                               (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
       
       // B) Known successful return code even if status is missing/generic (caution for Pix)
-      const isCodeSuccess = successCodes.includes(rawCode) && (!rawStatus || rawStatus === "undefined" || rawStatus === "null");
+      const isCodeSuccess = successCodes.includes(rawCode) && (!rawStatus || rawStatus === "undefined" || rawStatus === "null" || rawStatus === "Processando");
       
       // C) Known successful status even if code is missing/generic
       const isStatusSuccess = rawStatus && (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
@@ -627,7 +628,8 @@ async function startServer() {
         status: "pending", 
         redeStatus: rawStatus || "Pendente",
         redeCode: rawCode,
-        message: `O pagamento ainda consta como "${rawStatus || 'Processando'}" na Rede. Verifique se o Pix foi realmente transferido.`
+        sandbox: isSandbox,
+        message: `O pagamento ainda consta como "${rawStatus || 'Processando'}" na Rede (Código: ${rawCode || '---'}). Verifique se o Pix foi realmente transferido.`
       });
 
     } catch (error: any) {

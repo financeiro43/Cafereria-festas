@@ -44,6 +44,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
   const [showForceCancel, setShowForceCancel] = useState(false);
   const [pixData, setPixData] = useState<{ qrcode: string, tid: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pendingStatusInfo, setPendingStatusInfo] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [cardData, setCardData] = useState({
     number: '',
@@ -86,6 +87,11 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
             });
             onSuccess(tid);
             clearInterval(pollInterval);
+          } else {
+            // Update UI with the current status from Rede if available
+            if (response.data.redeStatus) {
+              setPendingStatusInfo(response.data.redeStatus);
+            }
           }
         } catch (e) {
           console.error('[REDE-FORM] Erro no polling:', e);
@@ -277,6 +283,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       } else {
         const redeStatus = response.data.redeStatus || 'Pendente';
         const redeCode = response.data.redeCode || '---';
+        setPendingStatusInfo(redeStatus);
         
         toast.info(`Status: ${redeStatus}`, {
           description: `Código Rede: ${redeCode}. O pagamento ainda não foi processado pela operadora.`,
@@ -607,9 +614,18 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
                        </Button>
                     </div>
 
-                    <div className="flex items-center justify-center gap-2">
-                       <Loader2 className="h-3 w-3 text-slate-500 animate-spin" />
-                       <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Aguardando confirmação bancária...</p>
+                    <div className="flex flex-col items-center justify-center gap-2">
+                       <div className="flex items-center gap-2">
+                         <Loader2 className="h-3 w-3 text-slate-500 animate-spin" />
+                         <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
+                           {pendingStatusInfo ? `Status: ${pendingStatusInfo}` : 'Aguardando confirmação bancária...'}
+                         </p>
+                       </div>
+                       {pixData?.tid && (
+                         <p className="text-[7px] text-slate-700 font-mono uppercase opacity-50">
+                           ID: {pixData.tid.substring(0, 16).toUpperCase()}...
+                         </p>
+                       )}
                     </div>
                   </div>
                 </div>
