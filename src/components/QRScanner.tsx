@@ -40,7 +40,15 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
       if (!isMounted) return;
       
       try {
-        // @ts-ignore - html5-qrcode types might be slightly outdated
+        // Pedir permissão explicitamente via getCameras antes de tentar instanciar
+        // Isso costuma ser mais robusto em alguns navegadores móveis (Safari/Chrome iOS)
+        try {
+          await Html5Qrcode.getCameras();
+        } catch (permError) {
+          console.warn("Permission check via getCameras failed:", permError);
+        }
+
+        // @ts-ignore
         scanner = new Html5Qrcode(elementId, { 
           verbose: false,
           formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
