@@ -19,6 +19,11 @@ export interface Product {
   price: number;
   vendorId: string;
   active: boolean;
+  category?: string;
+}
+
+export interface CartItem extends Product {
+  quantity: number;
 }
 
 export interface Stall {

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole } from '../types';
+import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole, CartItem } from '../types';
 import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
@@ -24,6 +24,10 @@ type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'rec
 export default function AdminDashboard({ profile, forcedTab }: { profile: UserProfile, forcedTab?: AdminTab }) {
   const [activeTab, setActiveTab] = useState<AdminTab>(forcedTab || 'overview');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // SHARED STATE FOR TERMINAL & RECHARGE
+  const [sharedCart, setSharedCart] = useState<CartItem[]>([]);
+  const [sharedScannedUser, setSharedScannedUser] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     if (forcedTab) {
@@ -1642,7 +1646,13 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 </div>
                 <div className="px-3 py-1 bg-blue-600 text-white text-[10px] font-black rounded-full uppercase tracking-widest">Simulação Ativa</div>
               </div>
-              <VendorDashboard profile={profile} />
+              <VendorDashboard 
+                profile={profile} 
+                externalCart={sharedCart}
+                setExternalCart={setSharedCart}
+                externalScannedUser={sharedScannedUser}
+                setExternalScannedUser={setSharedScannedUser}
+              />
             </div>
           )}
 
@@ -1666,7 +1676,11 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 </div>
                 <div className="px-3 py-1 bg-green-600 text-white text-[10px] font-black rounded-full uppercase tracking-widest">Caixa Aberto</div>
               </div>
-              <RechargePortal />
+              <RechargePortal 
+                externalScannedUser={sharedScannedUser}
+                setExternalScannedUser={setSharedScannedUser}
+                onSuccess={() => setSharedCart([])}
+              />
             </div>
           )}
 
@@ -1976,8 +1990,19 @@ function ShieldCheck({ className }: { className?: string }) {
   );
 }
 
-function RechargePortal() {
-  const [scannedUser, setScannedUser] = useState<UserProfile | null>(null);
+function RechargePortal({ 
+  externalScannedUser, 
+  setExternalScannedUser,
+  onSuccess 
+}: { 
+  externalScannedUser?: UserProfile | null, 
+  setExternalScannedUser?: React.Dispatch<React.SetStateAction<UserProfile | null>>,
+  onSuccess?: () => void
+}) {
+  const [internalScannedUser, setInternalScannedUser] = useState<UserProfile | null>(null);
+  const scannedUser = externalScannedUser !== undefined ? externalScannedUser : internalScannedUser;
+  const setScannedUser = setExternalScannedUser !== undefined ? setExternalScannedUser : setInternalScannedUser;
+
   const [isScanning, setIsScanning] = useState(false);
   const [amount, setAmount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('Dinheiro');
@@ -2057,8 +2082,9 @@ function RechargePortal() {
         timestamp: serverTimestamp()
       });
 
-      setScannedUser(prev => prev ? { ...prev, balance: prev.balance + val } : null);
+      setScannedUser(null);
       setAmount('');
+      if (onSuccess) onSuccess();
       
       setStatusModal({
         show: true,

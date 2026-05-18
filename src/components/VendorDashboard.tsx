@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { UserProfile, Product, Stall, Order } from '../types';
+import { UserProfile, Product, Stall, Order, CartItem } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { QrCode, ShoppingCart, Users, LogOut, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2, Search, ChevronLeft, ChevronRight, BarChart3, TrendingUp, Package, Zap, ChevronDown, ChevronUp, Wifi, WifiOff } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,20 +13,36 @@ import { motion, AnimatePresence } from 'motion/react';
 
 import QRScanner from './QRScanner';
 
-interface CartItem extends Product {
-  quantity: number;
-}
-
-export default function VendorDashboard({ profile }: { profile: UserProfile }) {
+export default function VendorDashboard({ 
+  profile,
+  externalCart,
+  setExternalCart,
+  externalScannedUser,
+  setExternalScannedUser
+}: { 
+  profile: UserProfile,
+  externalCart?: CartItem[],
+  setExternalCart?: React.Dispatch<React.SetStateAction<CartItem[]>>,
+  externalScannedUser?: UserProfile | null,
+  setExternalScannedUser?: React.Dispatch<React.SetStateAction<UserProfile | null>>
+}) {
   const [activeStallId, setActiveStallId] = useState<string | null>(profile.vendorIds?.[0] || null);
   const [availableStalls, setAvailableStalls] = useState<Stall[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [stall, setStall] = useState<Stall | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [activeTab, setActiveTab] = useState<'pos' | 'orders' | 'analytics'>('pos');
-  const [cart, setCart] = useState<CartItem[]>([]);
+  
+  // State management: Use external if provided, otherwise internal
+  const [internalCart, setInternalCart] = useState<CartItem[]>([]);
+  const cart = externalCart !== undefined ? externalCart : internalCart;
+  const setCart = setExternalCart !== undefined ? setExternalCart : setInternalCart;
+
+  const [internalScannedUser, setInternalScannedUser] = useState<UserProfile | null>(null);
+  const scannedUser = externalScannedUser !== undefined ? externalScannedUser : internalScannedUser;
+  const setScannedUser = setExternalScannedUser !== undefined ? setExternalScannedUser : setInternalScannedUser;
+
   const [showMobileCart, setShowMobileCart] = useState(false);
-  const [scannedUser, setScannedUser] = useState<UserProfile | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -380,8 +396,8 @@ export default function VendorDashboard({ profile }: { profile: UserProfile }) {
         message: `O pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso para ${scannedUser.name}.\n\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
       });
 
-      // Update local state to reflect new balance
-      setScannedUser(prev => prev ? { ...prev, balance: prev.balance - cartTotal } : null);
+      // Clear cart and client for the next sale
+      setScannedUser(null);
       clearCart();
     } catch (error) {
       console.error('Erro no processamento da venda:', error);
