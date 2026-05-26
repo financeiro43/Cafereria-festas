@@ -377,16 +377,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   };
 
   const handlePrint = () => {
-    if (!showPrintView) {
-      setShowPrintView(true);
-      setTimeout(() => {
-        window.print();
-      }, 250);
-    } else {
-      window.print();
-    }
+    window.print();
   };
-
+ 
   const downloadExcelWithQR = () => {
     try {
       const physicalCards = users.filter(u => u.isPhysicalCard);
@@ -395,15 +388,14 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         toast.error("Nenhum cartão físico encontrado para exportar.");
         return;
       }
-
+ 
       toast.info("Processando exportação do Excel...");
-
+ 
       let tableRows = "";
       
       physicalCards.forEach(card => {
         const formattedNum = formatCardNumber(card.uid || card.qrCode || '');
-        const canvas = document.getElementById(`canvas-qr-${card.uid}`) as HTMLCanvasElement | null;
-        const imgData = canvas ? canvas.toDataURL("image/png") : "";
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(card.qrCode || '')}`;
         const balanceFormatted = card.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
         // Safe timestamp retrieval
         let creationDate = 'N/A';
@@ -416,14 +408,14 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
             creationDate = new Date(card.timestamp).toLocaleString('pt-BR');
           }
         }
-
+ 
         tableRows += `
           <tr style="height: 110px;">
             <td style="mso-number-format:'@'; text-align: left; font-weight: bold; font-family: sans-serif; vertical-align: middle;">${formattedNum}</td>
             <td style="text-align: left; font-family: sans-serif; vertical-align: middle;">${card.name || 'Sem Nome'}</td>
             <td style="text-align: left; font-family: sans-serif; mso-number-format:'@'; color: #64748b; vertical-align: middle;">${card.qrCode || ''}</td>
             <td style="text-align: center; vertical-align: middle; padding: 5px;">
-              ${imgData ? `<img src="${imgData}" width="100" height="100" alt="QR Code" style="display: block; margin: auto;" />` : 'QR indisponível'}
+              <img src="${qrUrl}" width="100" height="100" alt="QR Code" style="display: block; margin: auto;" />
             </td>
             <td style="text-align: right; font-weight: bold; font-family: sans-serif; color: #16a34a; vertical-align: middle;">R$ ${balanceFormatted}</td>
             <td style="text-align: center; font-family: sans-serif; color: #475569; vertical-align: middle;">${creationDate}</td>
@@ -1685,7 +1677,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               </div>
             </header>
 
-            {!showPrintView ? (
+            <div className={showPrintView ? 'hidden' : 'block space-y-10'}>
               <section className="space-y-10">
                 {/* 1. Designer and Builder grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -2124,7 +2116,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   )}
                 </div>
               </section>
-            ) : (
+            </div>
+
+            <div className={showPrintView ? 'block' : 'hidden print:block'}>
               <section className="bg-slate-100 p-8 md:p-12 rounded-3xl border border-slate-200 print-view-section">
                 <div id="printable-cards" className="print:block">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-y-8 gap-x-8 justify-center items-center print:grid-cols-3 print:gap-x-4 print:gap-y-4">
@@ -2230,7 +2224,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   `}</style>
                 </div>
               </section>
-            )}
+            </div>
           </div>
         )}
         {activeTab === 'terminal' && (
