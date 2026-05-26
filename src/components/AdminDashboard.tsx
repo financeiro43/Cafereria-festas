@@ -7,12 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole, CartItem } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette, Download } from 'lucide-react';
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import VendorDashboard from './VendorDashboard';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
+import * as XLSX from 'xlsx';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -514,6 +515,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
   const [editingUser, setEditingUser] = useState<UserProfile | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'stall' | 'product' | 'user', action: () => void } | null>(null);
+  const [resetConfirm, setResetConfirm] = useState<{ id: string, name: string, amount: number, action: () => void } | null>(null);
 
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
@@ -553,6 +555,87 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         }
       }
     });
+  };
+
+  const handleZeroBalance = (userId: string) => {
+    const userToReset = users.find(u => u.uid === userId);
+    if (!userToReset) return;
+
+    if (userToReset.balance <= 0) {
+      toast.info('Este cartão já está com saldo zerado.');
+      return;
+    }
+
+    setResetConfirm({
+      id: userId,
+      name: userToReset.name,
+      amount: userToReset.balance,
+      action: async () => {
+        try {
+          const currentBalance = userToReset.balance;
+          await updateDoc(doc(db, 'users', userId), {
+            balance: 0
+          });
+
+          await addDoc(collection(db, 'transactions'), {
+            userId,
+            amount: currentBalance,
+            type: 'debit',
+            description: 'Saldo zerado pelo Administrador',
+            paymentMethod: 'Sistema',
+            status: 'completed',
+            timestamp: serverTimestamp()
+          });
+
+          toast.success(`Saldo de ${userToReset.name} zerado com sucesso!`);
+        } catch (error) {
+          handleFirestoreError(error, OperationType.WRITE, `users/${userId}`);
+        }
+      }
+    });
+  };
+
+  const exportToExcel = () => {
+    try {
+      const excelData = filteredUsers.map(u => {
+        const assignedStalls = u.vendorIds && u.vendorIds.length > 0
+          ? u.vendorIds.map(id => stalls.find(s => s.id === id)?.name || id).join(', ')
+          : 'Nenhuma';
+          
+        let roleLabel = 'Cliente';
+        if (u.role === 'vendor') roleLabel = 'Vendedor';
+        else if (u.role === 'recharge') roleLabel = 'Recarga';
+        else if (u.role === 'admin') roleLabel = 'Administrador';
+
+        return {
+          'Nome Completo': u.name,
+          'E-mail': u.email || 'N/A',
+          'Função': roleLabel,
+          'Código do Cartão': u.qrCode || 'N/A',
+          'Saldo (R$)': u.balance || 0,
+          'Barracas Vinculadas': assignedStalls,
+        };
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Usuários');
+
+      worksheet['!cols'] = [
+        { wch: 25 }, // Nome Completo
+        { wch: 30 }, // E-mail
+        { wch: 15 }, // Função
+        { wch: 20 }, // Código do Cartão
+        { wch: 15 }, // Saldo (R$)
+        { wch: 35 }, // Barracas Vinculadas
+      ];
+
+      XLSX.writeFile(workbook, `usuarios_sistema_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Lista de usuários exportada para Excel com sucesso!');
+    } catch (error) {
+      console.error("Erro ao exportar excel:", error);
+      toast.error('Erro ao gerar arquivo do Excel.');
+    }
   };
 
   const handleAddUser = async (e: React.FormEvent) => {
@@ -1391,8 +1474,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
             {/* Search and List Header */}
             <div className="flex flex-col gap-6">
-              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                <div className="space-y-4 flex-1 max-w-2xl">
+              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+                <div className="space-y-4 flex-1">
                   <div className="flex flex-wrap gap-2">
                     {[
                       { id: 'all', label: 'Todos', icon: Users },
@@ -1404,7 +1487,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                       <button
                         key={role.id}
                         onClick={() => setRoleFilter(role.id as any)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border shadow-sm ${
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border shadow-sm cursor-pointer ${
                           roleFilter === role.id 
                             ? 'bg-blue-600 border-blue-600 text-white shadow-blue-200' 
                             : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
@@ -1416,131 +1499,199 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                     ))}
                   </div>
                   
-                  <div className="relative flex-1">
+                  <div className="relative max-w-2xl">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                     <Input 
                       placeholder="Buscar por nome, e-mail ou cartão..." 
                       value={userSearchQuery}
                       onChange={(e) => setUserSearchQuery(e.target.value)}
-                      className="pl-12 h-14 bg-white border-slate-200 rounded-2xl shadow-sm focus:ring-blue-500 text-base"
+                      className="pl-12 h-14 bg-white border-slate-200 rounded-2xl shadow-sm focus:ring-blue-500 text-base font-medium"
                     />
                   </div>
                 </div>
                 
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] px-4 mb-2">
-                  <span className="text-blue-600">{filteredUsers.length}</span> Membros encontrados
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 shrink-0">
+                  <div className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] px-4 self-center">
+                    <span className="text-blue-600 font-black">{filteredUsers.length}</span> Membros encontrados
+                  </div>
+                  <Button 
+                    onClick={exportToExcel}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl h-14 px-6 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 border-none shadow-xl shadow-emerald-650/10 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                  >
+                    <Download className="h-4 w-4" />
+                    Exportar Excel
+                  </Button>
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-              {filteredUsers.map(user => (
-                <div key={user.uid} className="group flex flex-col bg-white rounded-[32px] border border-slate-200 shadow-sm hover:shadow-xl hover:border-blue-200 transition-all duration-500 overflow-hidden relative">
-                  <div className="p-8">
-                    <div className="flex items-start justify-between mb-8">
-                      <div className="flex items-center gap-4">
-                        <div className="h-16 w-16 rounded-2xl bg-slate-50 flex items-center justify-center text-blue-600 font-black text-2xl border border-slate-100 uppercase transition-transform group-hover:scale-110 shadow-inner">
-                          {user.name.charAt(0)}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-black text-slate-900 uppercase tracking-tighter text-lg">{user.name}</h4>
-                            <button 
-                              onClick={() => setEditingUser(user)}
-                              className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteUser(user.uid)}
-                              className="p-1 text-slate-400 hover:text-red-600 transition-colors"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                          <p className="text-[11px] text-slate-400 font-bold truncate max-w-[160px] uppercase tracking-widest">{user.email}</p>
-                        </div>
-                      </div>
-                      <div className={`flex items-center gap-1.5 text-[9px] font-black uppercase px-3 py-1.5 rounded-xl border shadow-sm ${
-                        user.role === 'vendor' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
-                        user.role === 'recharge' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                        user.role === 'admin' ? 'bg-slate-900 text-white border-slate-800' :
-                        'bg-slate-50 text-slate-500 border-slate-100'
-                      }`}>
-                        {getRoleIcon(user.role)}
-                        {user.role === 'student' ? 'Cliente' : 
-                         user.role === 'vendor' ? 'Vendedor' : 
-                         user.role === 'recharge' ? 'Recarga' : 'Admin'}
-                      </div>
-                    </div>
-
-                    <div className="mt-8 mb-6 p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Saldo Disponível</label>
-                        <p className="text-sm font-black text-slate-900">R$ {user.balance.toFixed(2)}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1 group/input">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">R$</span>
-                          <input 
-                            type="number"
-                            placeholder="0,00"
-                            className="w-full text-xs font-bold rounded-xl border-slate-200 bg-white pl-8 p-2.5 transition-all focus:border-blue-500 outline-none"
-                            value={rechargeAmounts[user.uid] || ''}
-                            onChange={(e) => setRechargeAmounts(prev => ({ ...prev, [user.uid]: e.target.value }))}
-                          />
-                        </div>
-                        <select
-                          className="text-[10px] font-black uppercase tracking-tight rounded-xl border-slate-200 bg-white px-2 focus:border-blue-500 outline-none"
-                          value={rechargePaymentMethods[user.uid] || 'Dinheiro'}
-                          onChange={(e) => setRechargePaymentMethods(prev => ({ ...prev, [user.uid]: e.target.value }))}
-                        >
-                          <option value="Dinheiro">DINHEIRO</option>
-                          <option value="Pix">PIX</option>
-                          <option value="Débito">DÉBITO</option>
-                          <option value="Crédito">CRÉDITO</option>
-                          <option value="Conta">CONTA</option>
-                        </select>
-                        <Button 
-                          size="sm" 
-                          onClick={() => handleManualRecharge(user.uid)}
-                          className="bg-slate-900 hover:bg-slate-800 text-white rounded-xl px-4 h-10 font-bold border-none"
-                        >
-                          Recarregar
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-auto bg-white p-6 pt-0">
-                    <div className="space-y-4 pt-6 border-t border-slate-100">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Acesso às Barracas</label>
-                        <span className="text-[10px] text-slate-400 font-bold">{user.vendorIds?.length || 0} Ativa(s)</span>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {stalls.map(s => (
-                          <label key={s.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-tight cursor-pointer transition-all border ${
-                            user.vendorIds?.includes(s.id) 
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
-                              : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                          }`}>
-                            <input 
-                              type="checkbox"
-                              className="hidden"
-                              checked={!!user.vendorIds?.includes(s.id)}
-                              onChange={(e) => setUserVendorIds(user.uid, s.id, e.target.checked)}
-                            />
-                            {user.vendorIds?.includes(s.id) && <ShieldCheckIcon className="h-3 w-3" />}
-                            {s.name}
-                          </label>
-                        ))}
-                        {stalls.length === 0 && <p className="text-[10px] text-slate-400 italic">Cadastre barracas primeiro.</p>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <Table className="w-full min-w-[1240px]">
+                  <TableHeader className="bg-slate-50/70 border-b border-slate-100">
+                    <TableRow className="hover:bg-transparent border-b border-slate-100">
+                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-6 py-4">Nome / E-mail</TableHead>
+                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Nº Cartão (QR)</TableHead>
+                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Função</TableHead>
+                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Saldo Atual</TableHead>
+                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Recarga Rápida</TableHead>
+                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Barracas Vinculadas</TableHead>
+                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-6 py-4 text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredUsers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-12 text-slate-400 font-medium h-24">
+                          Nenhum usuário encontrado correspondendo aos filtros.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredUsers.map(user => (
+                        <TableRow key={user.uid} className="hover:bg-slate-50/50 border-b border-slate-100/80 transition-colors">
+                          <TableCell className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-3">
+                              <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-800 font-extrabold text-sm uppercase shadow-inner shrink-0">
+                                {user.name.charAt(0)}
+                              </div>
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-extrabold text-slate-900 text-sm uppercase tracking-tight truncate max-w-[200px]">{user.name}</span>
+                                <span className="text-[15px] text-slate-400 font-semibold truncate max-w-[200px]">{user.email}</span>
+                              </div>
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell className="px-4 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 font-mono text-xs text-slate-600 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg w-max [&_button]:hover:opacity-100 select-all">
+                              <span className="truncate max-w-[120px]">{user.qrCode || 'Sem cartão'}</span>
+                              {user.qrCode && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(user.qrCode);
+                                    toast.success('Código do cartão copiado!');
+                                  }}
+                                  className="text-slate-400 hover:text-slate-800 p-0.5 transition-colors"
+                                  title="Copiar código"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell className="px-4 py-4 whitespace-nowrap">
+                            <span className={`inline-flex items-center gap-1.5 text-[9px] font-black uppercase px-2.5 py-1.5 rounded-xl border shadow-sm ${
+                              user.role === 'vendor' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                              user.role === 'recharge' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                              user.role === 'admin' ? 'bg-slate-900 text-white border-slate-800' :
+                              'bg-slate-50 text-slate-500 border-slate-100'
+                            }`}>
+                              {getRoleIcon(user.role)}
+                              {user.role === 'student' ? 'Cliente' : 
+                               user.role === 'vendor' ? 'Vendedor' : 
+                               user.role === 'recharge' ? 'Recarga' : 'Admin'}
+                            </span>
+                          </TableCell>
+                          
+                          <TableCell className="px-4 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900 text-sm">R$ {user.balance.toFixed(2)}</span>
+                              {user.balance > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleZeroBalance(user.uid)}
+                                  className="text-[9px] font-black tracking-wider text-rose-600 hover:text-white bg-rose-55 hover:bg-rose-600 px-2.5 py-1 rounded-lg transition-all uppercase cursor-pointer"
+                                  title="Zerar saldo deste cartão"
+                                >
+                                  Zerar
+                                </button>
+                              )}
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell className="px-4 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5 max-w-[210px]">
+                              <div className="relative flex-1">
+                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">R$</span>
+                                <input 
+                                  type="number"
+                                  placeholder="0,00"
+                                  className="w-full text-xs font-bold rounded-lg border border-slate-200 bg-white pl-7 pr-1 py-1.5 transition-all focus:border-blue-500 outline-none"
+                                  value={rechargeAmounts[user.uid] || ''}
+                                  onChange={(e) => setRechargeAmounts(prev => ({ ...prev, [user.uid]: e.target.value }))}
+                                />
+                              </div>
+                              <select
+                                className="text-[9px] font-black uppercase tracking-tight rounded-lg border border-slate-200 bg-white py-1.5 pl-1.5 pr-6 focus:border-blue-500 outline-none hover:bg-slate-50 transition-all shrink-0 cursor-pointer"
+                                value={rechargePaymentMethods[user.uid] || 'Dinheiro'}
+                                onChange={(e) => setRechargePaymentMethods(prev => ({ ...prev, [user.uid]: e.target.value }))}
+                              >
+                                <option value="Dinheiro">Dinheiro</option>
+                                <option value="Pix">PIX</option>
+                                <option value="Débito">Débito</option>
+                                <option value="Crédito">Crédito</option>
+                                <option value="Conta">Conta</option>
+                              </select>
+                              <Button 
+                                size="sm" 
+                                onClick={() => handleManualRecharge(user.uid)}
+                                className="bg-slate-900 hover:bg-blue-600 text-white rounded-lg px-2.5 h-8 font-black uppercase tracking-wider text-[9px] border-none shrink-0"
+                              >
+                                OK
+                              </Button>
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell className="px-4 py-4">
+                            <div className="flex flex-wrap gap-1.5 max-w-[280px]">
+                              {stalls.map(s => {
+                                const isLinked = user.vendorIds?.includes(s.id);
+                                return (
+                                  <label key={s.id} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase cursor-pointer transition-all border ${
+                                    isLinked 
+                                      ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm font-extrabold' 
+                                      : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
+                                  }`}>
+                                    <input 
+                                      type="checkbox"
+                                      className="hidden"
+                                      checked={!!isLinked}
+                                      onChange={(e) => setUserVendorIds(user.uid, s.id, e.target.checked)}
+                                    />
+                                    {isLinked && <ShieldCheckIcon className="h-2.5 w-2.5 shrink-0" />}
+                                    <span className="truncate max-w-[85px]">{s.name}</span>
+                                  </label>
+                                );
+                              })}
+                              {stalls.length === 0 && <span className="text-[10px] text-slate-400 italic">Cadastre barracas primeiro.</span>}
+                            </div>
+                          </TableCell>
+                          
+                          <TableCell className="px-6 py-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1">
+                              <button 
+                                onClick={() => setEditingUser(user)}
+                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Editar usuário"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                              <button 
+                                onClick={() => handleDeleteUser(user.uid)}
+                                className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                title="Excluir usuário"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           </div>
         )}
@@ -2101,6 +2252,16 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                   <Button 
                                     variant="ghost" 
                                     size="icon" 
+                                    onClick={() => handleZeroBalance(card.uid)}
+                                    className="h-7 w-7 text-slate-400 hover:text-amber-650"
+                                    title="Zerar Saldo"
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                  </Button>
+ 
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
                                     onClick={() => handleDeleteUser(card.uid)}
                                     className="h-7 w-7 text-slate-300 hover:text-red-500"
                                     title="Excluir Cartão"
@@ -2615,6 +2776,72 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                       className="w-full h-14 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all"
                     >
                       Não, Manter Registro
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </DialogContent>
+      </Dialog>
+
+      {/* Balance Reset Confirmation Dialog */}
+      <Dialog open={!!resetConfirm} onOpenChange={(open) => !open && setResetConfirm(null)}>
+        <DialogContent className="rounded-[40px] border-none shadow-2xl p-0 max-w-sm overflow-hidden bg-white">
+          <AnimatePresence mode="wait">
+            {resetConfirm && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 1.05, y: -10 }}
+                className="w-full"
+              >
+                <div className="bg-amber-50 p-10 flex flex-col items-center justify-center">
+                  <motion.div
+                    initial={{ scale: 0, rotate: -180 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+                    className="h-20 w-20 rounded-3xl bg-amber-500 text-white flex items-center justify-center shadow-xl shadow-amber-500/30 mb-6"
+                  >
+                    <RefreshCw className="h-10 w-10 animate-spin-slow" strokeWidth={2.5} />
+                  </motion.div>
+                  <DialogHeader className="space-y-2">
+                    <DialogTitle className="text-2xl font-black text-center text-amber-950 uppercase tracking-tighter">
+                      Zerar Saldo
+                    </DialogTitle>
+                    <p className="text-center text-[10px] font-black uppercase tracking-[0.2em] text-amber-600/80">
+                      Esta Ação Irá Zerar o Saldo
+                    </p>
+                  </DialogHeader>
+                </div>
+
+                <div className="p-10 space-y-8">
+                  <div className="text-center space-y-4">
+                    <p className="text-slate-600 font-medium text-lg leading-relaxed">
+                      Tem certeza que deseja zerar o saldo de <span className="font-black text-slate-900 border-b-2 border-amber-200">{resetConfirm?.name}</span>?
+                    </p>
+                    <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-100 flex flex-col items-center justify-center">
+                      <span className="text-[10px] font-black uppercase text-amber-700 tracking-wider">Saldo Atual a ser Perdido</span>
+                      <span className="text-2xl font-black text-slate-900 mt-1">R$ {resetConfirm?.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <Button 
+                      onClick={() => {
+                        resetConfirm?.action();
+                        setResetConfirm(null);
+                      }}
+                      className="w-full h-16 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-xs shadow-xl shadow-amber-600/20 active:scale-95 transition-all"
+                    >
+                      Sim, Zerar Saldo
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setResetConfirm(null)}
+                      className="w-full h-14 rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all"
+                    >
+                      Não, Manter Saldo
                     </Button>
                   </div>
                 </div>

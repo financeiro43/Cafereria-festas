@@ -118,6 +118,8 @@ service cloud.firestore {
         (isUser(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL', 'fcmToken'])) ||
         (isVendor() && incoming().diff(existing()).affectedKeys().hasOnly(['balance'])) ||
         (isRecharge() && incoming().diff(existing()).affectedKeys().hasOnly(['balance']));
+
+      allow delete: if isAdmin();
     }
 
     // TRANSACTIONS
