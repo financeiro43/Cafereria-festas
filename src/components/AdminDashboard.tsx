@@ -7,8 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole, CartItem } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette } from 'lucide-react';
+import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import VendorDashboard from './VendorDashboard';
@@ -269,6 +269,254 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [batchSize, setBatchSize] = useState(24);
   const [showPrintView, setShowPrintView] = useState(false);
   const [cardBgUrl, setCardBgUrl] = useState('https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=1000');
+
+  // Physical Cards Enhanced States
+  const [physicalSearchQuery, setPhysicalSearchQuery] = useState('');
+  const [physicalBalanceFilter, setPhysicalBalanceFilter] = useState<'all' | 'zero' | 'positive'>('all');
+  const [selectedPhysicalCards, setSelectedPhysicalCards] = useState<string[]>([]);
+  const [cardGradient, setCardGradient] = useState<'mystic-slate' | 'royal-gold' | 'aurora-emerald' | 'cosmic-purple' | 'neon-sunset' | 'custom-image'>('mystic-slate');
+  const [cardTextColor, setCardTextColor] = useState<'light' | 'dark'>('light');
+  const [cardTitleText, setCardTitleText] = useState('');
+  const [bulkRechargeAmount, setBulkRechargeAmount] = useState<number>(0);
+  const [showBulkRechargeModal, setShowBulkRechargeModal] = useState(false);
+  const [bulkRechargeProcessing, setBulkRechargeProcessing] = useState(false);
+
+  // Formatter matching online card (16 numbers with spaces every 4 digits)
+  const formatCardNumber = (str: string) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const numeric = Math.abs(hash).toString().padEnd(16, '0').substring(0, 16);
+    return numeric.replace(/(.{4})/g, '$1 ').trim();
+  };
+
+  const getCardBgStyle = (gradientType: string) => {
+    switch (gradientType) {
+      case 'mystic-slate':
+        return 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 border-slate-700';
+      case 'royal-gold':
+        return 'bg-gradient-to-br from-stone-900 via-neutral-900 to-yellow-950 border-amber-900/40';
+      case 'aurora-emerald':
+        return 'bg-gradient-to-br from-slate-950 via-teal-950 to-emerald-950 border-emerald-500/20';
+      case 'cosmic-purple':
+        return 'bg-gradient-to-br from-slate-950 via-indigo-950 to-purple-950 border-purple-500/30';
+      case 'neon-sunset':
+        return 'bg-gradient-to-br from-stone-950 via-rose-950 to-stone-900 border-rose-500/20';
+      default:
+        return 'bg-slate-900';
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedPhysicalCards.length === 0) return;
+    if (!window.confirm(`Deseja realmente excluir os ${selectedPhysicalCards.length} cartões selecionados?`)) return;
+    try {
+      const promises = selectedPhysicalCards.map(uid => deleteDoc(doc(db, 'users', uid)));
+      await Promise.all(promises);
+      toast.success(`${selectedPhysicalCards.length} cartões excluídos com sucesso!`);
+      setSelectedPhysicalCards([]);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'users/bulk');
+    }
+  };
+
+  const handleBulkRecharge = async () => {
+    const rechargeValue = bulkRechargeAmount;
+    if (isNaN(rechargeValue) || rechargeValue <= 0) {
+      toast.error('Informe um valor de recarga válido.');
+      return;
+    }
+    if (selectedPhysicalCards.length === 0) return;
+    setBulkRechargeProcessing(true);
+    try {
+      const promises = selectedPhysicalCards.map(async (uid) => {
+        const userRef = doc(db, 'users', uid);
+        await updateDoc(userRef, {
+          balance: increment(rechargeValue)
+        });
+        // Log transaction for audit
+        await addDoc(collection(db, 'transactions'), {
+          userId: uid,
+          amount: rechargeValue,
+          type: 'credit',
+          paymentMethod: 'Saldo Admin',
+          status: 'completed',
+          description: 'Recarga administrativa em lote',
+          timestamp: serverTimestamp()
+        });
+      });
+      await Promise.all(promises);
+      toast.success(`Recarga de R$ ${rechargeValue.toFixed(2)} efetuada para ${selectedPhysicalCards.length} cartões!`);
+      setSelectedPhysicalCards([]);
+      setBulkRechargeAmount(0);
+      setShowBulkRechargeModal(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'users/bulk-recharge');
+    } finally {
+      setBulkRechargeProcessing(false);
+    }
+  };
+
+  const toggleSelectCard = (uid: string) => {
+    setSelectedPhysicalCards(prev => {
+      if (prev.includes(uid)) {
+        return prev.filter(id => id !== uid);
+      } else {
+        return [...prev, uid];
+      }
+    });
+  };
+
+  const toggleSelectAllPhysical = (allCards: any[]) => {
+    if (selectedPhysicalCards.length === allCards.length) {
+      setSelectedPhysicalCards([]);
+    } else {
+      setSelectedPhysicalCards(allCards.map(c => c.uid));
+    }
+  };
+
+  const handlePrint = () => {
+    if (!showPrintView) {
+      setShowPrintView(true);
+      setTimeout(() => {
+        window.print();
+      }, 250);
+    } else {
+      window.print();
+    }
+  };
+
+  const downloadExcelWithQR = () => {
+    try {
+      const physicalCards = users.filter(u => u.isPhysicalCard);
+      
+      if (physicalCards.length === 0) {
+        toast.error("Nenhum cartão físico encontrado para exportar.");
+        return;
+      }
+
+      toast.info("Processando exportação do Excel...");
+
+      let tableRows = "";
+      
+      physicalCards.forEach(card => {
+        const formattedNum = formatCardNumber(card.uid || card.qrCode || '');
+        const canvas = document.getElementById(`canvas-qr-${card.uid}`) as HTMLCanvasElement | null;
+        const imgData = canvas ? canvas.toDataURL("image/png") : "";
+        const balanceFormatted = card.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+        // Safe timestamp retrieval
+        let creationDate = 'N/A';
+        if (card.timestamp) {
+          if (typeof card.timestamp.toMillis === 'function') {
+            creationDate = new Date(card.timestamp.toMillis()).toLocaleString('pt-BR');
+          } else if (card.timestamp.seconds) {
+            creationDate = new Date(card.timestamp.seconds * 1000).toLocaleString('pt-BR');
+          } else {
+            creationDate = new Date(card.timestamp).toLocaleString('pt-BR');
+          }
+        }
+
+        tableRows += `
+          <tr style="height: 110px;">
+            <td style="mso-number-format:'@'; text-align: left; font-weight: bold; font-family: sans-serif; vertical-align: middle;">${formattedNum}</td>
+            <td style="text-align: left; font-family: sans-serif; vertical-align: middle;">${card.name || 'Sem Nome'}</td>
+            <td style="text-align: left; font-family: sans-serif; mso-number-format:'@'; color: #64748b; vertical-align: middle;">${card.qrCode || ''}</td>
+            <td style="text-align: center; vertical-align: middle; padding: 5px;">
+              ${imgData ? `<img src="${imgData}" width="100" height="100" alt="QR Code" style="display: block; margin: auto;" />` : 'QR indisponível'}
+            </td>
+            <td style="text-align: right; font-weight: bold; font-family: sans-serif; color: #16a34a; vertical-align: middle;">R$ ${balanceFormatted}</td>
+            <td style="text-align: center; font-family: sans-serif; color: #475569; vertical-align: middle;">${creationDate}</td>
+          </tr>
+        `;
+      });
+
+      const excelTemplate = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+        <meta http-equiv="content-type" content="text/plain; charset=UTF-8"/>
+        <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Cartões Festa Pass</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+        <style>
+          table {
+            border-collapse: collapse;
+          }
+          th {
+            background-color: #0f172a;
+            color: #ffffff;
+            font-weight: bold;
+            font-family: sans-serif;
+            text-align: center;
+            border: 1px solid #cbd5e1;
+            padding: 12px 8px;
+            font-size: 14px;
+          }
+          td {
+            vertical-align: middle;
+            border: 1px solid #cbd5e1;
+            padding: 8px;
+            font-size: 12px;
+          }
+        </style>
+        </head>
+        <body>
+        <h2 style="font-family: sans-serif; color: #0f172a; margin-bottom: 5px;">Relatório de Cartões de Consumo - ${settings.siteName || 'Festa Pass'}</h2>
+        <p style="font-family: sans-serif; color: #64748b; font-size: 12px; margin-top: 0; margin-bottom: 20px;">Gerado em: ${new Date().toLocaleString('pt-BR')}</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 180px;">Número do Cartão</th>
+              <th style="width: 220px;">Nome do Titular</th>
+              <th style="width: 250px;">Link / Conteúdo QR Code</th>
+              <th style="width: 120px;">Código QR (Imagem)</th>
+              <th style="width: 120px;">Saldo Atual</th>
+              <th style="width: 150px;">Data de Geração</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+        </body>
+        </html>
+      `;
+
+      const blob = new Blob([excelTemplate], { type: 'application/vnd.ms-excel;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `cartoes_${settings.siteName?.toLowerCase().replace(/\s+/g, '_') || 'festapass'}_${new Date().toISOString().split('T')[0]}.xls`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success("Excel gerado e baixado com sucesso!");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erro ao gerar o arquivo Excel.");
+    }
+  };
+
+  const filteredPhysicalCards = useMemo(() => {
+    return users.filter(u => {
+      if (!u.isPhysicalCard) return false;
+      
+      const formattedNum = formatCardNumber(u.uid || u.qrCode || '');
+      const matchesSearch = 
+        u.name.toLowerCase().includes(physicalSearchQuery.toLowerCase()) ||
+        u.qrCode?.toLowerCase().includes(physicalSearchQuery.toLowerCase()) ||
+        formattedNum.includes(physicalSearchQuery);
+      
+      let matchesBalance = true;
+      if (physicalBalanceFilter === 'zero') {
+        matchesBalance = u.balance === 0;
+      } else if (physicalBalanceFilter === 'positive') {
+        matchesBalance = u.balance > 0;
+      }
+      
+      return matchesSearch && matchesBalance;
+    });
+  }, [users, physicalSearchQuery, physicalBalanceFilter]);
 
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
@@ -1391,39 +1639,62 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         )}
         {activeTab === 'card_printer' && (
           <div className="space-y-8 animate-in fade-in duration-500">
+            {/* Hidden canvas elements to render all physical cards offline so we can convert them to images for the Excel export */}
+            <div className="hidden" aria-hidden="true" style={{ display: 'none' }}>
+              {users.filter(u => u.isPhysicalCard).map(card => (
+                <QRCodeCanvas 
+                  key={card.uid}
+                  id={`canvas-qr-${card.uid}`}
+                  value={card.qrCode || card.uid || ''}
+                  size={120}
+                  level="M"
+                />
+              ))}
+            </div>
+
             <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-200 pb-8">
               <div>
                 <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-3">
                   <Printer className="h-8 w-8 text-blue-600" />
                   CARTÃO FÍSICO
                 </h2>
-                <p className="text-slate-500 mt-1">Gere cartões profissionais com QR Code para recarga e pagamentos presenciais.</p>
+                <p className="text-slate-500 mt-1">Gere cartões profissionais premium com QR Code e número de 16 dígitos.</p>
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <Button 
-                  onClick={() => window.print()} 
+                  onClick={downloadExcelWithQR} 
+                  variant="outline"
+                  className="bg-white border-emerald-200 hover:bg-emerald-50 text-emerald-700 font-bold rounded-xl h-11"
+                  title="Exportar todos os cartões com imagens dos QR Codes para o Excel"
+                >
+                  <FileText className="h-4 w-4 mr-2 text-emerald-600" /> Baixar Excel
+                </Button>
+                <Button 
+                  onClick={handlePrint} 
                   variant="outline"
                   className="bg-white border-slate-200 text-slate-900 font-bold rounded-xl h-11"
                 >
-                  <Printer className="h-4 w-4 mr-2" /> Imprimir Agora
+                  <Printer className="h-4 w-4 mr-2 text-slate-600" /> Imprimir Agora
                 </Button>
                 <Button 
                   onClick={() => setShowPrintView(!showPrintView)} 
                   className="bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl h-11"
                 >
-                  {showPrintView ? 'Editar Lote' : 'Visualização de Impressão'}
+                  {showPrintView ? 'Editar Lote / Painel' : 'Visualização de Impressão'}
                 </Button>
               </div>
             </header>
 
             {!showPrintView ? (
-              <section className="space-y-8">
+              <section className="space-y-10">
+                {/* 1. Designer and Builder grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <Card className="bg-slate-900 border-none rounded-3xl shadow-xl overflow-hidden p-8">
+                  <Card className="bg-slate-900 border-none rounded-3xl shadow-xl overflow-hidden p-8 flex flex-col justify-between">
                     <div className="space-y-6">
                       <div className="space-y-1">
-                        <h3 className="text-white font-black text-xl uppercase tracking-tight">Configurar Lote</h3>
-                        <p className="text-slate-400 text-sm">Defina a quantidade e a identidade visual dos cartões.</p>
+                        <span className="text-xs font-black text-blue-400 uppercase tracking-widest block">PASSO 1</span>
+                        <h3 className="text-white font-black text-xl uppercase tracking-tight">Criar Cartões em Lote</h3>
+                        <p className="text-slate-400 text-sm">Gere cartões em massa instantaneamente. Cada um terá um número único de 16 dígitos.</p>
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1432,12 +1703,14 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                           <Input 
                             type="number"
                             value={batchSize}
-                            onChange={(e) => setBatchSize(parseInt(e.target.value))}
+                            onChange={(e) => setBatchSize(parseInt(e.target.value) || 24)}
                             className="bg-slate-800 border-slate-700 text-white h-11 focus:ring-blue-500 rounded-xl"
+                            min="1"
+                            max="200"
                           />
                         </div>
                         <div className="space-y-4">
-                          <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest block">Design do Cartão (Fundo)</label>
+                          <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest block">Fundo de Imagem Customizada</label>
                           <div className="space-y-3">
                             <div className="flex items-center gap-3">
                               <input 
@@ -1449,7 +1722,10 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                   const file = e.target.files?.[0];
                                   if (file) {
                                     const reader = new FileReader();
-                                    reader.onloadend = () => setCardBgUrl(reader.result as string);
+                                    reader.onloadend = () => {
+                                      setCardBgUrl(reader.result as string);
+                                      setCardGradient('custom-image');
+                                    };
                                     reader.readAsDataURL(file);
                                   }
                                 }}
@@ -1458,119 +1734,450 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                 htmlFor="card-bg-upload"
                                 className="flex-1 flex items-center justify-center gap-2 bg-slate-800 border-2 border-dashed border-slate-700 text-slate-300 hover:text-white hover:border-blue-500 transition-all h-11 px-6 rounded-xl cursor-pointer text-xs font-bold"
                               >
-                                <Store className="h-4 w-4" /> Selecionar Foto de Fundo
+                                <Store className="h-4 w-4 text-blue-400" /> Escolher Imagem
                               </label>
-                            </div>
-                            <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
-                              <p className="text-[10px] text-blue-400 font-bold uppercase tracking-tight">Medidas Recomendadas:</p>
-                              <p className="text-[9px] text-slate-400 leading-relaxed mt-1">
-                                Padrão ID-1 (CR80): <span className="text-slate-300">85.6mm x 54mm</span><br/>
-                                Proporção: <span className="text-slate-300">1.586 : 1</span><br/>
-                                Qualidade (300 DPI): <span className="text-slate-300">1011 x 638 pixels</span>
-                              </p>
                             </div>
                           </div>
                         </div>
                       </div>
 
-                      <Button 
-                        onClick={handleGenerateCards} 
-                        disabled={isGenerating}
-                        className="w-full bg-blue-600 hover:bg-blue-500 text-white h-12 font-black uppercase tracking-tight disabled:opacity-50 rounded-xl"
-                      >
-                        {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Plus className="h-4 w-4 mr-2" /> Gerar Novos Cartões</>}
-                      </Button>
+                      <div className="p-4 bg-blue-500/10 rounded-2xl border border-blue-500/10 space-y-1.5 text-[10px] text-slate-300">
+                        <p className="font-extrabold text-blue-400 uppercase tracking-wider">Por que 16 dígitos?</p>
+                        <p className="leading-relaxed opacity-90">
+                          Seus cartões físicos seguem exatamente o layout e segurança do cartão digital gerado pelo aluno/responsável na Área do Cliente. Ao ser impresso, você pode consultar o extrato, recarregar online, e ter uma conferência ágil no caixa.
+                        </p>
+                      </div>
                     </div>
+
+                    <Button 
+                      onClick={handleGenerateCards} 
+                      disabled={isGenerating}
+                      className="w-full bg-blue-600 hover:bg-blue-500 text-white h-12 mt-6 font-black uppercase tracking-widest disabled:opacity-50 rounded-xl transition-all shadow-lg shadow-blue-500/20"
+                    >
+                      {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Plus className="h-4 w-4 mr-2" /> Gerar {batchSize} Novos Cartões</>}
+                    </Button>
                   </Card>
 
-                  <div className="flex flex-col justify-center items-center bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200 p-8">
-                    <p className="text-[10px] font-black uppercase text-slate-400 mb-4 tracking-widest">Preview do Cartão</p>
-                    <div className="relative w-[340px] h-[215px] rounded-2xl shadow-2xl overflow-hidden border border-slate-200 bg-white">
-                      <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover opacity-80" referrerPolicy="no-referrer" />
-                      <div className="absolute inset-0 bg-gradient-to-br from-slate-900/40 to-transparent" />
-                      <div className="relative h-full p-6 flex flex-col justify-between text-white">
-                         <div className="flex justify-between items-start">
-                            <span className="text-[10px] font-black tracking-widest uppercase opacity-80">Maestro Card</span>
-                            <LayoutDashboard className="h-6 w-6 opacity-80" />
-                         </div>
-                         <div className="flex justify-between items-end">
-                            <div className="space-y-1">
-                               <p className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Portador</p>
-                               <p className="text-sm font-black uppercase tracking-tight">Nome do Cliente</p>
-                            </div>
-                            <div className="bg-white p-2 rounded-xl border border-white/20 shadow-lg">
-                               <QRCodeSVG value="PREVIEW" size={70} />
-                            </div>
-                         </div>
+                  {/* 2. Dynamic Studio Card Preview */}
+                  <div className="flex flex-col justify-center items-center bg-slate-50/50 rounded-3xl border-2 border-dashed border-slate-200 p-8">
+                    <div className="flex items-center gap-2 mb-4">
+                       <Palette className="h-4 w-4 text-blue-600" />
+                       <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Estúdio de Customização (Vertical)</p>
+                    </div>
+                    
+                    <div 
+                      className={`relative w-[225px] h-[360px] rounded-2xl shadow-2xl overflow-hidden border border-slate-200 transition-all duration-300 ${cardGradient === 'custom-image' ? '' : getCardBgStyle(cardGradient)}`}
+                    >
+                      {cardGradient === 'custom-image' && (
+                        <>
+                          <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <div className="absolute inset-0 bg-black/40" />
+                        </>
+                      )}
+                      
+                      <div className="relative h-full p-5 flex flex-col justify-between text-white select-none text-center">
+                        {/* Top: Card Header */}
+                        <div className="space-y-1">
+                          <div className="h-6 w-6 bg-white/10 backdrop-blur-sm rounded-lg border border-white/10 flex items-center justify-center mx-auto shadow-inner mb-1.5">
+                            <Sparkles className="h-3.5 w-3.5 text-blue-400 animate-pulse" />
+                          </div>
+                          <span className="text-xs font-black tracking-widest uppercase text-white drop-shadow-sm block truncate max-w-full">
+                            {cardTitleText.trim() || settings.siteName || "Festa Pass"}
+                          </span>
+                          <p className="text-[6px] text-white/70 font-black tracking-[0.25em] uppercase">
+                            CARTÃO DE CONSUMO
+                          </p>
+                        </div>
+
+                        {/* Middle: MUCH LARGER QR Code */}
+                        <div className="flex flex-col items-center justify-center my-3">
+                          <div className="bg-white p-3 rounded-2xl border border-white/10 shadow-xl transition-all duration-300 hover:scale-[1.03]">
+                            <QRCodeSVG value="PREVIEW" size={105} level="H" />
+                          </div>
+                        </div>
+
+                        {/* Bottom: Number & Bearer info (Validity removed) */}
+                        <div className="space-y-3">
+                          <div className="space-y-0.5">
+                            <span className="text-[6px] font-black text-white/50 uppercase tracking-[0.25em] font-mono block">NÚMERO DO CARTÃO</span>
+                            <span className="text-xs font-black tracking-[0.1em] font-mono text-slate-100 drop-shadow-md">
+                              {formatCardNumber("PREVIEW-CARD-HASH-STB")}
+                            </span>
+                          </div>
+
+                          <div className="border-t border-white/10 pt-2">
+                            <span className="text-[6px] font-black text-white/50 uppercase tracking-[0.2em] block leading-none mb-0.5">Titular</span>
+                            <span className="text-[11px] font-black uppercase tracking-tight text-white drop-shadow-sm block truncate">
+                              PORTADOR #001
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 w-full max-w-[225px] space-y-4 bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tema Visual do Cartão</p>
+                      
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: 'mystic-slate', label: 'Slate' },
+                          { id: 'royal-gold', label: 'Gold' },
+                          { id: 'aurora-emerald', label: 'Emerald' },
+                          { id: 'cosmic-purple', label: 'Purple' },
+                          { id: 'neon-sunset', label: 'Sunset' },
+                          { id: 'custom-image', label: 'Foto' }
+                        ].map(theme => (
+                          <button 
+                            key={theme.id}
+                            onClick={() => setCardGradient(theme.id as any)}
+                            className={`h-7 rounded-lg text-[9px] font-black uppercase transition-all flex items-center justify-center border ${cardGradient === theme.id ? 'bg-slate-900 text-white border-blue-500 shadow-sm' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
+                          >
+                            {theme.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="space-y-1 pt-1">
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Título / Evento (Frente)</span>
+                        <Input 
+                          placeholder={settings.siteName || "Festa Pass"}
+                          value={cardTitleText}
+                          onChange={(e) => setCardTitleText(e.target.value)}
+                          className="h-8 text-xs font-bold rounded-lg border-slate-200"
+                        />
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Cartões Gerados Recentemente</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {users.filter(u => u.isPhysicalCard).sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, 50).map(card => (
-                      <Card key={card.uid} className="bg-white border-slate-200 rounded-2xl shadow-sm overflow-hidden group border">
-                        <div className="relative h-32 w-full overflow-hidden">
-                          <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-500 opacity-60" referrerPolicy="no-referrer" />
-                          <div className="absolute inset-0 bg-slate-900/10" />
-                          <div className="absolute inset-0 flex items-center justify-center p-4">
-                             <div className="bg-white p-2 rounded-lg border border-slate-100 shadow-sm">
-                               <QRCodeSVG value={card.qrCode} size={60} />
-                             </div>
-                          </div>
-                        </div>
-                        <div className="p-4 space-y-3">
-                          <div>
-                            <p className="font-bold text-slate-900 text-xs uppercase tracking-tight">{card.name}</p>
-                            <p className="text-[9px] text-slate-400 font-mono mt-0.5">{card.qrCode}</p>
-                          </div>
-                          <div className="flex items-center justify-between pt-3 border-t border-slate-50">
-                             <p className="text-[10px] font-black text-blue-600 uppercase">Saldo: R$ {card.balance.toFixed(2)}</p>
-                              <Button 
-                               variant="ghost" 
-                               size="icon" 
-                               onClick={() => handleDeleteUser(card.uid)}
-                               className="h-6 w-6 text-slate-300 hover:text-red-500"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
+                {/* 3. Cards Summary HUD Panels */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Cartões Ativos (Filters "all") */}
+                  <div 
+                    onClick={() => setPhysicalBalanceFilter('all')}
+                    className={`p-6 rounded-2xl flex items-center gap-4 transition-all duration-300 border cursor-pointer select-none ${
+                      physicalBalanceFilter === 'all' 
+                        ? 'bg-blue-50/70 border-blue-500 ring-2 ring-blue-500/15 shadow-md shadow-blue-500/5 text-blue-900' 
+                        : 'bg-slate-50 hover:bg-slate-100/80 border-slate-100 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className={`h-12 w-12 rounded-xl flex items-center justify-center transition-all ${
+                      physicalBalanceFilter === 'all' ? 'bg-blue-600 text-white shadow-md' : 'bg-blue-100 text-blue-600'
+                    }`}>
+                      <CreditCard className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest block leading-none mb-1">
+                        Cartões Ativos {physicalBalanceFilter === 'all' && '●'}
+                      </p>
+                      <h4 className="text-2xl font-black text-slate-900 tracking-tight">{users.filter(u => u.isPhysicalCard).length}</h4>
+                    </div>
                   </div>
+                  
+                  {/* Saldo Total Impresso (Filters "positive" - cards with balance > 0) */}
+                  <div 
+                    onClick={() => setPhysicalBalanceFilter('positive')}
+                    className={`p-6 rounded-2xl flex items-center gap-4 transition-all duration-300 border cursor-pointer select-none ${
+                      physicalBalanceFilter === 'positive' 
+                        ? 'bg-emerald-50/70 border-emerald-500 ring-2 ring-emerald-500/15 shadow-md shadow-emerald-500/5 text-emerald-900' 
+                        : 'bg-slate-50 hover:bg-slate-100/80 border-slate-100 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className={`h-12 w-12 rounded-xl flex items-center justify-center transition-all ${
+                      physicalBalanceFilter === 'positive' ? 'bg-emerald-600 text-white shadow-md' : 'bg-emerald-100 text-emerald-600'
+                    }`}>
+                      <DollarSign className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest block leading-none mb-1">
+                        Saldo Total Impresso {physicalBalanceFilter === 'positive' && '●'}
+                      </p>
+                      <h4 className="text-2xl font-black text-slate-900 tracking-tight">
+                        R$ {users.filter(u => u.isPhysicalCard).reduce((acc, u) => acc + (u.balance || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </h4>
+                    </div>
+                  </div>
+
+                  {/* Com Saldo Ativo (Filters "positive") */}
+                  <div 
+                    onClick={() => setPhysicalBalanceFilter('positive')}
+                    className={`p-6 rounded-2xl flex items-center gap-4 transition-all duration-300 border cursor-pointer select-none ${
+                      physicalBalanceFilter === 'positive' 
+                        ? 'bg-purple-50/70 border-purple-500 ring-2 ring-purple-500/15 shadow-md shadow-purple-500/5 text-purple-900' 
+                        : 'bg-slate-50 hover:bg-slate-100/80 border-slate-100 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className={`h-12 w-12 rounded-xl flex items-center justify-center transition-all ${
+                      physicalBalanceFilter === 'positive' ? 'bg-purple-600 text-white shadow-md' : 'bg-purple-100 text-purple-600'
+                    }`}>
+                      <Sparkles className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest block leading-none mb-1">
+                        Com Saldo Ativo {physicalBalanceFilter === 'positive' && '●'}
+                      </p>
+                      <h4 className="text-2xl font-black text-slate-900 tracking-tight">{users.filter(u => u.isPhysicalCard && u.balance > 0).length} cartões</h4>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Filter, Search, Management center */}
+                <div className="space-y-6 animate-in fade-in duration-300">
+                  <div className="bg-slate-55 border bg-white shadow-sm p-6 rounded-3xl border-slate-100 space-y-4">
+                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                       <div>
+                          <h3 className="text-base font-black text-slate-900 uppercase">Consultar Direitório de Cartões</h3>
+                          <p className="text-xs text-slate-500">Busque por número, nome do portador ou código de barras</p>
+                       </div>
+                       
+                       {/* Balance filter tabs */}
+                       <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 border border-slate-100">
+                         <button 
+                           onClick={() => setPhysicalBalanceFilter('all')}
+                           className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${physicalBalanceFilter === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                         >
+                           Todos
+                         </button>
+                         <button 
+                           onClick={() => setPhysicalBalanceFilter('positive')}
+                           className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${physicalBalanceFilter === 'positive' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                         >
+                           Com Saldo
+                         </button>
+                         <button 
+                           onClick={() => setPhysicalBalanceFilter('zero')}
+                           className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${physicalBalanceFilter === 'zero' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                         >
+                           Sem Saldo
+                         </button>
+                       </div>
+                     </div>
+
+                     {/* Search bar & Bulk actions */}
+                     <div className="flex flex-col md:flex-row gap-4">
+                       <div className="relative flex-1">
+                          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                          <Input 
+                            value={physicalSearchQuery}
+                            onChange={(e) => setPhysicalSearchQuery(e.target.value)}
+                            placeholder="Buscar por lote, ID, nome #000 ou dígitos do cartão..."
+                            className="bg-white border-slate-200 pl-11 h-12 rounded-xl text-sm focus-visible:ring-blue-500 font-bold"
+                          />
+                          {physicalSearchQuery && (
+                            <button 
+                              onClick={() => setPhysicalSearchQuery('')}
+                              className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400 hover:text-slate-900"
+                            >
+                              LIMPAR
+                            </button>
+                          )}
+                       </div>
+                       
+                       <div className="flex gap-2">
+                         <Button
+                           variant="outline"
+                           onClick={() => toggleSelectAllPhysical(filteredPhysicalCards)}
+                           className="bg-white border-slate-200 h-12 text-xs font-bold rounded-xl whitespace-nowrap"
+                         >
+                           {selectedPhysicalCards.length === filteredPhysicalCards.length ? 'Desmarcar Tudo' : 'Selecionar Tudo'}
+                         </Button>
+                         
+                         {selectedPhysicalCards.length > 0 && (
+                           <div className="flex gap-2 animate-in slide-in-from-right-3">
+                             <Button
+                               onClick={() => setShowBulkRechargeModal(true)}
+                               className="bg-emerald-600 hover:bg-emerald-700 text-white h-12 text-sm font-black rounded-xl"
+                             >
+                               Recarregar ({selectedPhysicalCards.length})
+                             </Button>
+                             <Button
+                               variant="destructive"
+                               onClick={handleBulkDelete}
+                               className="h-12 text-sm font-black rounded-xl"
+                             >
+                               Excluir ({selectedPhysicalCards.length})
+                             </Button>
+                           </div>
+                         )}
+                       </div>
+                     </div>
+                  </div>
+
+                  {/* Dashboard Cards Grid */}
+                  {filteredPhysicalCards.length === 0 ? (
+                    <div className="text-center py-16 bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl space-y-3">
+                      <CreditCard className="h-12 w-12 text-slate-300 mx-auto" />
+                      <div>
+                         <p className="text-sm font-black text-slate-700 uppercase">Nenhum Cartão Encontrado</p>
+                         <p className="text-xs text-slate-500">Tente mudar sua busca ou o filtro de saldo</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                      {filteredPhysicalCards.sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, 100).map(card => {
+                        const formattedNum = formatCardNumber(card.uid || card.qrCode || '');
+                        const isSelected = selectedPhysicalCards.includes(card.uid);
+                        const bgStyle = cardGradient === 'custom-image' ? '' : getCardBgStyle(cardGradient);
+                        
+                        return (
+                          <div 
+                            key={card.uid} 
+                            onClick={() => toggleSelectCard(card.uid)}
+                            className={`bg-white border-2 rounded-2xl shadow-sm overflow-hidden group/card relative transition-all duration-200 cursor-pointer flex flex-col justify-between ${isSelected ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-100 hover:border-slate-300'}`}
+                          >
+                            {/* Visual Card Card area: VERTICAL proportion for dashboard list */}
+                            <div className={`relative h-[280px] w-full overflow-hidden flex flex-col justify-between p-4 text-white ${bgStyle}`}>
+                              {cardGradient === 'custom-image' && (
+                                <>
+                                  <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover group-hover/card:scale-105 transition-transform duration-500 opacity-80" referrerPolicy="no-referrer" />
+                                  <div className="absolute inset-0 bg-black/40" />
+                                </>
+                              )}
+                              
+                              <div className="flex justify-between items-start z-10" onClick={(e) => e.stopPropagation()}>
+                                 <button 
+                                   onClick={() => toggleSelectCard(card.uid)}
+                                   className={`h-6 w-6 rounded-lg flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 text-white' : 'bg-black/35 text-white/50 hover:text-white border border-white/10'}`}
+                                 >
+                                    {isSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                                 </button>
+                                 <span className="text-[7.5px] font-black tracking-widest uppercase bg-white/10 px-2 py-0.5 rounded-full border border-white/10 leading-none">
+                                    {cardTitleText.trim() || settings.siteName || "Festa Pass"}
+                                 </span>
+                              </div>
+
+                              {/* Center: LARGER QR Code */}
+                              <div className="flex justify-center my-1.5 z-10">
+                                <div className="bg-white p-2 rounded-xl shadow-md border border-white/10">
+                                  <QRCodeSVG value={card.qrCode} size={85} level="M" />
+                                </div>
+                              </div>
+
+                              {/* Card Number & Header details */}
+                              <div className="space-y-2 z-10">
+                                <div className="space-y-0.5 text-center">
+                                  <span className="text-[5px] text-white/60 font-mono tracking-widest block font-extrabold leading-none">NÚMERO DO CARTÃO</span>
+                                  <p className="text-[11px] font-black font-mono tracking-wider text-slate-100 drop-shadow">{formattedNum}</p>
+                                </div>
+
+                                <div className="border-t border-white/10 pt-1.5 flex justify-between items-end text-left leading-none">
+                                  <div>
+                                    <span className="text-[5px] font-extrabold text-white/50 uppercase tracking-widest leading-none block mb-0.5">Titular</span>
+                                    <span className="text-[9.5px] font-black uppercase tracking-tight text-white drop-shadow block truncate max-w-[120px]">{card.name}</span>
+                                  </div>
+                                  <span className="text-[8px] font-bold text-slate-300 font-mono">{card.qrCode?.slice(-8)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Info and interaction panel at the bottom */}
+                            <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                               <div className="text-left">
+                                 <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block leading-none mb-0.5">SALDO</span>
+                                 <p className="text-xs font-black text-slate-900">
+                                   R$ {card.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                 </p>
+                               </div>
+                               
+                               <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(formattedNum);
+                                      toast.success('Número de 16 dígitos copiado!');
+                                    }}
+                                    className="h-7 w-7 text-slate-400 hover:text-slate-900"
+                                    title="Copiar Número do Cartão"
+                                  >
+                                    <Copy className="h-3.5 w-3.5" />
+                                  </Button>
+                                  
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(card.qrCode);
+                                      toast.success('Código QR copiado!');
+                                    }}
+                                    className="h-7 w-7 text-slate-400 hover:text-slate-900"
+                                    title="Copiar Link QR"
+                                  >
+                                    <QrCode className="h-3.5 w-3.5" />
+                                  </Button>
+
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    onClick={() => handleDeleteUser(card.uid)}
+                                    className="h-7 w-7 text-slate-300 hover:text-red-500"
+                                    title="Excluir Cartão"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                               </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </section>
             ) : (
               <section className="bg-slate-100 p-8 md:p-12 rounded-3xl border border-slate-200 print-view-section">
                 <div id="printable-cards" className="print:block">
-                  <div className="grid grid-cols-2 gap-y-8 gap-x-8 justify-center items-center print:gap-x-4 print:gap-y-4">
-                    {users.filter(u => u.isPhysicalCard).sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, batchSize).map(card => (
-                      <div key={card.uid} className="relative print-card w-[85.6mm] h-[53.98mm] rounded-[12px] overflow-hidden bg-white shadow-sm border border-slate-200 print:shadow-none mx-auto">
-                        <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover" />
-                        <div className="absolute inset-0 bg-slate-900/10" />
-                        <div className="relative h-full p-6 flex flex-col justify-between text-white">
-                           <div className="flex justify-between items-start">
-                              <span className="text-[10px] font-black tracking-widest uppercase drop-shadow-sm">MAESTRO EVENTOS</span>
-                              <div className="h-8 w-8 bg-white/20 backdrop-blur-sm rounded-lg border border-white/20 flex items-center justify-center">
-                                 <LayoutDashboard className="h-4 w-4 text-white" />
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-y-8 gap-x-8 justify-center items-center print:grid-cols-3 print:gap-x-4 print:gap-y-4">
+                    {users.filter(u => u.isPhysicalCard).sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, batchSize).map(card => {
+                      const formattedNum = formatCardNumber(card.uid || card.qrCode || '');
+                      const bgStyle = cardGradient === 'custom-image' ? '' : getCardBgStyle(cardGradient);
+                      
+                      return (
+                        <div 
+                          key={card.uid} 
+                          className={`relative print-card w-[53.98mm] h-[85.6mm] rounded-[12px] overflow-hidden bg-slate-900 border border-slate-700 mx-auto ${bgStyle}`}
+                        >
+                          {cardGradient === 'custom-image' && (
+                            <>
+                              <img src={cardBgUrl} alt="Background" className="absolute inset-0 w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-black/45" />
+                            </>
+                          )}
+                          <div className="relative h-full p-4 flex flex-col justify-between text-white select-none text-center">
+                            {/* Top row site Name */}
+                            <div className="space-y-0.5">
+                              <span className="text-[9px] font-black tracking-widest uppercase text-white drop-shadow-sm leading-none block">
+                                {cardTitleText.trim() || settings.siteName || "FESTA PASS"}
+                              </span>
+                              <span className="text-[55px] text-white/70 font-black tracking-[0.2em] uppercase mt-0.5 block leading-none" style={{fontSize: "5px"}}>
+                                CARTÃO DE CONSUMO
+                              </span>
+                            </div>
+
+                            {/* Center: MUCH LARGER QR Code */}
+                            <div className="flex justify-center my-2">
+                              <div className="bg-white p-2 rounded-xl shadow-lg border border-white/5">
+                                <QRCodeSVG value={card.qrCode} size={110} level="H" />
                               </div>
-                           </div>
-                           <div className="flex justify-between items-end">
-                              <div className="space-y-1">
-                                 <p className="text-[8px] font-bold text-white uppercase tracking-[0.2em] drop-shadow-sm">Identificação</p>
-                                 <p className="text-sm font-black uppercase tracking-tight drop-shadow-md">{card.name}</p>
-                                 <p className="text-[8px] font-mono text-white/70 uppercase tracking-tighter drop-shadow-sm">{card.qrCode}</p>
+                            </div>
+
+                            {/* Spaced credit card code */}
+                            <div className="space-y-2">
+                              <div className="space-y-0.5">
+                                <span className="text-[5px] text-white/50 font-black tracking-[0.2em] uppercase font-mono block">NÚMERO DO CARTÃO</span>
+                                <p className="text-xs font-black tracking-[0.08em] font-mono leading-none text-slate-50">{formattedNum}</p>
                               </div>
-                              <div className="bg-white p-3 rounded-xl border border-white/10 shadow-2xl">
-                                 <QRCodeSVG value={card.qrCode} size={80} level="M" />
+
+                              {/* Bottom row Titular (Validity removed) */}
+                              <div className="border-t border-white/10 pt-1.5 text-center">
+                                 <p className="text-[5px] font-extrabold text-white/50 uppercase tracking-widest leading-none mb-0.5">Titular</p>
+                                 <p className="text-[10px] font-black uppercase tracking-tight truncate text-white drop-shadow">{card.name}</p>
                               </div>
-                           </div>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   <style>{`
                     @media print {
@@ -1605,8 +2212,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                       .print-card {
                         break-inside: avoid !important;
                         page-break-inside: avoid !important;
-                        width: 85.6mm !important;
-                        height: 53.98mm !important;
+                        width: 53.98mm !important;
+                        height: 85.6mm !important;
                         margin: 2mm !important;
                         display: inline-block !important;
                         position: relative !important;
@@ -1975,6 +2582,74 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               </motion.div>
             )}
           </AnimatePresence>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showBulkRechargeModal} onOpenChange={setShowBulkRechargeModal}>
+        <DialogContent className="max-w-md bg-white p-8 rounded-3xl border border-slate-100 shadow-2xl">
+          <DialogHeader className="text-left space-y-2">
+            <div className="h-12 w-12 bg-emerald-100 rounded-2xl flex items-center justify-center text-emerald-600 mb-2">
+              <DollarSign className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-xl font-black text-slate-900 uppercase tracking-tight">Recarga em Lote</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              Isso adicionará o saldo especificado abaixo a todos os <span className="font-extrabold text-slate-900">{selectedPhysicalCards.length} cartões físicos selecionados</span>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Valor da Recarga (R$)</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">R$</span>
+                <Input 
+                  type="number"
+                  value={bulkRechargeAmount || ''}
+                  onChange={(e) => setBulkRechargeAmount(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="pl-10 h-14 text-lg font-black rounded-xl border-slate-200 focus-visible:ring-emerald-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2">
+              {[10, 20, 50, 100].map(amt => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => setBulkRechargeAmount(amt)}
+                  className="h-10 text-xs font-black rounded-lg border border-slate-200 hover:bg-slate-50 active:bg-slate-100 transition-all text-slate-700"
+                >
+                  + R$ {amt}
+                </button>
+              ))}
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1.5 text-xs text-slate-500 leading-relaxed font-semibold">
+              <p className="font-extrabold text-slate-800 uppercase tracking-wider text-[10px]">Aviso de Operação:</p>
+              <p>As recargas geram transações individuais de crédito para cada um dos portadores dos cartões. Esta ação não poderá ser desfeita automaticamente.</p>
+            </div>
+          </div>
+
+          <DialogFooter className="flex flex-col gap-2 pt-2 sm:flex-col">
+            <Button
+              onClick={handleBulkRecharge}
+              disabled={bulkRechargeProcessing || bulkRechargeAmount <= 0}
+              className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold uppercase tracking-widest text-xs rounded-xl disabled:opacity-50"
+            >
+              {bulkRechargeProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : `Confirmar R$ ${(bulkRechargeAmount).toFixed(2)} em Lote`}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowBulkRechargeModal(false);
+                setBulkRechargeAmount(0);
+              }}
+              className="w-full h-11 text-xs font-bold text-slate-500 hover:text-slate-900 rounded-xl"
+            >
+              Cancelar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
