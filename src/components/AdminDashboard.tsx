@@ -2183,34 +2183,59 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                     @media print {
                       @page {
                         size: A4 portrait;
-                        margin: 10mm;
+                        margin: 8mm 10mm;
                       }
                       
                       .print-only {
                         display: block !important;
                       }
                       
+                      /* Hide background elements to avoid blank spots at the top of page */
+                      .fixed, 
+                      [role="dialog"], 
+                      .sonner, 
+                      .toast,
+                      header,
+                      footer,
+                      button,
+                      [role="tablist"],
+                      .no-print,
+                      .print-hide {
+                        display: none !important;
+                      }
+
                       * {
                         -webkit-print-color-adjust: exact !important;
                         print-color-adjust: exact !important;
                         color-adjust: exact !important;
                       }
 
-                      body {
-                        visibility: hidden !important;
+                      /* Reset all heights/scrolls/overflows so browser pagination triggers correctly */
+                      html, body, #root, .min-h-screen, main, .max-w-6xl {
+                        height: auto !important;
+                        min-height: 0 !important;
+                        max-height: none !important;
+                        overflow: visible !important;
+                        background: white !important;
+                        visibility: visible !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
                       }
 
-                      #printable-cards, #printable-cards * {
-                        visibility: visible !important;
+                      .print-view-section {
+                        background: transparent !important;
+                        border: none !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
+                        box-shadow: none !important;
                       }
 
                       #printable-cards {
                         display: block !important;
-                        position: absolute !important;
-                        left: 0 !important;
-                        top: 0 !important;
                         width: 100% !important;
-                        background: white !important;
+                        background: transparent !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
                       }
 
                       #printable-cards .grid {
@@ -2226,10 +2251,12 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                         page-break-inside: avoid !important;
                         width: 53.98mm !important;
                         height: 85.6mm !important;
-                        margin: 3.5mm !important;
+                        margin: 2mm !important;
                         display: inline-block !important;
                         position: relative !important;
                         border: 0.1mm solid #ddd !important;
+                        box-sizing: border-box !important;
+                        background-color: #0f172a !important; /* Ensure dark cards render beautifully */
                       }
 
                       .print-card img {
