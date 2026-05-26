@@ -2118,7 +2118,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               </section>
             </div>
 
-            <div className={showPrintView ? 'block' : 'hidden print:block'}>
+            <div className={showPrintView ? 'block' : 'print-only'}>
               <section className="bg-slate-100 p-8 md:p-12 rounded-3xl border border-slate-200 print-view-section">
                 <div id="printable-cards" className="print:block">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-y-8 gap-x-8 justify-center items-center print:grid-cols-3 print:gap-x-4 print:gap-y-4">
@@ -2174,10 +2174,20 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                     })}
                   </div>
                   <style>{`
+                    @media screen {
+                      .print-only {
+                        display: none !important;
+                      }
+                    }
+                    
                     @media print {
                       @page {
                         size: A4 portrait;
                         margin: 10mm;
+                      }
+                      
+                      .print-only {
+                        display: block !important;
                       }
                       
                       * {
@@ -2203,12 +2213,20 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                         background: white !important;
                       }
 
+                      #printable-cards .grid {
+                        display: block !important;
+                        text-align: center !important;
+                        background: transparent !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
+                      }
+
                       .print-card {
                         break-inside: avoid !important;
                         page-break-inside: avoid !important;
                         width: 53.98mm !important;
                         height: 85.6mm !important;
-                        margin: 2mm !important;
+                        margin: 3.5mm !important;
                         display: inline-block !important;
                         position: relative !important;
                         border: 0.1mm solid #ddd !important;
