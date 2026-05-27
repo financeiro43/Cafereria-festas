@@ -38,8 +38,23 @@ export default function VendorDashboard({
   const cart = externalCart !== undefined ? externalCart : internalCart;
   const setCart = setExternalCart !== undefined ? setExternalCart : setInternalCart;
 
+  const [localUsers, setLocalUsers] = useState<UserProfile[]>([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+      setLocalUsers(snap.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+    });
+    return () => unsub();
+  }, []);
+
   const [internalScannedUser, setInternalScannedUser] = useState<UserProfile | null>(null);
-  const scannedUser = externalScannedUser !== undefined ? externalScannedUser : internalScannedUser;
+  const baseScannedUser = externalScannedUser !== undefined ? externalScannedUser : internalScannedUser;
+  // Get the absolute latest, live synchronized user data from localUsers for real-time reactivity
+  const scannedUser = useMemo(() => {
+    if (!baseScannedUser) return null;
+    const live = localUsers.find(u => u.uid === baseScannedUser.uid);
+    return live ? live : baseScannedUser;
+  }, [baseScannedUser, localUsers]);
   const setScannedUser = setExternalScannedUser !== undefined ? setExternalScannedUser : setInternalScannedUser;
 
   const [showMobileCart, setShowMobileCart] = useState(false);
@@ -286,10 +301,28 @@ export default function VendorDashboard({
       const cleanText = decodedText.trim();
       if (!cleanText) return;
 
+      // 1. Instant Local Memory Search (0ms response) - No network or loading toast needed!
+      const foundLocal = localUsers.find(u => 
+        u.qrCode === cleanText || 
+        (u.linkedCards && u.linkedCards.includes(cleanText))
+      );
+
+      if (foundLocal) {
+         setScannedUser(foundLocal);
+         setIsScanning(false);
+         setStatusModal({
+           show: true,
+           type: 'success',
+           title: 'Cliente Identificado',
+           message: `Cliente: ${foundLocal.name}\nSaldo: R$ ${foundLocal.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+         });
+         return;
+      }
+
+      // 2. Fallback Parallel Network Query (only if uncached/new)
       setIsScanning(false);
       const toastId = toast.loading('Identificando cliente...', { id: 'v-scan' });
       
-      // Consultar em paralelo para máxima velocidade
       const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText));
       const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
       
@@ -349,51 +382,48 @@ export default function VendorDashboard({
         return;
       }
 
-      // We should use a transaction here for atomicity, but let's at least add error handling for each step
-      try {
-        await updateDoc(doc(db, 'users', scannedUser.uid), {
-          balance: increment(-cartTotal)
-        });
-      } catch (e) {
-        return handleFirestoreError(e, OperationType.UPDATE, `users/${scannedUser.uid}`);
-      }
+      // Executar todas os registros no banco em paralelo para velocidade máxima (3x mais rápido!)
+      const updateBalancePromise = updateDoc(doc(db, 'users', scannedUser.uid), {
+        balance: increment(-cartTotal)
+      }).catch(e => {
+        handleFirestoreError(e, OperationType.UPDATE, `users/${scannedUser!.uid}`);
+        throw e;
+      });
 
-      try {
-        await addDoc(collection(db, 'transactions'), {
-          userId: scannedUser.uid,
-          userName: scannedUser.name,
-          amount: -cartTotal,
-          type: 'debit',
-          description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
-          stallName: stall?.name || 'Barraca',
-          items: cart.map(item => `${item.quantity}x ${item.name}`),
-          vendorId: profile.uid,
-          status: 'completed',
-          timestamp: serverTimestamp()
-        });
-      } catch (e) {
+      const writeTransactionPromise = addDoc(collection(db, 'transactions'), {
+        userId: scannedUser.uid,
+        userName: scannedUser.name,
+        amount: -cartTotal,
+        type: 'debit',
+        description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
+        stallName: stall?.name || 'Barraca',
+        items: cart.map(item => `${item.quantity}x ${item.name}`),
+        vendorId: profile.uid,
+        status: 'completed',
+        timestamp: serverTimestamp()
+      }).catch(e => {
         handleFirestoreError(e, OperationType.CREATE, 'transactions');
-      }
+      });
 
-      try {
-        await addDoc(collection(db, 'consumption'), {
-          studentId: scannedUser.uid,
-          vendorId: profile.uid,
-          stallId: activeStallId,
-          amount: cartTotal,
-          items: cart.map(item => `${item.quantity}x ${item.name}`),
-          detailedItems: cart.map(item => ({
-            productId: item.id,
-            name: item.name,
-            quantity: item.quantity,
-            price: item.price,
-            subtotal: item.price * item.quantity
-          })),
-          timestamp: serverTimestamp()
-        });
-      } catch (e) {
+      const writeConsumptionPromise = addDoc(collection(db, 'consumption'), {
+        studentId: scannedUser.uid,
+        vendorId: profile.uid,
+        stallId: activeStallId,
+        amount: cartTotal,
+        items: cart.map(item => `${item.quantity}x ${item.name}`),
+        detailedItems: cart.map(item => ({
+          productId: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+          subtotal: item.price * item.quantity
+        })),
+        timestamp: serverTimestamp()
+      }).catch(e => {
         handleFirestoreError(e, OperationType.CREATE, 'consumption');
-      }
+      });
+
+      await Promise.all([updateBalancePromise, writeTransactionPromise, writeConsumptionPromise]);
 
       setStatusModal({
         show: true,
@@ -771,14 +801,37 @@ export default function VendorDashboard({
                       </div>
 
                       {!scannedUser ? (
-                        <Button 
-                          onClick={() => setIsScanning(true)}
-                          disabled={cart.length === 0}
-                          className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.3em] rounded-2xl shadow-[0_20px_40px_rgba(37,99,235,0.3)] border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all group overflow-hidden relative"
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
-                          <QrCode className="mr-3 h-6 w-6" /> Escanear Carteira
-                        </Button>
+                        <div className="space-y-3">
+                          <Button 
+                            onClick={() => setIsScanning(true)}
+                            disabled={cart.length === 0}
+                            className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.3em] rounded-2xl shadow-[0_20px_40px_rgba(37,99,235,0.3)] border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all group overflow-hidden relative"
+                          >
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
+                            <QrCode className="mr-3 h-6 w-6" /> Escanear Carteira
+                          </Button>
+                          
+                          <div className="relative">
+                            <Input
+                              placeholder="FOCO P/ LEITOR DE CARTÃO (RFID/SWIPE)"
+                              onKeyDown={async (e) => {
+                                if (e.key === 'Enter') {
+                                  const text = e.currentTarget.value.trim();
+                                  if (text) {
+                                    await onScanSuccess(text);
+                                    e.currentTarget.value = '';
+                                  }
+                                }
+                              }}
+                              disabled={cart.length === 0}
+                              className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 font-bold uppercase text-[11px] tracking-wider text-center h-12 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none w-full"
+                              autoFocus={cart.length > 0}
+                            />
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+                              <span className="text-[8px] font-black uppercase text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">Leitor USB</span>
+                            </div>
+                          </div>
+                        </div>
                       ) : (
                         <motion.div 
                           initial={{ opacity: 0, y: 20 }}

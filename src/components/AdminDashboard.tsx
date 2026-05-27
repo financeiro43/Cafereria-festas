@@ -688,6 +688,35 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       });
 
       const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+      // Apply Excel currency format to monetary columns dynamically
+      if (worksheet['!ref']) {
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+        for (let col = range.s.c; col <= range.e.c; col++) {
+          const headerAddress = XLSX.utils.encode_cell({ r: range.s.r, c: col });
+          const headerCell = worksheet[headerAddress];
+          if (headerCell && typeof headerCell.v === 'string') {
+            const headerText = headerCell.v;
+            const isMonetary = 
+              headerText.includes('(R$)') || 
+              headerText.includes('Valor') || 
+              headerText.includes('Preço') || 
+              headerText.includes('Saldo');
+
+            if (isMonetary) {
+              for (let row = range.s.r + 1; row <= range.e.r; row++) {
+                const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+                const cell = worksheet[cellAddress];
+                if (cell && typeof cell.v === 'number') {
+                  cell.t = 'n';
+                  cell.z = '"R$ " #,##0.00';
+                }
+              }
+            }
+          }
+        }
+      }
+
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Usuários');
 
@@ -2784,6 +2813,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 externalScannedUser={sharedScannedUser}
                 setExternalScannedUser={setSharedScannedUser}
                 onSuccess={() => setSharedCart([])}
+                users={users}
               />
             </div>
           )}
@@ -3353,14 +3383,22 @@ function ShieldCheck({ className }: { className?: string }) {
 function RechargePortal({ 
   externalScannedUser, 
   setExternalScannedUser,
-  onSuccess 
+  onSuccess,
+  users = []
 }: { 
   externalScannedUser?: UserProfile | null, 
   setExternalScannedUser?: React.Dispatch<React.SetStateAction<UserProfile | null>>,
-  onSuccess?: () => void
+  onSuccess?: () => void,
+  users?: UserProfile[]
 }) {
   const [internalScannedUser, setInternalScannedUser] = useState<UserProfile | null>(null);
-  const scannedUser = externalScannedUser !== undefined ? externalScannedUser : internalScannedUser;
+  const baseScannedUser = externalScannedUser !== undefined ? externalScannedUser : internalScannedUser;
+  // Get the absolute latest, live synchronized user data from local active user base
+  const scannedUser = useMemo(() => {
+    if (!baseScannedUser) return null;
+    const live = users.find(u => u.uid === baseScannedUser.uid);
+    return live ? live : baseScannedUser;
+  }, [baseScannedUser, users]);
   const setScannedUser = setExternalScannedUser !== undefined ? setExternalScannedUser : setInternalScannedUser;
 
   const [isScanning, setIsScanning] = useState(false);
@@ -3383,18 +3421,40 @@ function RechargePortal({
     try {
       const cleanText = decodedText.trim();
       if (!cleanText) return;
-      
-      let q = query(collection(db, 'users'), where('qrCode', '==', cleanText));
-      let snap = await getDocs(q);
-      
-      if (snap.empty) {
-        q = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
-        snap = await getDocs(q);
+
+      // 1. Instant Local Memory Search (0ms response)
+      const foundLocal = users.find(u => 
+        u.qrCode === cleanText || 
+        (u.linkedCards && u.linkedCards.includes(cleanText))
+      );
+
+      if (foundLocal) {
+        setScannedUser(foundLocal);
+        setIsScanning(false);
+        setStatusModal({
+          show: true,
+          type: 'success',
+          title: 'Cliente Identificado',
+          message: `O cartão de ${foundLocal.name} foi validado com sucesso.\nSaldo Atual: R$ ${foundLocal.balance.toFixed(2)}`
+        });
+        return;
       }
+
+      // 2. Fast parallel query fallback if not in current local state
+      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText));
+      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
+      
+      const [snapMain, snapCards] = await Promise.all([
+        getDocs(qMain),
+        getDocs(qCards)
+      ]);
+      
+      const snap = !snapMain.empty ? snapMain : snapCards;
 
       if (!snap.empty) {
         const userData = snap.docs[0].data() as UserProfile;
-        setScannedUser({ ...userData, uid: snap.docs[0].id });
+        const resolvedUser = { ...userData, uid: snap.docs[0].id };
+        setScannedUser(resolvedUser);
         setIsScanning(false);
         setStatusModal({
           show: true,
@@ -3427,11 +3487,13 @@ function RechargePortal({
 
     try {
       setProcessing(true);
-      await updateDoc(doc(db, 'users', scannedUser.uid), {
+      
+      // Execute the database updates concurrently in parallel to cut processing time in half!
+      const updateBalancePromise = updateDoc(doc(db, 'users', scannedUser.uid), {
         balance: increment(val)
       });
 
-      await addDoc(collection(db, 'transactions'), {
+      const writeTransactionPromise = addDoc(collection(db, 'transactions'), {
         userId: scannedUser.uid,
         userName: scannedUser.name,
         amount: val,
@@ -3441,6 +3503,8 @@ function RechargePortal({
         status: 'completed',
         timestamp: serverTimestamp()
       });
+
+      await Promise.all([updateBalancePromise, writeTransactionPromise]);
 
       setScannedUser(null);
       setAmount('');
@@ -3480,15 +3544,37 @@ function RechargePortal({
           </CardHeader>
           <CardContent className="p-8 pt-4 space-y-6">
             {!isScanning && !scannedUser ? (
-              <button 
-                onClick={() => setIsScanning(true)} 
-                className="w-full h-56 bg-white/[0.03] hover:bg-white/[0.05] border-2 border-dashed border-white/10 flex flex-col items-center justify-center gap-4 rounded-[40px] transition-all group active:scale-95"
-              >
-                <div className="p-5 bg-blue-600 rounded-full shadow-2xl shadow-blue-900/40 group-hover:scale-110 transition-transform">
-                   <QrCode className="h-10 w-10 text-white" />
+              <div className="space-y-4">
+                <button 
+                  onClick={() => setIsScanning(true)} 
+                  className="w-full h-40 bg-white/[0.03] hover:bg-white/[0.05] border-2 border-dashed border-white/10 flex flex-col items-center justify-center gap-3 rounded-[32px] transition-all group active:scale-95"
+                >
+                  <div className="p-3 bg-blue-600 rounded-full shadow-2xl shadow-blue-900/40 group-hover:scale-110 transition-transform">
+                     <QrCode className="h-7 w-7 text-white" />
+                  </div>
+                  <span className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">Toque para Escanear com Câmera</span>
+                </button>
+                
+                <div className="relative">
+                  <Input
+                    placeholder="OU PASSE O CARTÃO FÍSICO (LEITOR USB/RFID)"
+                    onKeyDown={async (e) => {
+                      if (e.key === 'Enter') {
+                        const text = e.currentTarget.value.trim();
+                        if (text) {
+                          await onScanSuccess(text);
+                          e.currentTarget.value = '';
+                        }
+                      }
+                    }}
+                    className="bg-white/5 border-white/10 text-center text-xs font-black uppercase tracking-wider text-white placeholder:text-slate-500 rounded-2xl h-14 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 border border-white/10 w-full"
+                    autoFocus
+                  />
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+                    <span className="text-[9px] font-black uppercase text-blue-400 animate-pulse bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">Leitor Ativo</span>
+                  </div>
                 </div>
-                <span className="font-black text-xs uppercase tracking-[0.2em] text-slate-400">Toque para Escanear</span>
-              </button>
+              </div>
             ) : isScanning ? (
               <div className="h-56 flex items-center justify-center bg-slate-900 rounded-[40px] border-2 border-dashed border-white/5">
                  <Loader2 className="h-10 w-10 text-blue-500 animate-spin" />

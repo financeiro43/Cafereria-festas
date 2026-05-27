@@ -53,6 +53,7 @@ export default function ReportsPortal({
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'failed'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [cardOriginFilter, setCardOriginFilter] = useState<'all' | 'system' | 'client'>('all');
+  const [cardUsageFilter, setCardUsageFilter] = useState<'all' | 'used' | 'unused'>('all');
 
   // Helper to format currency
   const formatCurrency = (val: number) => {
@@ -429,6 +430,13 @@ export default function ReportsPortal({
           }
         }
 
+        const userRecharges = transactions.filter(
+          t => t.userId === u.uid && t.type === 'credit' && t.status === 'completed'
+        );
+        const hasRecharge = userRecharges.length > 0;
+        const rechargeCount = userRecharges.length;
+        const totalRecharged = userRecharges.reduce((acc, r) => acc + (r.amount || 0), 0);
+
         return {
           uid: u.uid,
           name: u.name || 'Sem nome',
@@ -438,13 +446,20 @@ export default function ReportsPortal({
           isPhysical: !!u.isPhysicalCard,
           origin: u.isPhysicalCard ? 'Sistema (Físico)' : 'Online (Cliente)',
           dateStr: creationDate,
-          timestampMillis: timestampMillis
+          timestampMillis: timestampMillis,
+          hasRecharge,
+          rechargeCount,
+          totalRecharged
         };
       })
       .filter(row => {
         // Source/Origin filter
         if (cardOriginFilter === 'system' && !row.isPhysical) return false;
         if (cardOriginFilter === 'client' && row.isPhysical) return false;
+
+        // Usage filter
+        if (cardUsageFilter === 'used' && !row.hasRecharge) return false;
+        if (cardUsageFilter === 'unused' && row.hasRecharge) return false;
 
         // Search filter
         if (!searchQuery.trim()) return true;
@@ -457,7 +472,7 @@ export default function ReportsPortal({
         );
       })
       .sort((a, b) => b.timestampMillis - a.timestampMillis); // newest first
-  }, [users, cardOriginFilter, searchQuery]);
+  }, [users, cardOriginFilter, cardUsageFilter, searchQuery, transactions]);
 
   // Dynamic Metrics Cards (Totalizadores) calculation
   const kpis = useMemo(() => {
@@ -538,12 +553,14 @@ export default function ReportsPortal({
         const pCards = cardsReport.filter(c => c.isPhysical).length;
         const vCards = cardsReport.filter(c => !c.isPhysical).length;
         const totalBal = cardsReport.reduce((acc, c) => acc + c.balance, 0);
-        const clientPct = totalCards > 0 ? Math.round((vCards / totalCards) * 100) : 0;
+        
+        const utilizedCount = cardsReport.filter(c => c.hasRecharge).length;
+        const utilizationPct = totalCards > 0 ? Math.round((utilizedCount / totalCards) * 100) : 0;
 
         return [
           { label: 'Total de Cartões', value: `${totalCards} ativos`, text: 'Soma de físico mais online', type: 'success' },
-          { label: 'Gerados p/ Sistema (Físicos)', value: `${pCards} cartões`, text: 'Impressos ou via ADM', type: 'info' },
-          { label: 'Gerados p/ Cliente (Online)', value: `${vCards} cadastros`, text: `Percentual de adesão: ${clientPct}%`, type: 'warning' },
+          { label: 'Cartões Utilizados', value: `${utilizedCount} usados`, text: `${utilizationPct}% realizaram recarga`, type: 'info' },
+          { label: 'Gerados p/ Sistema (Físicos)', value: `${pCards} cartões`, text: 'Impressos ou via ADM', type: 'warning' },
           { label: 'Saldo Retido em Cartões', value: formatCurrency(totalBal), text: 'Total financeiro sob custódia', type: 'danger' },
         ];
       }
@@ -558,26 +575,91 @@ export default function ReportsPortal({
       let filename = 'relatorio';
 
       if (reportType === 'financial_summary') {
-        data = filteredFinancialSummary.map(row => ({ 'Categoria': row.category, 'Valor (R$)': row.amount.toFixed(2), 'Descrição': row.desc }));
+        data = filteredFinancialSummary.map(row => ({
+          'Categoria': row.category,
+          'Valor (R$)': typeof row.amount === 'number' ? row.amount : Number(row.amount || 0),
+          'Descrição': row.desc
+        }));
         filename = 'resumo_financeiro';
       } else if (reportType === 'sales_by_stall') {
-        data = salesByStall.map(row => ({ 'Barraca': row.stallName, 'Total Vendas (R$)': row.totalSales.toFixed(2), 'Qtd Transações': row.transactionCount }));
+        data = salesByStall.map(row => ({
+          'Barraca': row.stallName,
+          'Total Vendas (R$)': typeof row.totalSales === 'number' ? row.totalSales : Number(row.totalSales || 0),
+          'Qtd Transações': row.transactionCount
+        }));
         filename = 'vendas_por_barraca';
       } else if (reportType === 'user_balances') {
-        data = userBalances.map(row => ({ 'Nome': row.name, 'Email': row.email, 'Saldo Atual (R$)': row.balance.toFixed(2) }));
+        data = userBalances.map(row => ({
+          'Nome': row.name,
+          'Email': row.email,
+          'Saldo Atual (R$)': typeof row.balance === 'number' ? row.balance : Number(row.balance || 0)
+        }));
         filename = 'saldos_clientes';
       } else if (reportType === 'sales_by_product') {
-        data = salesByProduct.map(row => ({ 'Produto': row.name, 'Preço Unitário (R$)': row.price.toFixed(2), 'Barraca': row.stall }));
+        data = salesByProduct.map(row => ({
+          'Produto': row.name,
+          'Preço Unitário (R$)': typeof row.price === 'number' ? row.price : Number(row.price || 0),
+          'Barraca': row.stall
+        }));
         filename = 'catalogo_produtos';
       } else if (reportType === 'transactions_log') {
-        data = transactionsLog.map(row => ({ 'Data': row.date, 'Usuário': row.user, 'Tipo': row.type, 'Meio': row.paymentMethod, 'Valor (R$)': row.amount.toFixed(2), 'Barraca/Ponto': row.stall, 'Descrição': row.desc }));
+        data = transactionsLog.map(row => ({
+          'Data': row.date,
+          'Usuário': row.user,
+          'Tipo': row.type,
+          'Meio': row.paymentMethod,
+          'Valor (R$)': typeof row.amount === 'number' ? row.amount : Number(row.amount || 0),
+          'Barraca/Ponto': row.stall,
+          'Descrição': row.desc
+        }));
         filename = 'log_transacoes';
       } else if (reportType === 'cards_report') {
-        data = cardsReport.map(row => ({ 'Nome': row.name, 'Email': row.email, 'QR Code': row.qrCode, 'Origem': row.origin, 'Saldo (R$)': row.balance.toFixed(2), 'Data de Cadastro': row.dateStr }));
+        data = cardsReport.map(row => ({
+          'Nome': row.name,
+          'Email': row.email,
+          'QR Code': row.qrCode,
+          'Origem': row.origin,
+          'Status de Uso': row.hasRecharge ? `Utilizado (${row.rechargeCount} recargas)` : 'Apenas Ativado',
+          'Total Recarregado (R$)': typeof row.totalRecharged === 'number' ? row.totalRecharged : Number(row.totalRecharged || 0),
+          'Saldo (R$)': typeof row.balance === 'number' ? row.balance : Number(row.balance || 0),
+          'Data de Cadastro': row.dateStr
+        }));
         filename = 'registro_de_cartoes';
       }
 
       const ws = XLSX.utils.json_to_sheet(data);
+
+      // Apply Excel currency format to monetary columns dynamically
+      if (ws['!ref']) {
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        for (let col = range.s.c; col <= range.e.c; col++) {
+          const headerAddress = XLSX.utils.encode_cell({ r: range.s.r, c: col });
+          const headerCell = ws[headerAddress];
+          if (headerCell && typeof headerCell.v === 'string') {
+            const headerText = headerCell.v;
+            // Check if column is a money column
+            const isMonetary = 
+              headerText.includes('(R$)') || 
+              headerText.includes('Valor') || 
+              headerText.includes('Preço') || 
+              headerText.includes('Saldo') || 
+              headerText.includes('Total') || 
+              headerText.includes('Faturamento');
+
+            if (isMonetary) {
+              for (let row = range.s.r + 1; row <= range.e.r; row++) {
+                const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+                const cell = ws[cellAddress];
+                if (cell && typeof cell.v === 'number') {
+                  cell.t = 'n';
+                  cell.z = '"R$ " #,##0.00'; // Standard Excel currency format for BRL
+                }
+              }
+            }
+          }
+        }
+      }
+
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Dados");
       XLSX.writeFile(wb, `${filename}_${format(new Date(), 'yyyy-MM-dd_HHmm')}.xlsx`);
@@ -619,8 +701,17 @@ export default function ReportsPortal({
         head = [['Data', 'Usuário', 'Tipo', 'Meio', 'Valor', 'Barraca']];
         body = transactionsLog.map(row => [row.date, row.user, row.type, row.paymentMethod, formatCurrency(row.amount), row.stall]);
       } else if (reportType === 'cards_report') {
-        head = [['Nome', 'Email', 'QR Code', 'Origem', 'Saldo (R$)', 'Cadastro']];
-        body = cardsReport.map(row => [row.name, row.email, row.qrCode, row.origin, formatCurrency(row.balance), row.dateStr]);
+        head = [['Nome', 'Email', 'QR Code', 'Uso', 'Total Recarregado', 'Origem', 'Saldo (R$)', 'Cadastro']];
+        body = cardsReport.map(row => [
+          row.name, 
+          row.email, 
+          row.qrCode, 
+          row.hasRecharge ? `Utilizado (${row.rechargeCount}x)` : 'Apenas Ativado',
+          formatCurrency(row.totalRecharged),
+          row.origin, 
+          formatCurrency(row.balance), 
+          row.dateStr
+        ]);
       }
 
       autoTable(doc, {
@@ -734,8 +825,24 @@ export default function ReportsPortal({
             </div>
           )}
 
+          {/* Card Usage filter */}
+          {reportType === 'cards_report' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Uso do Cartão</label>
+              <select
+                value={cardUsageFilter}
+                onChange={(e) => setCardUsageFilter(e.target.value as any)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10 min-w-[185px] h-[34px]"
+              >
+                <option value="all">Todos os Cartões</option>
+                <option value="used">Utilizados (Mín. 1 recarga)</option>
+                <option value="unused">Não Utilizados (Sem recarga)</option>
+              </select>
+            </div>
+          )}
+
           {/* Clear button */}
-          {(startDate || endDate || statusFilter !== 'all' || cardOriginFilter !== 'all' || searchQuery) && (
+          {(startDate || endDate || statusFilter !== 'all' || cardOriginFilter !== 'all' || cardUsageFilter !== 'all' || searchQuery) && (
             <Button 
               variant="ghost" 
               onClick={() => { 
@@ -743,6 +850,7 @@ export default function ReportsPortal({
                 setEndDate(''); 
                 setStatusFilter('all'); 
                 setCardOriginFilter('all');
+                setCardUsageFilter('all');
                 setSearchQuery('');
               }}
               className="h-10 self-end mt-4 text-[10px] font-black uppercase text-red-500 hover:text-red-600 hover:bg-red-50 rounded-xl"
@@ -957,6 +1065,7 @@ export default function ReportsPortal({
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">E-mail</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 border-none">QR Code / ID</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Origem</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Uso / Recargas</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Adesão / Cadastro</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Saldo</th>
                         </>
@@ -1034,7 +1143,7 @@ export default function ReportsPortal({
                       </tr>
                     ))}
 
-                    {reportType === 'cards_report' && cardsReport.map((row, idx) => (
+                     {reportType === 'cards_report' && cardsReport.map((row, idx) => (
                       <tr key={row.uid || idx} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4">
                           <span className="font-bold text-slate-800 block text-sm">{row.name}</span>
@@ -1055,6 +1164,22 @@ export default function ReportsPortal({
                             <span className={`h-1.5 w-1.5 rounded-full ${row.isPhysical ? 'bg-blue-500' : 'bg-emerald-500'}`} />
                             {row.origin}
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {row.hasRecharge ? (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                Utilizado ({row.rechargeCount}x)
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-bold block">
+                                Tot: {formatCurrency(row.totalRecharged)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-500 border border-slate-200">
+                              Apenas Ativado
+                            </span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right text-xs font-bold text-slate-500">{row.dateStr}</td>
                         <td className="px-6 py-4 text-right font-black text-emerald-600">
