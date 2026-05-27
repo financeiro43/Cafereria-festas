@@ -109,10 +109,36 @@ export default function ReportsPortal({
 
   // 2. Financial Summary Data
   const financialSummary = useMemo(() => {
-    const totalCredits = filteredTransactions
-      .filter(t => t.type === 'credit' && t.status === 'completed')
+    const totalCreditsTransactions = filteredTransactions
+      .filter(t => t.type === 'credit' && t.status === 'completed');
+    const totalCredits = totalCreditsTransactions
       .reduce((acc, t) => acc + (t.amount || 0), 0);
-    
+    const totalCreditsCount = totalCreditsTransactions.length;
+
+    // Online credits: description contains 'Rede' or 'Simulado' or 'Simulada' or 'Online' or contains redeTid
+    const onlineCreditsTransactions = totalCreditsTransactions
+      .filter(t => 
+        t.description?.includes('Rede') || 
+        t.description?.includes('Simulado') || 
+        t.description?.includes('Simulada') || 
+        t.description?.includes('Online') ||
+        !!t.redeTid
+      );
+    const onlineCreditsAmount = onlineCreditsTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const onlineCreditsCount = onlineCreditsTransactions.length;
+
+    // Physical credits: manual or vendor/POS recharges
+    const physicalCreditsTransactions = totalCreditsTransactions
+      .filter(t => !(
+        t.description?.includes('Rede') || 
+        t.description?.includes('Simulado') || 
+        t.description?.includes('Simulada') || 
+        t.description?.includes('Online') ||
+        !!t.redeTid
+      ));
+    const physicalCreditsAmount = physicalCreditsTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const physicalCreditsCount = physicalCreditsTransactions.length;
+
     const totalDebits = filteredTransactions
       .filter(t => t.type === 'debit' && t.status === 'completed')
       .reduce((acc, t) => acc + (t.amount || 0), 0);
@@ -136,7 +162,9 @@ export default function ReportsPortal({
       .reduce((acc, w) => acc + (w.amount || 0), 0);
 
     return [
-      { category: 'Total de Cargas', amount: totalCredits, desc: 'Dinheiro que entrou no sistema' },
+      { category: 'Total de Cargas', amount: totalCredits, desc: `Dinheiro total inserido no sistema (${totalCreditsCount} recargas)` },
+      { category: ' └─ Recargas Online (PWA)', amount: onlineCreditsAmount, desc: `${onlineCreditsCount} cargas concluídas online via Pix ou cartão pelo cliente` },
+      { category: ' └─ Recargas Presenciais (Caixa)', amount: physicalCreditsAmount, desc: `${physicalCreditsCount} cargas presenciais efetuadas pelos caixas` },
       { category: 'Total de Consumo', amount: totalDebits, desc: 'Vendas realizadas nas barracas' },
       { category: 'Total de Saques', amount: totalWithdrawals, desc: 'Saques realizados por vendedores' },
       { category: 'Saldo em Circulação', amount: totalCredits - totalDebits, desc: 'Saldo pendente nos cartões' },
@@ -151,6 +179,143 @@ export default function ReportsPortal({
       row.desc.toLowerCase().includes(queryNorm)
     );
   }, [financialSummary, searchQuery]);
+
+  // Analytics for Recharges by Channel (Online vs Physical/Caixa)
+  const rechargeChannelStats = useMemo(() => {
+    const totalCreditsTransactions = filteredTransactions
+      .filter(t => t.type === 'credit' && t.status === 'completed');
+    
+    const onlineTxs = totalCreditsTransactions.filter(t => 
+      t.description?.includes('Rede') || 
+      t.description?.includes('Simulado') || 
+      t.description?.includes('Simulada') || 
+      t.description?.includes('Online') ||
+      !!t.redeTid
+    );
+    const physicalTxs = totalCreditsTransactions.filter(t => !(
+      t.description?.includes('Rede') || 
+      t.description?.includes('Simulado') || 
+      t.description?.includes('Simulada') || 
+      t.description?.includes('Online') ||
+      !!t.redeTid
+    ));
+
+    const onlineTotal = onlineTxs.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const onlineCount = onlineTxs.length;
+    const onlineAvg = onlineCount > 0 ? onlineTotal / onlineCount : 0;
+
+    const physicalTotal = physicalTxs.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const physicalCount = physicalTxs.length;
+    const physicalAvg = physicalCount > 0 ? physicalTotal / physicalCount : 0;
+
+    const granTotal = onlineTotal + physicalTotal;
+    const granCount = onlineCount + physicalCount;
+
+    const onlineValPct = granTotal > 0 ? Math.round((onlineTotal / granTotal) * 100) : 0;
+    const physicalValPct = granTotal > 0 ? Math.round((physicalTotal / granTotal) * 100) : 0;
+
+    const onlineCountPct = granCount > 0 ? Math.round((onlineCount / granCount) * 100) : 0;
+    const physicalCountPct = granCount > 0 ? Math.round((physicalCount / granCount) * 100) : 0;
+
+    return {
+      onlineTotal,
+      onlineCount,
+      onlineAvg,
+      onlineValPct,
+      onlineCountPct,
+      physicalTotal,
+      physicalCount,
+      physicalAvg,
+      physicalValPct,
+      physicalCountPct,
+      granTotal,
+      granCount,
+    };
+  }, [filteredTransactions]);
+
+  // Analytics for Recharges by Detailed Payment Method
+  const paymentMethodsStats = useMemo(() => {
+    const completedCredits = filteredTransactions
+      .filter(t => t.type === 'credit' && t.status === 'completed');
+
+    const initialMethods = {
+      // Online
+      'Pix (Online)': { amount: 0, count: 0, type: 'online', label: 'Pix Online', color: 'bg-emerald-500' },
+      'Crédito (Online)': { amount: 0, count: 0, type: 'online', label: 'Crédito Online', color: 'bg-teal-500' },
+      'Débito (Online)': { amount: 0, count: 0, type: 'online', label: 'Débito Online', color: 'bg-cyan-500' },
+      'Outros (Online)': { amount: 0, count: 0, type: 'online', label: 'Outros Online', color: 'bg-sky-500' },
+      // Physical / Caixa
+      'Dinheiro (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Dinheiro (Caixa)', color: 'bg-amber-500' },
+      'Pix (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Pix (Caixa)', color: 'bg-lime-500' },
+      'Débito (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Débito (Caixa)', color: 'bg-indigo-505' },
+      'Crédito (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Crédito (Caixa)', color: 'bg-violet-500' },
+      'Conta (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Conta (Caixa)', color: 'bg-purple-500' },
+      'Outros (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Outros (Caixa)', color: 'bg-pink-500' },
+    };
+
+    completedCredits.forEach(t => {
+      const amt = t.amount || 0;
+      const desc = (t.description || '').toLowerCase();
+      
+      const isOnline = 
+        desc.includes('rede') || 
+        desc.includes('simulado') || 
+        desc.includes('simulada') || 
+        desc.includes('online') ||
+        !!t.redeTid;
+
+      let categoryKey: keyof typeof initialMethods;
+
+      if (isOnline) {
+        if (desc.includes('pix')) {
+          categoryKey = 'Pix (Online)';
+        } else if (desc.includes('crédito') || desc.includes('credit')) {
+          categoryKey = 'Crédito (Online)';
+        } else if (desc.includes('débito') || desc.includes('debit')) {
+          categoryKey = 'Débito (Online)';
+        } else {
+          categoryKey = 'Outros (Online)';
+        }
+      } else {
+        const methodField = t.paymentMethod ? t.paymentMethod.trim() : '';
+        const methodLower = methodField.toLowerCase();
+        
+        if (methodLower === 'dinheiro') {
+          categoryKey = 'Dinheiro (Caixa)';
+        } else if (methodLower === 'pix') {
+          categoryKey = 'Pix (Caixa)';
+        } else if (methodLower === 'débito' || methodLower === 'debito') {
+          categoryKey = 'Débito (Caixa)';
+        } else if (methodLower === 'crédito' || methodLower === 'credito') {
+          categoryKey = 'Crédito (Caixa)';
+        } else if (methodLower === 'conta') {
+          categoryKey = 'Conta (Caixa)';
+        } else {
+          if (desc.includes('dinheiro')) {
+            categoryKey = 'Dinheiro (Caixa)';
+          } else if (desc.includes('pix')) {
+            categoryKey = 'Pix (Caixa)';
+          } else if (desc.includes('débito') || desc.includes('debito')) {
+            categoryKey = 'Débito (Caixa)';
+          } else if (desc.includes('crédito') || desc.includes('credito')) {
+            categoryKey = 'Crédito (Caixa)';
+          } else if (desc.includes('conta')) {
+            categoryKey = 'Conta (Caixa)';
+          } else {
+            categoryKey = 'Outros (Caixa)';
+          }
+        }
+      }
+
+      initialMethods[categoryKey].amount += amt;
+      initialMethods[categoryKey].count += 1;
+    });
+
+    return Object.entries(initialMethods).map(([name, data]) => ({
+      name,
+      ...data,
+    }));
+  }, [filteredTransactions]);
 
   // 3. Sales by Stall Data
   const salesByStall = useMemo(() => {
@@ -914,6 +1079,195 @@ export default function ReportsPortal({
               )}
             </CardContent>
           </Card>
+
+          {reportType === 'financial_summary' && (
+            <div className="mt-6">
+              <Card className="rounded-3xl border-slate-200 shadow-sm overflow-hidden bg-white p-6 space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2 uppercase">
+                      <CreditCard className="h-5 w-5 text-indigo-600" /> Análise de Recargas por Canal
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-500">
+                      Comparativo oficial entre cargas digitais (via PWA do Evento) e cargas físicas (efetuadas no Caixa).
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 text-xs font-black text-slate-600 uppercase">
+                    Total: {formatCurrency(rechargeChannelStats.granTotal)} ({rechargeChannelStats.granCount} txs)
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
+                  {/* Online Recargas Column */}
+                  <div className="bg-emerald-50/15 border border-emerald-100/60 rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100/60 text-emerald-800">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                        RECARGAS ONLINE (PWA)
+                      </span>
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Via Pix / Rede</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Valor Arrecadado</span>
+                        <h4 className="text-2xl font-black text-slate-900">{formatCurrency(rechargeChannelStats.onlineTotal)}</h4>
+                        <span className="text-[10px] text-emerald-600 font-bold block">{rechargeChannelStats.onlineValPct}% do faturamento de cargas</span>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Quantidade (Qtd)</span>
+                        <h4 className="text-2xl font-black text-slate-900">{rechargeChannelStats.onlineCount} <span className="text-xs text-slate-450 font-normal">recargas</span></h4>
+                        <span className="text-[10px] text-emerald-600 font-bold block">{rechargeChannelStats.onlineCountPct}% do volume total de txs</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100/60 flex justify-between items-center text-xs">
+                      <span className="font-semibold text-slate-505">Média por Recarga:</span>
+                      <span className="font-black text-slate-800">{formatCurrency(rechargeChannelStats.onlineAvg)}</span>
+                    </div>
+                  </div>
+
+                  {/* Cashier/Physical Recargas Column */}
+                  <div className="bg-indigo-50/10 border border-indigo-100/50 rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-100/65 text-indigo-800">
+                        <span className="h-2 w-2 rounded-full bg-indigo-500" />
+                        RECARGAS NO CAIXA (FÍSICO)
+                      </span>
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Via Caixa / PDV</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Valor Arrecadado</span>
+                        <h4 className="text-2xl font-black text-slate-900">{formatCurrency(rechargeChannelStats.physicalTotal)}</h4>
+                        <span className="text-[10px] text-indigo-600 font-bold block">{rechargeChannelStats.physicalValPct}% do faturamento de cargas</span>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Quantidade (Qtd)</span>
+                        <h4 className="text-2xl font-black text-slate-900">{rechargeChannelStats.physicalCount} <span className="text-xs text-slate-450 font-normal">recargas</span></h4>
+                        <span className="text-[10px] text-indigo-600 font-bold block">{rechargeChannelStats.physicalCountPct}% do volume total de txs</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100/50 flex justify-between items-center text-xs">
+                      <span className="font-semibold text-slate-505">Média por Recarga:</span>
+                      <span className="font-black text-slate-800">{formatCurrency(rechargeChannelStats.physicalAvg)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress bars showing graphic representation */}
+                <div className="space-y-3 pt-2">
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Distribuição Financeira (% do Valor de Entrada)</span>
+                      <span className="font-bold text-slate-700">Online {rechargeChannelStats.onlineValPct}% vs Caixa {rechargeChannelStats.physicalValPct}%</span>
+                    </div>
+                    <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                      <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${rechargeChannelStats.onlineValPct}%` }} />
+                      <div className="bg-indigo-500 h-full transition-all duration-500" style={{ width: `${rechargeChannelStats.physicalValPct}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Distribuição Operacional (% de Transações de Entrada)</span>
+                      <span className="font-bold text-slate-700">Online {rechargeChannelStats.onlineCountPct}% vs Caixa {rechargeChannelStats.physicalCountPct}%</span>
+                    </div>
+                    <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                      <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${rechargeChannelStats.onlineCountPct}%` }} />
+                      <div className="bg-indigo-500 h-full transition-all duration-500" style={{ width: `${rechargeChannelStats.physicalCountPct}%` }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Detailed Payment Method Breakdown */}
+                <div className="pt-4 border-t border-slate-100 space-y-4">
+                  <div className="flex flex-col gap-1">
+                    <h4 className="text-xs font-black uppercase text-slate-500 tracking-[0.1em]">Detalhamento por Meio de Pagamento</h4>
+                    <p className="text-[11px] font-semibold text-slate-400">Valores e quantidades exatos transacionados em cada modalidade.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Online Methods */}
+                    <div className="space-y-3">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg w-max">
+                        Online (Meios Digitais)
+                      </div>
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/20">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-50/85 text-[10px] font-black text-slate-450 uppercase tracking-wider border-b border-slate-150">
+                              <th className="px-4 py-2.5 font-bold">Meio</th>
+                              <th className="px-4 py-2.5 font-bold text-right">Qtd</th>
+                              <th className="px-4 py-2.5 font-bold text-right">Valor Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paymentMethodsStats
+                              .filter(m => m.type === 'online')
+                              .map(method => (
+                                <tr key={method.name} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/55 transition-colors">
+                                  <td className="px-4 py-3 flex items-center gap-2">
+                                    <div className={`h-2.5 w-2.5 rounded-full ${method.color}`} />
+                                    <span className="font-bold text-slate-700">{method.label}</span>
+                                  </td>
+                                  <td className="px-4 py-3 font-semibold text-slate-550 text-right tabular-nums">{method.count} recargas</td>
+                                  <td className="px-4 py-3 font-black text-slate-800 text-right tabular-nums">{formatCurrency(method.amount)}</td>
+                                </tr>
+                              ))}
+                            {paymentMethodsStats.filter(m => m.type === 'online').reduce((acc, x) => acc + x.count, 0) === 0 && (
+                              <tr>
+                                <td colSpan={3} className="px-4 py-6 text-center text-slate-450 text-[11px] font-bold uppercase">Nenhuma recarga online registrada</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Cashier/Physical Methods */}
+                    <div className="space-y-3">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg w-max">
+                        Presencial (Caixa / PDV)
+                      </div>
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/20">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-50/85 text-[10px] font-black text-slate-450 uppercase tracking-wider border-b border-slate-150">
+                              <th className="px-4 py-2.5 font-bold">Meio</th>
+                              <th className="px-4 py-2.5 font-bold text-right">Qtd</th>
+                              <th className="px-4 py-2.5 font-bold text-right">Valor Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paymentMethodsStats
+                              .filter(m => m.type === 'physical')
+                              .map(method => (
+                                <tr key={method.name} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/55 transition-colors">
+                                  <td className="px-4 py-3 flex items-center gap-2">
+                                    <div className={`h-2.5 w-2.5 rounded-full ${method.color}`} />
+                                    <span className="font-bold text-slate-700">{method.label}</span>
+                                  </td>
+                                  <td className="px-4 py-3 font-semibold text-slate-550 text-right tabular-nums">{method.count} recargas</td>
+                                  <td className="px-4 py-3 font-black text-slate-800 text-right tabular-nums">{formatCurrency(method.amount)}</td>
+                                </tr>
+                              ))}
+                            {paymentMethodsStats.filter(m => m.type === 'physical').reduce((acc, x) => acc + x.count, 0) === 0 && (
+                              <tr>
+                                <td colSpan={3} className="px-4 py-6 text-center text-slate-450 text-[11px] font-bold uppercase">Nenhuma recarga presencial registrada</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
         </div>
       </div>
     </div>
