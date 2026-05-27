@@ -13,7 +13,17 @@ import {
   Package, 
   History,
   TrendingUp,
-  AlertCircle
+  TrendingDown,
+  AlertCircle,
+  Search,
+  Calendar,
+  CheckCircle2,
+  QrCode,
+  Tag,
+  CreditCard,
+  ShoppingBag,
+  ArrowUpRight,
+  ArrowDownLeft
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -37,10 +47,12 @@ export default function ReportsPortal({
   transactions = [], 
   withdrawals = [] 
 }: ReportsPortalProps) {
-  const [reportType, setReportType] = useState<'sales_by_stall' | 'sales_by_product' | 'financial_summary' | 'user_balances' | 'transactions_log'>('financial_summary');
+  const [reportType, setReportType] = useState<'sales_by_stall' | 'sales_by_product' | 'financial_summary' | 'user_balances' | 'transactions_log' | 'cards_report'>('financial_summary');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'failed'>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [cardOriginFilter, setCardOriginFilter] = useState<'all' | 'system' | 'client'>('all');
 
   // Helper to format currency
   const formatCurrency = (val: number) => {
@@ -59,7 +71,7 @@ export default function ReportsPortal({
     }
   };
 
-  // 1. Financial Summary Data
+  // 1. Transactions filtered by state criteria
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
       const date = t.timestamp?.toDate ? t.timestamp.toDate() : new Date(t.timestamp);
@@ -77,11 +89,25 @@ export default function ReportsPortal({
         end.setHours(23, 59, 59, 999);
         isDateMatch = isDateMatch && date <= end;
       }
-      
-      return isStatusMatch && isDateMatch;
-    });
-  }, [transactions, startDate, endDate, statusFilter]);
 
+      let isSearchMatch = true;
+      if (searchQuery.trim()) {
+        const queryNorm = searchQuery.toLowerCase().trim();
+        const user = users.find(u => u.uid === t.userId);
+        const nameMatch = (user?.name || '').toLowerCase().includes(queryNorm);
+        const emailMatch = (user?.email || '').toLowerCase().includes(queryNorm);
+        const descMatch = (t.description || '').toLowerCase().includes(queryNorm);
+        const stallMatch = (t.stallName || '').toLowerCase().includes(queryNorm);
+        const paymentMatch = (t.paymentMethod || '').toLowerCase().includes(queryNorm);
+        const typeMatch = (t.type === 'credit' ? 'carga' : 'compra').includes(queryNorm);
+        isSearchMatch = nameMatch || emailMatch || descMatch || stallMatch || paymentMatch || typeMatch;
+      }
+      
+      return isStatusMatch && isDateMatch && isSearchMatch;
+    });
+  }, [transactions, users, startDate, endDate, statusFilter, searchQuery]);
+
+  // 2. Financial Summary Data
   const financialSummary = useMemo(() => {
     const totalCredits = filteredTransactions
       .filter(t => t.type === 'credit' && t.status === 'completed')
@@ -117,7 +143,16 @@ export default function ReportsPortal({
     ];
   }, [filteredTransactions, withdrawals, startDate, endDate]);
 
-  // 2. Sales by Stall Data
+  const filteredFinancialSummary = useMemo(() => {
+    if (!searchQuery.trim()) return financialSummary;
+    const queryNorm = searchQuery.toLowerCase().trim();
+    return financialSummary.filter(row => 
+      row.category.toLowerCase().includes(queryNorm) || 
+      row.desc.toLowerCase().includes(queryNorm)
+    );
+  }, [financialSummary, searchQuery]);
+
+  // 3. Sales by Stall Data
   const salesByStall = useMemo(() => {
     return stalls.map(stall => {
       const stallSales = filteredTransactions
@@ -131,10 +166,16 @@ export default function ReportsPortal({
         totalSales: totalAmount,
         transactionCount: totalCount,
       };
-    }).sort((a, b) => b.totalSales - a.totalSales);
-  }, [stalls, filteredTransactions]);
+    })
+    .filter(row => {
+      if (!searchQuery.trim()) return true;
+      const queryNorm = searchQuery.toLowerCase().trim();
+      return row.stallName.toLowerCase().includes(queryNorm);
+    })
+    .sort((a, b) => b.totalSales - a.totalSales);
+  }, [stalls, filteredTransactions, searchQuery]);
 
-  // 3. Transactions Log
+  // 4. Transactions Log mapped and filtered
   const transactionsLog = useMemo(() => {
     return [...filteredTransactions]
       .sort((a, b) => {
@@ -146,7 +187,6 @@ export default function ReportsPortal({
       })
       .map(t => {
         const user = users.find(u => u.uid === t.userId);
-        // Tentar extrair o nome da barraca da descrição se stallName estiver faltando
         let stall = t.stallName || 'N/A';
         if (stall === 'N/A' && t.description && t.description.includes('na barraca ')) {
           const match = t.description.match(/na barraca ([^:]+):?/);
@@ -166,7 +206,7 @@ export default function ReportsPortal({
       });
   }, [filteredTransactions, users]);
 
-  // 4. Sales by Product Data
+  // 5. Sales by Product Data
   const salesByProduct = useMemo(() => {
     return products.map(p => {
       const stall = stalls.find(s => s.id === p.vendorId);
@@ -175,10 +215,16 @@ export default function ReportsPortal({
         price: p.price || 0,
         stall: stall?.name || 'Barraca N/A',
       };
-    }).sort((a, b) => a.stall.localeCompare(b.stall));
-  }, [products, stalls]);
+    })
+    .filter(row => {
+      if (!searchQuery.trim()) return true;
+      const queryNorm = searchQuery.toLowerCase().trim();
+      return row.name.toLowerCase().includes(queryNorm) || row.stall.toLowerCase().includes(queryNorm);
+    })
+    .sort((a, b) => a.stall.localeCompare(b.stall));
+  }, [products, stalls, searchQuery]);
 
-  // 5. User Balances
+  // 6. User Balances
   const userBalances = useMemo(() => {
     return users
       .filter(u => u.role === 'student' || u.role === 'admin')
@@ -188,8 +234,158 @@ export default function ReportsPortal({
         balance: u.balance || 0,
         role: u.role === 'student' ? 'Cliente' : 'Admin'
       }))
+      .filter(row => {
+        if (!searchQuery.trim()) return true;
+        const queryNorm = searchQuery.toLowerCase().trim();
+        return row.name.toLowerCase().includes(queryNorm) || row.email.toLowerCase().includes(queryNorm);
+      })
       .sort((a, b) => b.balance - a.balance);
-  }, [users]);
+  }, [users, searchQuery]);
+
+  // 7. Cards Activation Report: System-generated vs Online Client-generated
+  const cardsReport = useMemo(() => {
+    return users
+      .filter(u => u.role === 'student' || u.isPhysicalCard)
+      .map(u => {
+        let creationDate = 'N/A';
+        let timestampMillis = 0;
+        
+        if (u.timestamp) {
+          const dt = u.timestamp.toDate ? u.timestamp.toDate() : new Date(u.timestamp);
+          if (dt instanceof Date && !isNaN(dt.getTime())) {
+            creationDate = format(dt, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+            timestampMillis = dt.getTime();
+          }
+        } else if (u.consentedToTermsAt) {
+          const dt = new Date(u.consentedToTermsAt);
+          if (!isNaN(dt.getTime())) {
+            creationDate = format(dt, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+            timestampMillis = dt.getTime();
+          }
+        }
+
+        return {
+          uid: u.uid,
+          name: u.name || 'Sem nome',
+          email: u.email || 'N/A',
+          qrCode: u.qrCode || u.uid,
+          balance: u.balance || 0,
+          isPhysical: !!u.isPhysicalCard,
+          origin: u.isPhysicalCard ? 'Sistema (Físico)' : 'Online (Cliente)',
+          dateStr: creationDate,
+          timestampMillis: timestampMillis
+        };
+      })
+      .filter(row => {
+        // Source/Origin filter
+        if (cardOriginFilter === 'system' && !row.isPhysical) return false;
+        if (cardOriginFilter === 'client' && row.isPhysical) return false;
+
+        // Search filter
+        if (!searchQuery.trim()) return true;
+        const queryNorm = searchQuery.toLowerCase().trim();
+        return (
+          row.name.toLowerCase().includes(queryNorm) ||
+          row.email.toLowerCase().includes(queryNorm) ||
+          row.qrCode.toLowerCase().includes(queryNorm) ||
+          row.origin.toLowerCase().includes(queryNorm)
+        );
+      })
+      .sort((a, b) => b.timestampMillis - a.timestampMillis); // newest first
+  }, [users, cardOriginFilter, searchQuery]);
+
+  // Dynamic Metrics Cards (Totalizadores) calculation
+  const kpis = useMemo(() => {
+    switch (reportType) {
+      case 'financial_summary': {
+        const credits = filteredTransactions
+          .filter(t => t.type === 'credit' && t.status === 'completed')
+          .reduce((acc, t) => acc + (t.amount || 0), 0);
+        
+        const debits = filteredTransactions
+          .filter(t => t.type === 'debit' && t.status === 'completed')
+          .reduce((acc, t) => acc + (t.amount || 0), 0);
+        
+        const tWithdrawals = withdrawals.reduce((acc, w) => acc + (w.amount || 0), 0);
+
+        return [
+          { label: 'Total Carregado', value: formatCurrency(credits), text: 'Saldo inserido no sistema', type: 'success' },
+          { label: 'Total Consumido', value: formatCurrency(debits), text: 'Vendas das barracas', type: 'info' },
+          { label: 'Saldo em Circulação', value: formatCurrency(Math.max(0, credits - debits)), text: 'Bandeira retida nos cartões', type: 'warning' },
+          { label: 'Total de Saques', value: formatCurrency(tWithdrawals), text: 'Resgates efetuados', type: 'danger' },
+        ];
+      }
+      case 'sales_by_stall': {
+        const totalVendas = salesByStall.reduce((acc, s) => acc + s.totalSales, 0);
+        const totalTxs = salesByStall.reduce((acc, s) => acc + s.transactionCount, 0);
+        const ticketMedio = totalTxs > 0 ? totalVendas / totalTxs : 0;
+        const topStall = salesByStall[0]?.stallName || 'N/A';
+
+        return [
+          { label: 'Faturamento Geral', value: formatCurrency(totalVendas), text: 'Vendido nas barracas', type: 'success' },
+          { label: 'Volume de Pedidos', value: `${totalTxs} compras`, text: 'Transações registradas', type: 'info' },
+          { label: 'Ticket Médio/Compra', value: formatCurrency(ticketMedio), text: 'Ticket médio gasto', type: 'warning' },
+          { label: 'Líder de Vendas', value: topStall, text: 'Barraca com maior receita', type: 'danger' },
+        ];
+      }
+      case 'transactions_log': {
+        const totalCount = transactionsLog.length;
+        const creditsSum = filteredTransactions.filter(t => t.type === 'credit' && t.status === 'completed').reduce((acc, t) => acc + t.amount, 0);
+        const debitsSum = filteredTransactions.filter(t => t.type === 'debit' && t.status === 'completed').reduce((acc, t) => acc + t.amount, 0);
+        const failCount = filteredTransactions.filter(t => t.status === 'failed').length;
+
+        return [
+          { label: 'Transações Filtradas', value: `${totalCount} txs`, text: 'Filtradas pela busca atual', type: 'success' },
+          { label: 'Total Entradas (+)', value: formatCurrency(creditsSum), text: 'Soma de cargas ativas', type: 'info' },
+          { label: 'Total Saídas (-)', value: formatCurrency(debitsSum), text: 'Soma de consumos locais', type: 'warning' },
+          { label: 'Transações com Falha', value: `${failCount} registros`, text: 'Não concluídas com sucesso', type: 'danger' },
+        ];
+      }
+      case 'user_balances': {
+        const totalUsers = userBalances.length;
+        const walletsSum = userBalances.reduce((acc, u) => acc + u.balance, 0);
+        const averageBal = totalUsers > 0 ? walletsSum / totalUsers : 0;
+        const highestBal = userBalances.reduce((max, u) => u.balance > max ? u.balance : max, 0);
+
+        return [
+          { label: 'Clientes Ativos', value: `${totalUsers} carteiras`, text: 'Base de usuários ativa', type: 'success' },
+          { label: 'Saldos Totais PWA', value: formatCurrency(walletsSum), text: 'Créditos custodiados', type: 'info' },
+          { label: 'Saldo Médio por Conta', value: formatCurrency(averageBal), text: 'Média de créditos/usuário', type: 'warning' },
+          { label: 'Maior Caixa Individual', value: formatCurrency(highestBal), text: 'Maior carteira do sistema', type: 'danger' },
+        ];
+      }
+      case 'sales_by_product': {
+        const totalProdCount = salesByProduct.length;
+        const distinctStalls = new Set(salesByProduct.map(p => p.stall)).size;
+        const prSum = salesByProduct.reduce((acc, p) => acc + p.price, 0);
+        const avgPrice = totalProdCount > 0 ? prSum / totalProdCount : 0;
+        const highestPrice = totalProdCount > 0 ? Math.max(...salesByProduct.map(p => p.price)) : 0;
+
+        return [
+          { label: 'Itens no Catálogo', value: `${totalProdCount} produtos`, text: 'Cadastrados no cardápio', type: 'success' },
+          { label: 'Barracas Participantes', value: `${distinctStalls} pontos`, text: 'Pontos com catálogo ativo', type: 'info' },
+          { label: 'Preço Médio Unitário', value: formatCurrency(avgPrice), text: 'Média de precificação', type: 'warning' },
+          { label: 'Preço Máximo Praticado', value: formatCurrency(highestPrice), text: 'Item mais valioso do menu', type: 'danger' },
+        ];
+      }
+      case 'cards_report': {
+        const totalCards = cardsReport.length;
+        const pCards = cardsReport.filter(c => c.isPhysical).length;
+        const vCards = cardsReport.filter(c => !c.isPhysical).length;
+        const totalBal = cardsReport.reduce((acc, c) => acc + c.balance, 0);
+        const clientPct = totalCards > 0 ? Math.round((vCards / totalCards) * 100) : 0;
+
+        return [
+          { label: 'Total de Cartões', value: `${totalCards} ativos`, text: 'Soma de físico mais online', type: 'success' },
+          { label: 'Gerados p/ Sistema (Físicos)', value: `${pCards} cartões`, text: 'Impressos ou via ADM', type: 'info' },
+          { label: 'Gerados p/ Cliente (Online)', value: `${vCards} cadastros`, text: `Percentual de adesão: ${clientPct}%`, type: 'warning' },
+          { label: 'Saldo Retido em Cartões', value: formatCurrency(totalBal), text: 'Total financeiro sob custódia', type: 'danger' },
+        ];
+      }
+      default:
+        return [];
+    }
+  }, [reportType, filteredTransactions, withdrawals, salesByStall, transactionsLog, userBalances, salesByProduct, cardsReport]);
 
   const exportToExcel = () => {
     try {
@@ -197,13 +393,13 @@ export default function ReportsPortal({
       let filename = 'relatorio';
 
       if (reportType === 'financial_summary') {
-        data = financialSummary.map(row => ({ 'Categoria': row.category, 'Valor (R$)': row.amount.toFixed(2), 'Descrição': row.desc }));
+        data = filteredFinancialSummary.map(row => ({ 'Categoria': row.category, 'Valor (R$)': row.amount.toFixed(2), 'Descrição': row.desc }));
         filename = 'resumo_financeiro';
       } else if (reportType === 'sales_by_stall') {
         data = salesByStall.map(row => ({ 'Barraca': row.stallName, 'Total Vendas (R$)': row.totalSales.toFixed(2), 'Qtd Transações': row.transactionCount }));
         filename = 'vendas_por_barraca';
       } else if (reportType === 'user_balances') {
-        data = userBalances.map(row => ({ 'Nome': row.name, 'Email': row.email, 'Saldo Atual (R$)': row.balance.toFixed(2), 'Tipo': row.role }));
+        data = userBalances.map(row => ({ 'Nome': row.name, 'Email': row.email, 'Saldo Atual (R$)': row.balance.toFixed(2) }));
         filename = 'saldos_clientes';
       } else if (reportType === 'sales_by_product') {
         data = salesByProduct.map(row => ({ 'Produto': row.name, 'Preço Unitário (R$)': row.price.toFixed(2), 'Barraca': row.stall }));
@@ -211,6 +407,9 @@ export default function ReportsPortal({
       } else if (reportType === 'transactions_log') {
         data = transactionsLog.map(row => ({ 'Data': row.date, 'Usuário': row.user, 'Tipo': row.type, 'Meio': row.paymentMethod, 'Valor (R$)': row.amount.toFixed(2), 'Barraca/Ponto': row.stall, 'Descrição': row.desc }));
         filename = 'log_transacoes';
+      } else if (reportType === 'cards_report') {
+        data = cardsReport.map(row => ({ 'Nome': row.name, 'Email': row.email, 'QR Code': row.qrCode, 'Origem': row.origin, 'Saldo (R$)': row.balance.toFixed(2), 'Data de Cadastro': row.dateStr }));
+        filename = 'registro_de_cartoes';
       }
 
       const ws = XLSX.utils.json_to_sheet(data);
@@ -230,7 +429,7 @@ export default function ReportsPortal({
       const title = reportType.replace(/_/g, ' ').toUpperCase();
       
       doc.setFontSize(18);
-      doc.text('REDE ALPHA - GESTÃO DE EVENTOS', 14, 20);
+      doc.text('FESTA PASS - INTELIGÊNCIA EM EVENTOS', 14, 20);
       doc.setFontSize(14);
       doc.text(title, 14, 30);
       doc.setFontSize(10);
@@ -241,19 +440,22 @@ export default function ReportsPortal({
 
       if (reportType === 'financial_summary') {
         head = [['Categoria', 'Valor (R$)', 'Descrição']];
-        body = financialSummary.map(row => [row.category, formatCurrency(row.amount), row.desc]);
+        body = filteredFinancialSummary.map(row => [row.category, formatCurrency(row.amount), row.desc]);
       } else if (reportType === 'sales_by_stall') {
         head = [['Barraca', 'Total Vendas (R$)', 'Qtd Transações']];
         body = salesByStall.map(row => [row.stallName, formatCurrency(row.totalSales), row.transactionCount]);
       } else if (reportType === 'user_balances') {
-        head = [['Nome', 'Email', 'Saldo Atual (R$)', 'Tipo']];
-        body = userBalances.map(row => [row.name, row.email, formatCurrency(row.balance), row.role]);
+        head = [['Nome', 'Email', 'Saldo Atual (R$)']];
+        body = userBalances.map(row => [row.name, row.email, formatCurrency(row.balance)]);
       } else if (reportType === 'sales_by_product') {
         head = [['Produto', 'Preço Unitário (R$)', 'Barraca']];
         body = salesByProduct.map(row => [row.name, formatCurrency(row.price), row.stall]);
       } else if (reportType === 'transactions_log') {
         head = [['Data', 'Usuário', 'Tipo', 'Meio', 'Valor', 'Barraca']];
         body = transactionsLog.map(row => [row.date, row.user, row.type, row.paymentMethod, formatCurrency(row.amount), row.stall]);
+      } else if (reportType === 'cards_report') {
+        head = [['Nome', 'Email', 'QR Code', 'Origem', 'Saldo (R$)', 'Cadastro']];
+        body = cardsReport.map(row => [row.name, row.email, row.qrCode, row.origin, formatCurrency(row.balance), row.dateStr]);
       }
 
       autoTable(doc, {
@@ -274,6 +476,7 @@ export default function ReportsPortal({
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Upper header section */}
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-slate-100">
         <div className="space-y-3">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-600">
@@ -287,113 +490,241 @@ export default function ReportsPortal({
             PAINEL DE RELATÓRIOS
           </h2>
           <p className="text-slate-500 font-medium">
-            Acompanhamento em tempo real da saúde financeira do seu evento.
+            Métricas estratégicas e controle inteligente para o seu evento.
           </p>
         </div>
-        
-        <div className="flex flex-wrap items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-          <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Início</label>
+      </header>
+
+      {/* Advanced dynamic filters section */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col gap-6">
+        <div className="flex flex-wrap items-center gap-4">
+          
+          {/* Dynamic Search */}
+          <div className="flex flex-col gap-1.5 w-full md:w-64">
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Pesquisar geral</label>
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input 
+                type="text"
+                placeholder="Pesquisar por texto..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-xs font-bold text-slate-705 outline-none focus:ring-2 focus:ring-slate-950/10 w-full"
+              />
+            </div>
+          </div>
+
+          {/* Start Date */}
+          <div className="flex flex-col gap-1.5 w-full sm:w-auto">
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Período de Início</label>
             <input 
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10"
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Fim</label>
+
+          {/* End Date */}
+          <div className="flex flex-col gap-1.5 w-full sm:w-auto">
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Período de Término</label>
             <input 
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10"
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10"
             />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10 min-w-[120px]"
-            >
-              <option value="all">Todos</option>
-              <option value="completed">Concluídos</option>
-              <option value="pending">Pendentes</option>
-              <option value="failed">Falhos</option>
-            </select>
-          </div>
-          {(startDate || endDate || statusFilter !== 'all') && (
+
+          {/* Transaction status filter */}
+          {reportType === 'transactions_log' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Filtro de Status</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10 min-w-[130px] h-[34px]"
+              >
+                <option value="all">Todos Status</option>
+                <option value="completed">Concluídos</option>
+                <option value="pending">Pendentes</option>
+                <option value="failed">Falhos</option>
+              </select>
+            </div>
+          )}
+
+          {/* Card Origin filter */}
+          {reportType === 'cards_report' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Origem do Cartão</label>
+              <select
+                value={cardOriginFilter}
+                onChange={(e) => setCardOriginFilter(e.target.value as any)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10 min-w-[160px] h-[34px]"
+              >
+                <option value="all">Todas as Origens</option>
+                <option value="system">Sistema (Físico/Caixa)</option>
+                <option value="client">Online (Cliente PWA)</option>
+              </select>
+            </div>
+          )}
+
+          {/* Clear button */}
+          {(startDate || endDate || statusFilter !== 'all' || cardOriginFilter !== 'all' || searchQuery) && (
             <Button 
               variant="ghost" 
-              onClick={() => { setStartDate(''); setEndDate(''); setStatusFilter('all'); }}
-              className="h-9 mt-4 text-[10px] font-black uppercase text-red-500 hover:text-red-600 hover:bg-red-50"
+              onClick={() => { 
+                setStartDate(''); 
+                setEndDate(''); 
+                setStatusFilter('all'); 
+                setCardOriginFilter('all');
+                setSearchQuery('');
+              }}
+              className="h-10 self-end mt-4 text-[10px] font-black uppercase text-red-500 hover:text-red-600 hover:bg-red-50 rounded-xl"
             >
-              Limpar
+              Resetar Filtros
             </Button>
           )}
-        </div>
 
-        <div className="flex gap-3">
-          <Button 
-            onClick={exportToPDF}
-            variant="outline"
-            className="rounded-xl border-slate-200 font-bold text-xs uppercase tracking-wider h-12 px-6"
-          >
-            <Download className="h-4 w-4 mr-2" /> PDF
-          </Button>
-          <Button 
-            onClick={exportToExcel}
-            className="rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold text-xs uppercase tracking-wider h-12 px-6 shadow-md"
-          >
-            <TableIcon className="h-4 w-4 mr-2" /> Excel
-          </Button>
+          {/* Export tools */}
+          <div className="flex gap-2.5 ml-auto self-end mt-4 sm:mt-0">
+            <Button 
+              onClick={exportToPDF}
+              variant="outline"
+              className="rounded-xl border-slate-200 font-bold text-xs uppercase tracking-wider h-10 px-4 hover:bg-slate-50 text-slate-700"
+            >
+              <Download className="h-4 w-4 mr-2 text-slate-500" /> Exportar PDF
+            </Button>
+            <Button 
+              onClick={exportToExcel}
+              className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider h-10 px-4 shadow-md shadow-emerald-700/10"
+            >
+              <TableIcon className="h-4 w-4 mr-2" /> Exportar Excel
+            </Button>
+          </div>
         </div>
-      </header>
+      </div>
 
+      {/* Analytics Sum-up Metric Scorecards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {kpis.map((kpi, idx) => {
+          let cardStyle = 'border-slate-100 bg-white';
+          let iconBadgeStyle = 'bg-slate-100 text-slate-800';
+          
+          if (kpi.type === 'success') {
+            cardStyle = 'border-emerald-100 bg-emerald-50/20';
+            iconBadgeStyle = 'bg-emerald-500/10 text-emerald-600';
+          } else if (kpi.type === 'info') {
+            cardStyle = 'border-blue-100 bg-blue-50/20';
+            iconBadgeStyle = 'bg-blue-500/10 text-blue-600';
+          } else if (kpi.type === 'warning') {
+            cardStyle = 'border-amber-100 bg-amber-50/20';
+            iconBadgeStyle = 'bg-amber-500/10 text-amber-600';
+          } else if (kpi.type === 'danger') {
+            cardStyle = 'border-rose-100 bg-rose-50/20';
+            iconBadgeStyle = 'bg-rose-500/10 text-rose-600';
+          }
+
+          return (
+            <Card key={idx} className={`shadow-sm rounded-3xl border ${cardStyle} overflow-hidden hover:scale-[1.01] transition-transform duration-200`}>
+              <CardContent className="p-6 flex justify-between items-center relative">
+                <div className="space-y-1 flex-1 min-w-0">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest block">{kpi.label}</span>
+                  <h4 className="text-2xl font-black text-slate-900 tracking-tight truncate">{kpi.value}</h4>
+                  <p className="text-[10px] text-slate-450 font-semibold leading-normal mt-0.5 truncate text-slate-500">{kpi.text}</p>
+                </div>
+                
+                <div className={`h-11 w-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${iconBadgeStyle}`}>
+                  {reportType === 'financial_summary' && idx === 0 && <DollarSign className="h-5 w-5" />}
+                  {reportType === 'financial_summary' && idx === 1 && <ShoppingBag className="h-5 w-5" />}
+                  {reportType === 'financial_summary' && idx === 2 && <TrendingUp className="h-5 w-5" />}
+                  {reportType === 'financial_summary' && idx === 3 && <TrendingDown className="h-5 w-5" />}
+
+                  {reportType === 'sales_by_stall' && idx === 0 && <Store className="h-5 w-5" />}
+                  {reportType === 'sales_by_stall' && idx === 1 && <History className="h-5 w-5" />}
+                  {reportType === 'sales_by_stall' && idx === 2 && <TrendingUp className="h-5 w-5" />}
+                  {reportType === 'sales_by_stall' && idx === 3 && <CheckCircle2 className="h-5 w-5" />}
+
+                  {reportType === 'transactions_log' && idx === 0 && <History className="h-5 w-5" />}
+                  {reportType === 'transactions_log' && idx === 1 && <ArrowUpRight className="h-5 w-5" />}
+                  {reportType === 'transactions_log' && idx === 2 && <ArrowDownLeft className="h-5 w-5" />}
+                  {reportType === 'transactions_log' && idx === 3 && <CheckCircle2 className="h-5 w-5" />}
+
+                  {reportType === 'user_balances' && idx === 0 && <Users className="h-5 w-5" />}
+                  {reportType === 'user_balances' && idx === 1 && <Users className="h-5 w-5" />}
+                  {reportType === 'user_balances' && idx === 2 && <TrendingUp className="h-5 w-5" />}
+                  {reportType === 'user_balances' && idx === 3 && <DollarSign className="h-5 w-5" />}
+
+                  {reportType === 'sales_by_product' && idx === 0 && <Package className="h-5 w-5" />}
+                  {reportType === 'sales_by_product' && idx === 1 && <Tag className="h-5 w-5" />}
+                  {reportType === 'sales_by_product' && idx === 2 && <TrendingUp className="h-5 w-5" />}
+                  {reportType === 'sales_by_product' && idx === 3 && <Store className="h-5 w-5" />}
+
+                  {reportType === 'cards_report' && idx === 0 && <CreditCard className="h-5 w-5" />}
+                  {reportType === 'cards_report' && idx === 1 && <Users className="h-5 w-5" />}
+                  {reportType === 'cards_report' && idx === 2 && <QrCode className="h-5 w-5" />}
+                  {reportType === 'cards_report' && idx === 3 && <DollarSign className="h-5 w-5" />}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Main reports dashboard layout */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        {/* Navigation Sidebar */}
         <div className="space-y-6">
           <div>
-            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 px-2">Categorias</p>
+            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 px-2">Categorias de Relatórios</p>
             <nav className="space-y-1.5">
               {[
                 { id: 'financial_summary', label: 'Resumo Financeiro', icon: DollarSign },
                 { id: 'sales_by_stall', label: 'Vendas/Barraca', icon: Store },
                 { id: 'transactions_log', label: 'Histórico de Vendas', icon: History },
+                { id: 'cards_report', label: 'Ativação de Cartões', icon: CreditCard, subtitle: 'Físico vs Online' },
                 { id: 'user_balances', label: 'Saldos Atuais', icon: Users },
                 { id: 'sales_by_product', label: 'Catálogo/Preços', icon: Package },
               ].map((type) => (
                 <button
                   key={type.id}
                   onClick={() => setReportType(type.id as any)}
-                  className={`w-full flex items-center gap-3.5 p-3.5 rounded-xl transition-all border ${
+                  className={`w-full flex items-center justify-between p-3.5 rounded-xl transition-all border text-left ${
                     reportType === type.id 
-                      ? 'bg-slate-950 text-white border-slate-950 shadow-lg translate-x-1' 
-                      : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50'
+                      ? 'bg-slate-950 text-white border-slate-950 shadow-md translate-x-1' 
+                      : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50 hover:text-slate-700'
                   }`}
                 >
-                  <type.icon className={`h-4.5 w-4.5 ${reportType === type.id ? 'text-white' : 'text-slate-400'}`} />
-                  <span className="font-bold text-sm">{type.label}</span>
+                  <div className="flex items-center gap-3">
+                    <type.icon className={`h-4.5 w-4.5 shrink-0 ${reportType === type.id ? 'text-white' : 'text-slate-400'}`} />
+                    <div className="leading-tight">
+                      <span className="font-bold text-sm block">{type.label}</span>
+                      {type.subtitle && (
+                        <span className={`text-[9px] font-black uppercase tracking-wider block mt-0.5 ${reportType === type.id ? 'text-white/70' : 'text-slate-400'}`}>{type.subtitle}</span>
+                      )}
+                    </div>
+                  </div>
                 </button>
               ))}
             </nav>
           </div>
 
-          <div className="p-5 rounded-2xl bg-blue-50 border border-blue-100 space-y-3">
+          <div className="p-5 rounded-2xl bg-blue-50 border border-blue-100 space-y-3 shadow-sm">
             <div className="flex items-center gap-2 text-blue-700">
-               <TrendingUp className="h-4 w-4" />
-               <span className="text-xs font-black uppercase tracking-wider">Dica do Sistema</span>
+               <TrendingUp className="h-4 w-4 shrink-0" />
+               <span className="text-xs font-black uppercase tracking-wider">Análise de Canal</span>
             </div>
-            <p className="text-xs text-blue-600 leading-relaxed font-medium">
-              Utilize o <strong>Log Completo</strong> para auditar transações individuais em caso de divergências.
+            <p className="text-xs text-blue-600 leading-relaxed font-semibold">
+              O relatório <strong>Ativação de Cartões</strong> ajuda você a comparar se os clientes preferem ativar uma conta online pelo PWA ou se preferem cartões impressos pelo caixa.
             </p>
           </div>
         </div>
 
+        {/* Database Grid Content Card */}
         <div className="lg:col-span-3">
           <Card className="rounded-3xl border-slate-200 shadow-sm overflow-hidden bg-white">
             <CardHeader className="bg-slate-50/50 border-b border-slate-100 p-6">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                   <CardTitle className="text-xl font-black text-slate-900 uppercase tracking-tight">
                     {reportType === 'financial_summary' && 'Resumo Financeiro Consolidado'}
@@ -401,22 +732,23 @@ export default function ReportsPortal({
                     {reportType === 'transactions_log' && 'Histórico de Vendas Detalhado'}
                     {reportType === 'user_balances' && 'Relatório de Créditos Ativos'}
                     {reportType === 'sales_by_product' && 'Catálogo e Precificação'}
+                    {reportType === 'cards_report' && 'Ativação de Cartões (Físico vs Online)'}
                   </CardTitle>
-                  <CardDescription className="font-medium mt-1">
-                    Visualização detalhada dos dados do evento.
+                  <CardDescription className="font-semibold mt-1">
+                    Visualização de dados refinada com filtros dinâmicos de texto e período.
                   </CardDescription>
                 </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Última Atualização</span>
+                <div className="text-left sm:text-right shrink-0">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Sincronizado há pouco</span>
                   <span className="text-xs font-bold text-slate-600">{format(new Date(), 'HH:mm:ss')}</span>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto min-w-full">
-                <table className="w-full text-left">
+                <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-50/80">
+                    <tr className="bg-slate-50/80 border-b border-slate-100">
                       {reportType === 'financial_summary' && (
                         <>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Indicador</th>
@@ -426,8 +758,8 @@ export default function ReportsPortal({
                       )}
                       {reportType === 'sales_by_stall' && (
                         <>
-                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Barraca</th>
-                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Vendas</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Barraca / PDV</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Volume</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Total Acumulado</th>
                         </>
                       )}
@@ -442,98 +774,142 @@ export default function ReportsPortal({
                       )}
                       {reportType === 'user_balances' && (
                         <>
-                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Nome do Cliente</th>
-                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Email</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Nome do Titular</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">E-mail</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Saldo Disponível</th>
                         </>
                       )}
                       {reportType === 'sales_by_product' && (
                         <>
-                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Item</th>
-                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Setor/Barraca</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Descrição do Item</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Barraca / Ponto</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Preço Unitário</th>
+                        </>
+                      )}
+                      {reportType === 'cards_report' && (
+                        <>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Titular do Cartão</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">E-mail</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 border-none">QR Code / ID</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Origem</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Adesão / Cadastro</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Saldo</th>
                         </>
                       )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {reportType === 'financial_summary' && financialSummary.map((row, idx) => (
+                    {reportType === 'financial_summary' && filteredFinancialSummary.map((row, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4 font-black text-slate-700">{row.category}</td>
-                        <td className="px-6 py-4 text-xs font-medium text-slate-500">{row.desc}</td>
+                        <td className="px-6 py-4 text-xs font-semibold text-slate-500 leading-normal">{row.desc}</td>
                         <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(row.amount)}</td>
                       </tr>
                     ))}
+                    
                     {reportType === 'sales_by_stall' && salesByStall.map((row, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-black text-[10px]">
+                            <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-black text-[10px] shrink-0">
                               {row.stallName.substring(0, 2).toUpperCase()}
                             </div>
                             <span className="font-bold text-slate-700">{row.stallName}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-right font-bold text-slate-400">{row.transactionCount} txs</td>
+                        <td className="px-6 py-4 text-right font-bold text-slate-400">{row.transactionCount} compras</td>
                         <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(row.totalSales)}</td>
                       </tr>
                     ))}
+
                     {reportType === 'transactions_log' && transactionsLog.map((row, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4 text-xs font-bold text-slate-400">{row.date}</td>
+                        <td className="px-6 py-4 text-[11px] font-bold text-slate-400">{row.date}</td>
                         <td className="px-6 py-4">
                           <span className="font-bold text-slate-700 block text-sm">{row.user}</span>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[9px] font-black uppercase tracking-tighter ${row.type === 'CARGA' ? 'text-green-500' : 'text-blue-500'}`}>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-[9px] font-black uppercase tracking-widest ${row.type === 'CARGA' ? 'text-green-500' : 'text-blue-500'}`}>
                               {row.type}
                             </span>
-                            <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase ${
                               row.status === 'completed' ? 'bg-green-100 text-green-700' : 
                               row.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
                               'bg-red-100 text-red-700'
                             }`}>
-                              {row.status}
+                              {row.status === 'completed' ? 'Sucesso' : row.status}
                             </span>
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{row.paymentMethod}</span>
+                          <span className="text-[10px] font-black text-slate-450 uppercase tracking-widest text-slate-500">{row.paymentMethod}</span>
                         </td>
-                        <td className="px-6 py-4 font-medium text-slate-500 text-sm">{row.stall}</td>
+                        <td className="px-6 py-4 font-semibold text-slate-500 text-xs">{row.stall}</td>
                         <td className={`px-6 py-4 text-right font-black ${row.type === 'CARGA' ? 'text-green-600' : 'text-slate-900'}`}>
                           {row.type === 'CARGA' ? '+' : '-'}{formatCurrency(row.amount)}
                         </td>
                       </tr>
                     ))}
+
                     {reportType === 'user_balances' && userBalances.map((row, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4">
                           <span className="font-bold text-slate-700 block">{row.name}</span>
-                          <span className="text-[10px] font-black uppercase text-slate-300 tracking-widest">{row.role}</span>
+                          <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">{row.role}</span>
                         </td>
-                        <td className="px-6 py-4 text-sm font-medium text-slate-500">{row.email}</td>
-                        <td className="px-6 py-4 text-right font-black text-green-600">{formatCurrency(row.balance)}</td>
+                        <td className="px-6 py-4 text-xs font-semibold text-slate-500">{row.email}</td>
+                        <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(row.balance)}</td>
                       </tr>
                     ))}
+
                     {reportType === 'sales_by_product' && salesByProduct.map((row, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4 font-bold text-slate-700">{row.name}</td>
-                        <td className="px-6 py-4 font-medium text-slate-500">{row.stall}</td>
+                        <td className="px-6 py-4 font-semibold text-slate-500 text-xs">{row.stall}</td>
                         <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(row.price)}</td>
+                      </tr>
+                    ))}
+
+                    {reportType === 'cards_report' && cardsReport.map((row, idx) => (
+                      <tr key={row.uid || idx} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <span className="font-bold text-slate-800 block text-sm">{row.name}</span>
+                          {row.isPhysical ? (
+                            <span className="text-[8px] font-black uppercase tracking-widest text-blue-500">Impressão Física</span>
+                          ) : (
+                            <span className="text-[8px] font-black uppercase tracking-widest text-green-500">Autocadastro Cliente</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-semibold text-slate-500">{row.email}</td>
+                        <td className="px-6 py-4 font-mono text-[10px] text-slate-400 select-all">{row.qrCode}</td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                            row.isPhysical 
+                              ? 'bg-blue-50 border border-blue-100 text-blue-700' 
+                              : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
+                          }`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${row.isPhysical ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+                            {row.origin}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right text-xs font-bold text-slate-500">{row.dateStr}</td>
+                        <td className="px-6 py-4 text-right font-black text-emerald-600">
+                          {formatCurrency(row.balance)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               
-              {((reportType === 'financial_summary' && financialSummary.length === 0) ||
+              {((reportType === 'financial_summary' && filteredFinancialSummary.length === 0) ||
                 (reportType === 'sales_by_stall' && salesByStall.length === 0) ||
                 (reportType === 'transactions_log' && transactionsLog.length === 0) ||
                 (reportType === 'user_balances' && userBalances.length === 0) ||
-                (reportType === 'sales_by_product' && salesByProduct.length === 0)) && (
-                <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-4">
-                  <AlertCircle className="h-10 w-10 opacity-20" />
-                  <p className="font-bold text-sm uppercase tracking-widest opacity-50">Nenhum dado encontrado para este relatório</p>
+                (reportType === 'sales_by_product' && salesByProduct.length === 0) ||
+                (reportType === 'cards_report' && cardsReport.length === 0)) && (
+                <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-4 bg-slate-50/20">
+                  <AlertCircle className="h-10 w-10 opacity-20 text-slate-500" />
+                  <p className="font-bold text-xs uppercase tracking-widest opacity-60">Nenhum registro corresponde aos filtros definidos</p>
                 </div>
               )}
             </CardContent>

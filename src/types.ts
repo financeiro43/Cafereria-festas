@@ -11,6 +11,9 @@ export interface UserProfile {
   vendorIds?: string[]; // Multiple stall links
   linkedCards?: string[]; // Array of card IDs (usually the qrCode strings) - DEPRECATED for internal links, used for physical cards
   associatedUids?: string[]; // UIDs of other users linked to this account
+  isPhysicalCard?: boolean;
+  timestamp?: any;
+  consentedToTermsAt?: any;
 }
 
 export interface Product {
