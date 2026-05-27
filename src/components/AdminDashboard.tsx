@@ -517,8 +517,48 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string, type: 'stall' | 'product' | 'user', action: () => void } | null>(null);
   const [resetConfirm, setResetConfirm] = useState<{ id: string, name: string, amount: number, action: () => void } | null>(null);
 
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [sortField, setSortField] = useState<'name' | 'qrCode' | 'role' | 'balance' | 'stalls' | null>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  
+  // Bulk Edit States
+  const [showBulkEditModal, setShowBulkEditModal] = useState(false);
+  const [bulkEditRole, setBulkEditRole] = useState<UserRole | ''>('');
+  const [bulkEditRecharge, setBulkEditRecharge] = useState<string>('');
+  const [bulkEditPaymentMethod, setBulkEditPaymentMethod] = useState<string>('Dinheiro');
+  const [bulkEditStalls, setBulkEditStalls] = useState<string[]>([]);
+  const [bulkEditActionType, setBulkEditActionType] = useState<'role' | 'recharge' | 'zero' | 'stalls' | 'delete' | null>(null);
+
+  const handleToggleSort = (field: 'name' | 'qrCode' | 'role' | 'balance' | 'stalls') => {
+    if (sortField === field) {
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const toggleSelectUser = (uid: string) => {
+    setSelectedUsers(prev => 
+      prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
+    );
+  };
+
+  const toggleSelectAllUsers = () => {
+    const visibleIds = filteredUsers.map(u => u.uid);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedUsers.includes(id));
+    if (allSelected) {
+      setSelectedUsers(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedUsers(prev => {
+        const unique = new Set([...prev, ...visibleIds]);
+        return Array.from(unique);
+      });
+    }
+  };
+
   const filteredUsers = useMemo(() => {
-    return users.filter(user => {
+    let list = users.filter(user => {
       if (user.role === 'admin' && profile.email !== 'financeiro@modeloalpha.com.br') return false; // Hide other admins unless super admin
       
       const matchesSearch = 
@@ -530,7 +570,37 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
       return matchesSearch && matchesRole;
     });
-  }, [users, userSearchQuery, roleFilter, profile.email]);
+
+    if (sortField) {
+      list = [...list].sort((a, b) => {
+        let valA: any = '';
+        let valB: any = '';
+
+        if (sortField === 'name') {
+          valA = (a.name || '').toLowerCase();
+          valB = (b.name || '').toLowerCase();
+        } else if (sortField === 'qrCode') {
+          valA = (a.qrCode || '').toLowerCase();
+          valB = (b.qrCode || '').toLowerCase();
+        } else if (sortField === 'role') {
+          valA = (a.role || '').toLowerCase();
+          valB = (b.role || '').toLowerCase();
+        } else if (sortField === 'balance') {
+          valA = a.balance ?? 0;
+          valB = b.balance ?? 0;
+        } else if (sortField === 'stalls') {
+          valA = a.vendorIds?.length ?? 0;
+          valB = b.vendorIds?.length ?? 0;
+        }
+
+        if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return list;
+  }, [users, userSearchQuery, roleFilter, profile.email, sortField, sortOrder]);
 
   const getRoleIcon = (role: string) => {
     switch (role) {
@@ -724,6 +794,79 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       toast.success('Associações atualizadas');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+    }
+  };
+
+  const handleBulkEditAction = async (forcedType?: 'zero' | 'delete') => {
+    const actType = forcedType || bulkEditActionType;
+    if (selectedUsers.length === 0) {
+      toast.error('Nenhum usuário selecionado.');
+      return;
+    }
+
+    try {
+      if (actType === 'delete') {
+        if (!window.confirm(`Deseja realmente remover os ${selectedUsers.length} usuários selecionados?`)) return;
+        const promises = selectedUsers.map(uid => deleteDoc(doc(db, 'users', uid)));
+        await Promise.all(promises);
+        toast.success(`${selectedUsers.length} usuários excluídos com sucesso!`);
+        setSelectedUsers([]);
+      } 
+      
+      else if (actType === 'role') {
+        if (!bulkEditRole) {
+          toast.error('Selecione uma função.');
+          return;
+        }
+        const promises = selectedUsers.map(uid => updateDoc(doc(db, 'users', uid), { role: bulkEditRole }));
+        await Promise.all(promises);
+        toast.success(`Função atualizada para os ${selectedUsers.length} usuários selecionados!`);
+        setSelectedUsers([]);
+      }
+
+      else if (actType === 'recharge') {
+        const amount = parseFloat(bulkEditRecharge || '0');
+        if (isNaN(amount) || amount <= 0) {
+          toast.error('Insira um valor de recarga válido.');
+          return;
+        }
+        const promises = selectedUsers.map(async (uid) => {
+          await updateDoc(doc(db, 'users', uid), { balance: increment(amount) });
+          await addDoc(collection(db, 'transactions'), {
+            userId: uid,
+            amount: amount,
+            type: 'credit',
+            description: `Recarga manual em lote (${bulkEditPaymentMethod})`,
+            paymentMethod: bulkEditPaymentMethod,
+            status: 'completed',
+            timestamp: serverTimestamp()
+          });
+        });
+        await Promise.all(promises);
+        toast.success(`Recarga de R$ ${amount.toFixed(2)} efetuada para ${selectedUsers.length} usuários!`);
+        setSelectedUsers([]);
+        setBulkEditRecharge('');
+      }
+
+      else if (actType === 'zero') {
+        if (!window.confirm(`Tem certeza que deseja zerar o saldo dos ${selectedUsers.length} usuários selecionados?`)) return;
+        const promises = selectedUsers.map(uid => updateDoc(doc(db, 'users', uid), { balance: 0 }));
+        await Promise.all(promises);
+        toast.success(`Saldo zerado para os ${selectedUsers.length} usuários selecionados!`);
+        setSelectedUsers([]);
+      }
+
+      else if (actType === 'stalls') {
+        const promises = selectedUsers.map(uid => updateDoc(doc(db, 'users', uid), { vendorIds: bulkEditStalls }));
+        await Promise.all(promises);
+        toast.success(`Acesso às barracas atualizado para os ${selectedUsers.length} usuários!`);
+        setSelectedUsers([]);
+      }
+
+      setShowBulkEditModal(false);
+      setBulkEditActionType(null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'users/bulk-edit');
     }
   };
 
@@ -1523,171 +1666,325 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   </Button>
                 </div>
               </div>
+
+              {/* Bulk Edit Panel */}
+              {selectedUsers.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-[24px] p-6 flex flex-col md:flex-row items-center justify-between gap-4 transition-all duration-300 shadow-md">
+                  <div className="flex items-center gap-4">
+                    <div className="h-10 w-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black text-sm shrink-0 select-none shadow-md shadow-blue-500/20">
+                      {selectedUsers.length}
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-black uppercase text-blue-900 tracking-widest">Ações em Lote</h5>
+                      <p className="text-[10px] text-blue-600 font-bold uppercase tracking-wider mt-0.5">Selecione uma operação aplicável aos membros marcados</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setBulkEditActionType('recharge');
+                        setBulkEditRecharge('');
+                        setBulkEditPaymentMethod('Dinheiro');
+                        setShowBulkEditModal(true);
+                      }}
+                      className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 text-[10px] font-black uppercase tracking-wider rounded-xl border border-slate-200 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                    >
+                      <Plus className="h-3.5 w-3.5 text-emerald-600" />
+                      Recarregar
+                    </button>
+                    <button
+                      onClick={() => {
+                        setBulkEditActionType('role');
+                        setBulkEditRole('');
+                        setShowBulkEditModal(true);
+                      }}
+                      className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 text-[10px] font-black uppercase tracking-wider rounded-xl border border-slate-200 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                    >
+                      <UserIcon className="h-3.5 w-3.5 text-blue-600" />
+                      Alterar Função
+                    </button>
+                    <button
+                      onClick={() => {
+                        setBulkEditActionType('stalls');
+                        setBulkEditStalls([]);
+                        setShowBulkEditModal(true);
+                      }}
+                      className="px-4 py-2 bg-white hover:bg-slate-50 text-slate-800 text-[10px] font-black uppercase tracking-wider rounded-xl border border-slate-200 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                    >
+                      <Store className="h-3.5 w-3.5 text-indigo-600" />
+                      Atribuir Barracas
+                    </button>
+                    <button
+                      onClick={() => handleBulkEditAction('zero')}
+                      className="px-4 py-2 bg-white hover:bg-rose-50 text-rose-600 text-[10px] font-black uppercase tracking-wider rounded-xl border border-rose-100 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 text-rose-500" />
+                      Zerar Saldos
+                    </button>
+                    <button
+                      onClick={() => handleBulkEditAction('delete')}
+                      className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-wider rounded-xl border border-rose-700 transition-all cursor-pointer flex items-center gap-1.5 shadow-md"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Excluir
+                    </button>
+                    <button
+                      onClick={() => setSelectedUsers([])}
+                      className="px-4 py-2 bg-slate-200/50 hover:bg-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer"
+                    >
+                      Desmarcar Todos
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <Table className="w-full min-w-[1240px]">
-                  <TableHeader className="bg-slate-50/70 border-b border-slate-100">
+                  <TableHeader className="bg-slate-50/70 border-b border-slate-100 select-none">
                     <TableRow className="hover:bg-transparent border-b border-slate-100">
-                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-6 py-4">Nome / E-mail</TableHead>
-                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Nº Cartão (QR)</TableHead>
-                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Função</TableHead>
-                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Saldo Atual</TableHead>
+                      <TableHead className="w-14 h-14 px-4 py-4 text-center">
+                        <input 
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          checked={filteredUsers.length > 0 && filteredUsers.every(u => selectedUsers.includes(u.uid))}
+                          onChange={toggleSelectAllUsers}
+                        />
+                      </TableHead>
+                      <TableHead 
+                        onClick={() => handleToggleSort('name')}
+                        className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-6 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          Nome / E-mail
+                          <span className="text-slate-400 font-bold">
+                            {sortField === 'name' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}
+                          </span>
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        onClick={() => handleToggleSort('qrCode')}
+                        className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          Nº Cartão (QR)
+                          <span className="text-slate-400 font-bold">
+                            {sortField === 'qrCode' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}
+                          </span>
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        onClick={() => handleToggleSort('role')}
+                        className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          Função
+                          <span className="text-slate-400 font-bold">
+                            {sortField === 'role' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}
+                          </span>
+                        </div>
+                      </TableHead>
+                      <TableHead 
+                        onClick={() => handleToggleSort('balance')}
+                        className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          Saldo Atual
+                          <span className="text-slate-400 font-bold">
+                            {sortField === 'balance' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}
+                          </span>
+                        </div>
+                      </TableHead>
                       <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Recarga Rápida</TableHead>
-                      <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4">Barracas Vinculadas</TableHead>
+                      <TableHead 
+                        onClick={() => handleToggleSort('stalls')}
+                        className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-4 py-4 cursor-pointer hover:bg-slate-100/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          Barracas Vinculadas
+                          <span className="text-slate-400 font-bold">
+                            {sortField === 'stalls' ? (sortOrder === 'asc' ? '▲' : '▼') : '↕'}
+                          </span>
+                        </div>
+                      </TableHead>
                       <TableHead className="text-[10px] uppercase font-black tracking-widest text-slate-400 h-14 px-6 py-4 text-right">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredUsers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-12 text-slate-400 font-medium h-24">
+                        <TableCell colSpan={8} className="text-center py-12 text-slate-400 font-medium h-24">
                           Nenhum usuário encontrado correspondendo aos filtros.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredUsers.map(user => (
-                        <TableRow key={user.uid} className="hover:bg-slate-50/50 border-b border-slate-100/80 transition-colors">
-                          <TableCell className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-800 font-extrabold text-sm uppercase shadow-inner shrink-0">
-                                {user.name.charAt(0)}
+                      filteredUsers.map(user => {
+                        const isChosen = selectedUsers.includes(user.uid);
+                        return (
+                          <TableRow 
+                            key={user.uid} 
+                            onDoubleClick={() => setEditingUser(user)}
+                            className={`hover:bg-slate-50/50 border-b border-slate-100/80 transition-colors cursor-pointer select-none ${
+                              isChosen ? 'bg-blue-50/20 hover:bg-blue-50/40' : ''
+                            }`}
+                            title="Duplo clique sobre a linha para editar perfil"
+                          >
+                            <TableCell className="px-4 py-4 w-14 text-center" onDoubleClick={(e) => e.stopPropagation()}>
+                              <input 
+                                type="checkbox"
+                                className="h-4 w-4 rounded border-slate-350 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                checked={isChosen}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={() => toggleSelectUser(user.uid)}
+                              />
+                            </TableCell>
+
+                            <TableCell className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-800 font-extrabold text-sm uppercase shadow-inner shrink-0 select-none">
+                                  {user.name.charAt(0)}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                  <span className="font-extrabold text-slate-900 text-sm uppercase tracking-tight truncate max-w-[200px]">{user.name}</span>
+                                  <span className="text-[15px] text-slate-400 font-semibold truncate max-w-[200px]">{user.email}</span>
+                                </div>
                               </div>
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-extrabold text-slate-900 text-sm uppercase tracking-tight truncate max-w-[200px]">{user.name}</span>
-                                <span className="text-[15px] text-slate-400 font-semibold truncate max-w-[200px]">{user.email}</span>
+                            </TableCell>
+                            
+                            <TableCell className="px-4 py-4 whitespace-nowrap" onDoubleClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center gap-1.5 font-mono text-xs text-slate-600 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg w-max [&_button]:hover:opacity-100 select-all" onClick={(e) => e.stopPropagation()}>
+                                <span className="truncate max-w-[120px]">{user.qrCode || 'Sem cartão'}</span>
+                                {user.qrCode && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(user.qrCode);
+                                      toast.success('Código do cartão copiado!');
+                                    }}
+                                    className="text-slate-400 hover:text-slate-800 p-0.5 transition-colors"
+                                    title="Copiar código"
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </button>
+                                )}
                               </div>
-                            </div>
-                          </TableCell>
-                          
-                          <TableCell className="px-4 py-4 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5 font-mono text-xs text-slate-600 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg w-max [&_button]:hover:opacity-100 select-all">
-                              <span className="truncate max-w-[120px]">{user.qrCode || 'Sem cartão'}</span>
-                              {user.qrCode && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(user.qrCode);
-                                    toast.success('Código do cartão copiado!');
-                                  }}
-                                  className="text-slate-400 hover:text-slate-800 p-0.5 transition-colors"
-                                  title="Copiar código"
+                            </TableCell>
+                            
+                            <TableCell className="px-4 py-4 whitespace-nowrap">
+                              <span className={`inline-flex items-center gap-1.5 text-[9px] font-black uppercase px-2.5 py-1.5 rounded-xl border shadow-sm ${
+                                user.role === 'vendor' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                                user.role === 'recharge' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                user.role === 'admin' ? 'bg-slate-900 text-white border-slate-800' :
+                                'bg-slate-50 text-slate-500 border-slate-100'
+                              }`}>
+                                {getRoleIcon(user.role)}
+                                {user.role === 'student' ? 'Cliente' : 
+                                 user.role === 'vendor' ? 'Vendedor' : 
+                                 user.role === 'recharge' ? 'Recarga' : 'Admin'}
+                              </span>
+                            </TableCell>
+                            
+                            <TableCell className="px-4 py-4 whitespace-nowrap">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-900 text-sm">R$ {user.balance.toFixed(2)}</span>
+                                {user.balance > 0 && (
+                                  <button
+                                    type="button"
+                                    onDoubleClick={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleZeroBalance(user.uid);
+                                    }}
+                                    className="text-[9px] font-black tracking-wider text-rose-600 hover:text-white bg-rose-55 hover:bg-rose-600 px-2.5 py-1 rounded-lg transition-all uppercase cursor-pointer"
+                                    title="Zerar saldo deste cartão"
+                                  >
+                                    Zerar
+                                  </button>
+                                )}
+                              </div>
+                            </TableCell>
+                            
+                            <TableCell className="px-4 py-4 whitespace-nowrap" onDoubleClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center gap-1.5 max-w-[210px]" onClick={(e) => e.stopPropagation()}>
+                                <div className="relative flex-1">
+                                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">R$</span>
+                                  <input 
+                                    type="number"
+                                    placeholder="0,00"
+                                    className="w-full text-xs font-bold rounded-lg border border-slate-200 bg-white pl-7 pr-1 py-1.5 transition-all focus:border-blue-500 outline-none"
+                                    value={rechargeAmounts[user.uid] || ''}
+                                    onChange={(e) => setRechargeAmounts(prev => ({ ...prev, [user.uid]: e.target.value }))}
+                                  />
+                                </div>
+                                <select
+                                  className="text-[9px] font-black uppercase tracking-tight rounded-lg border border-slate-200 bg-white py-1.5 pl-1.5 pr-6 focus:border-blue-500 outline-none hover:bg-slate-50 transition-all shrink-0 cursor-pointer"
+                                  value={rechargePaymentMethods[user.uid] || 'Dinheiro'}
+                                  onChange={(e) => setRechargePaymentMethods(prev => ({ ...prev, [user.uid]: e.target.value }))}
                                 >
-                                  <Copy className="h-3 w-3" />
-                                </button>
-                              )}
-                            </div>
-                          </TableCell>
-                          
-                          <TableCell className="px-4 py-4 whitespace-nowrap">
-                            <span className={`inline-flex items-center gap-1.5 text-[9px] font-black uppercase px-2.5 py-1.5 rounded-xl border shadow-sm ${
-                              user.role === 'vendor' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
-                              user.role === 'recharge' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                              user.role === 'admin' ? 'bg-slate-900 text-white border-slate-800' :
-                              'bg-slate-50 text-slate-500 border-slate-100'
-                            }`}>
-                              {getRoleIcon(user.role)}
-                              {user.role === 'student' ? 'Cliente' : 
-                               user.role === 'vendor' ? 'Vendedor' : 
-                               user.role === 'recharge' ? 'Recarga' : 'Admin'}
-                            </span>
-                          </TableCell>
-                          
-                          <TableCell className="px-4 py-4 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900 text-sm">R$ {user.balance.toFixed(2)}</span>
-                              {user.balance > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleZeroBalance(user.uid)}
-                                  className="text-[9px] font-black tracking-wider text-rose-600 hover:text-white bg-rose-55 hover:bg-rose-600 px-2.5 py-1 rounded-lg transition-all uppercase cursor-pointer"
-                                  title="Zerar saldo deste cartão"
+                                  <option value="Dinheiro">Dinheiro</option>
+                                  <option value="Pix">PIX</option>
+                                  <option value="Débito">Débito</option>
+                                  <option value="Crédito">Crédito</option>
+                                  <option value="Conta">Conta</option>
+                                </select>
+                                <Button 
+                                  size="sm" 
+                                  onClick={() => handleManualRecharge(user.uid)}
+                                  className="bg-slate-900 hover:bg-blue-600 text-white rounded-lg px-2.5 h-8 font-black uppercase tracking-wider text-[9px] border-none shrink-0"
                                 >
-                                  Zerar
-                                </button>
-                              )}
-                            </div>
-                          </TableCell>
-                          
-                          <TableCell className="px-4 py-4 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5 max-w-[210px]">
-                              <div className="relative flex-1">
-                                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">R$</span>
-                                <input 
-                                  type="number"
-                                  placeholder="0,00"
-                                  className="w-full text-xs font-bold rounded-lg border border-slate-200 bg-white pl-7 pr-1 py-1.5 transition-all focus:border-blue-500 outline-none"
-                                  value={rechargeAmounts[user.uid] || ''}
-                                  onChange={(e) => setRechargeAmounts(prev => ({ ...prev, [user.uid]: e.target.value }))}
-                                />
+                                  OK
+                                </Button>
                               </div>
-                              <select
-                                className="text-[9px] font-black uppercase tracking-tight rounded-lg border border-slate-200 bg-white py-1.5 pl-1.5 pr-6 focus:border-blue-500 outline-none hover:bg-slate-50 transition-all shrink-0 cursor-pointer"
-                                value={rechargePaymentMethods[user.uid] || 'Dinheiro'}
-                                onChange={(e) => setRechargePaymentMethods(prev => ({ ...prev, [user.uid]: e.target.value }))}
-                              >
-                                <option value="Dinheiro">Dinheiro</option>
-                                <option value="Pix">PIX</option>
-                                <option value="Débito">Débito</option>
-                                <option value="Crédito">Crédito</option>
-                                <option value="Conta">Conta</option>
-                              </select>
-                              <Button 
-                                size="sm" 
-                                onClick={() => handleManualRecharge(user.uid)}
-                                className="bg-slate-900 hover:bg-blue-600 text-white rounded-lg px-2.5 h-8 font-black uppercase tracking-wider text-[9px] border-none shrink-0"
-                              >
-                                OK
-                              </Button>
-                            </div>
-                          </TableCell>
-                          
-                          <TableCell className="px-4 py-4">
-                            <div className="flex flex-wrap gap-1.5 max-w-[280px]">
-                              {stalls.map(s => {
-                                const isLinked = user.vendorIds?.includes(s.id);
-                                return (
-                                  <label key={s.id} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase cursor-pointer transition-all border ${
-                                    isLinked 
-                                      ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm font-extrabold' 
-                                      : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
-                                  }`}>
-                                    <input 
-                                      type="checkbox"
-                                      className="hidden"
-                                      checked={!!isLinked}
-                                      onChange={(e) => setUserVendorIds(user.uid, s.id, e.target.checked)}
-                                    />
-                                    {isLinked && <ShieldCheckIcon className="h-2.5 w-2.5 shrink-0" />}
-                                    <span className="truncate max-w-[85px]">{s.name}</span>
-                                  </label>
-                                );
-                              })}
-                              {stalls.length === 0 && <span className="text-[10px] text-slate-400 italic">Cadastre barracas primeiro.</span>}
-                            </div>
-                          </TableCell>
-                          
-                          <TableCell className="px-6 py-4 text-right whitespace-nowrap">
-                            <div className="flex items-center justify-end gap-1">
-                              <button 
-                                onClick={() => setEditingUser(user)}
-                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                title="Editar usuário"
-                              >
-                                <Edit2 className="h-4 w-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteUser(user.uid)}
-                                className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                title="Excluir usuário"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
+                            </TableCell>
+                            
+                            <TableCell className="px-4 py-4" onDoubleClick={(e) => e.stopPropagation()}>
+                              <div className="flex flex-wrap gap-1.5 max-w-[280px]" onClick={(e) => e.stopPropagation()}>
+                                {stalls.map(s => {
+                                  const isLinked = user.vendorIds?.includes(s.id);
+                                  return (
+                                    <label key={s.id} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase cursor-pointer transition-all border ${
+                                      isLinked 
+                                        ? 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm font-extrabold' 
+                                        : 'bg-white text-slate-400 border-slate-200 hover:border-slate-300'
+                                    }`}>
+                                      <input 
+                                        type="checkbox"
+                                        className="hidden"
+                                        checked={!!isLinked}
+                                        onChange={(e) => setUserVendorIds(user.uid, s.id, e.target.checked)}
+                                      />
+                                      {isLinked && <ShieldCheckIcon className="h-2.5 w-2.5 shrink-0" />}
+                                      <span className="truncate max-w-[85px]">{s.name}</span>
+                                    </label>
+                                  );
+                                })}
+                                {stalls.length === 0 && <span className="text-[10px] text-slate-400 italic">Cadastre barracas primeiro.</span>}
+                              </div>
+                            </TableCell>
+                            
+                            <TableCell className="px-6 py-4 text-right whitespace-nowrap" onDoubleClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                <button 
+                                  onClick={() => setEditingUser(user)}
+                                  className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Editar usuário"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                                <button 
+                                  onClick={() => handleDeleteUser(user.uid)}
+                                  className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                                  title="Excluir usuário"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>
@@ -2848,6 +3145,128 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               </motion.div>
             )}
           </AnimatePresence>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showBulkEditModal} onOpenChange={setShowBulkEditModal}>
+        <DialogContent className="max-w-md bg-white p-8 rounded-3xl border border-slate-100 shadow-2xl">
+          <DialogHeader className="text-left space-y-2">
+            <div className="h-12 w-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mb-2">
+              <Edit2 className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-xl font-black text-slate-900 uppercase tracking-tight">Editar em Lote</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              Aplicando alterações simultâneas para <span className="font-extrabold text-slate-900">{selectedUsers.length} usuários</span> selecionados.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            {bulkEditActionType === 'role' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest leading-none">Alterar Função para</label>
+                <select
+                  value={bulkEditRole}
+                  onChange={(e) => setBulkEditRole(e.target.value as UserRole)}
+                  className="w-full text-sm font-semibold rounded-xl border border-slate-200 bg-white p-3 focus:border-blue-500 outline-none hover:bg-slate-50 transition-all cursor-pointer"
+                >
+                  <option value="">Selecione a Função...</option>
+                  <option value="student">Cliente</option>
+                  <option value="vendor">Vendedor</option>
+                  <option value="recharge">Recarga</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            )}
+
+            {bulkEditActionType === 'recharge' && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Valor da Recarga (R$)</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">R$</span>
+                    <Input 
+                      type="number"
+                      value={bulkEditRecharge}
+                      onChange={(e) => setBulkEditRecharge(e.target.value)}
+                      placeholder="0.00"
+                      className="pl-10 h-14 text-lg font-black rounded-xl border-slate-200 focus-visible:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Forma de Pagamento</label>
+                  <select
+                    value={bulkEditPaymentMethod}
+                    onChange={(e) => setBulkEditPaymentMethod(e.target.value)}
+                    className="w-full text-sm font-semibold rounded-xl border border-slate-200 bg-white p-3 focus:border-blue-500 outline-none hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    <option value="Dinheiro">Dinheiro</option>
+                    <option value="Pix">PIX</option>
+                    <option value="Débito">Débito</option>
+                    <option value="Crédito">Crédito</option>
+                    <option value="Conta">Conta</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {bulkEditActionType === 'stalls' && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Vincular às Barracas Selecionadas</label>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {stalls.map(stall => {
+                    const isLinked = bulkEditStalls.includes(stall.id);
+                    return (
+                      <button
+                        key={stall.id}
+                        type="button"
+                        onClick={() => {
+                          setBulkEditStalls(prev => 
+                            isLinked ? prev.filter(id => id !== stall.id) : [...prev, stall.id]
+                          );
+                        }}
+                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                          isLinked 
+                            ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20' 
+                            : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                        }`}
+                      >
+                        {stall.name}
+                      </button>
+                    );
+                  })}
+                  {stalls.length === 0 && (
+                    <p className="text-xs text-slate-400 italic">Nenhuma barraca cadastrada ainda.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-1.5 text-xs text-slate-500 leading-relaxed font-semibold">
+              <p className="font-extrabold text-slate-800 uppercase tracking-wider text-[10px]">Aviso de Operação:</p>
+              <p>Esta operação modificará as propriedades de múltiplos registros em massa no banco de dados e não pode ser revertida de forma simples.</p>
+            </div>
+          </div>
+
+          <DialogFooter className="flex flex-col gap-2 pt-2 sm:flex-col">
+            <Button
+              onClick={() => handleBulkEditAction()}
+              className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-extrabold uppercase tracking-widest text-xs rounded-xl"
+            >
+              Aplicar Alterações em Lote
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowBulkEditModal(false);
+                setBulkEditActionType(null);
+              }}
+              className="w-full h-11 text-xs font-bold text-slate-500 hover:text-slate-900 rounded-xl"
+            >
+              Cancelar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

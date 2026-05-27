@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff, Sparkles, Ticket } from 'lucide-react';
+import { authService } from '@/services/authService';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff, Sparkles, Ticket, ShieldAlert, Trash2, Lock } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -24,6 +25,10 @@ enum ParentTab {
 }
 
 export default function ParentDashboard({ profile }: { profile: UserProfile }) {
+  const [showPrivacyDialog, setShowPrivacyDialog] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingLoading, setDeletingLoading] = useState(false);
+
   const [rechargeAmount, setRechargeAmount] = useState<string>('50');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [lastVisible, setLastVisible] = useState<any>(null);
@@ -701,6 +706,162 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* SECURE PRIVACY AND DATA RIGHTS PANEL (LGPD) */}
+        <div className="pt-6 border-t border-white/5 animate-in fade-in duration-500">
+          <Card className="bg-slate-900/40 border border-white/5 rounded-3xl overflow-hidden backdrop-blur-md">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-3.5">
+                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-2xl shrink-0">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <h4 className="text-white font-black text-xs uppercase tracking-widest flex items-center gap-1.5">
+                    Privacidade e LGPD
+                  </h4>
+                  <p className="text-slate-400 text-[10px] leading-relaxed font-semibold">
+                    Em conformidade com a LGPD, garantimos total controle sobre os seus dados. Nós coletamos apenas dados necessários para garantir a segurança, acesso e recuperação de sua conta.
+                  </p>
+                  <div className="pt-2 flex flex-wrap gap-x-4 gap-y-1 text-[9px] uppercase font-black tracking-widest">
+                    <button 
+                      onClick={() => setShowPrivacyDialog(true)}
+                      className="text-blue-400 hover:text-blue-300 transition-colors cursor-pointer select-none text-left"
+                    >
+                      🛡️ Meus Dados & Termos
+                    </button>
+                    <span className="text-slate-800 hidden xs:inline">|</span>
+                    <button 
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="text-red-400 hover:text-red-300 transition-colors cursor-pointer select-none text-left"
+                    >
+                      ⚠️ Excluir Conta & Anonimizar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Dialog 1: Privacy and Data details - LGPD Transparency */}
+        <Dialog open={showPrivacyDialog} onOpenChange={setShowPrivacyDialog}>
+          <DialogContent className="sm:max-w-md bg-slate-900 border-white/10 rounded-[32px] p-6 text-white overflow-hidden">
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-500/10 text-blue-400 rounded-2xl">
+                  <ShieldCheck className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black uppercase tracking-tight">Privacidade por Design</h3>
+                  <p className="text-xs text-blue-400 font-bold uppercase tracking-widest">Festa Pass & LGPD</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 text-xs text-slate-300 leading-relaxed font-medium">
+                <div className="p-3 bg-white/5 border border-white/5 rounded-2xl space-y-1.5">
+                  <h5 className="font-extrabold text-[10px] uppercase tracking-wider text-blue-400">📊 Transparência Ativa:</h5>
+                  <p>Coletamos seu <strong>E-mail</strong> e seu <strong>Nome Completo</strong> estritamente com base na base legal de execução de contrato e legítimo interesse para fins de:</p>
+                  <ul className="list-disc pl-4 space-y-1 mt-1 text-[11px]">
+                    <li>Autenticação de identidade de forma segura</li>
+                    <li>Recuperação de login e redefinição de senhas</li>
+                    <li>Prevenção a fraudes financeiras e controle de saldos</li>
+                  </ul>
+                </div>
+
+                <div className="p-3 bg-white/5 border border-white/5 rounded-2xl space-y-1">
+                  <h5 className="font-extrabold text-[10px] uppercase tracking-wider text-blue-400">🛡️ Seus Direitos (Art. 18 LGPD):</h5>
+                  <p>Você possui direito irrestrito de confirmar o tratamento, acessar seus dados, solicitar correção e pedir a exclusão permanente de sua conta a qualquer momento.</p>
+                </div>
+
+                <div className="p-3 bg-white/5 border border-white/5 rounded-2xl space-y-1 bg-blue-500/5 border-blue-500/20">
+                  <h5 className="font-extrabold text-[10px] uppercase tracking-wider text-blue-400">⏳ Seu Registro de Consentimento:</h5>
+                  <p className="text-[11px]">Seu consentimento foi devidamente assinado e registrado eletronicamente.</p>
+                  <p className="text-[10px] font-mono mt-1 text-slate-400">Identificador: {profile.uid}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end pt-3">
+                <Button 
+                  onClick={() => setShowPrivacyDialog(false)}
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl px-6 h-12"
+                >
+                  Entendi e Aceito
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog 2: LGPD Account Eraser Confirmation (Secure Self-Deletion and Anonymization) */}
+        <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <DialogContent className="sm:max-w-md bg-slate-900 border border-red-500/30 rounded-[32px] p-6 text-white overflow-hidden">
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-red-500/10 text-red-400 rounded-2xl animate-pulse">
+                  <ShieldAlert className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black uppercase tracking-tight text-red-400">Solicitar Exclusão</h3>
+                  <p className="text-xs text-red-400 font-bold uppercase tracking-widest">Ação Irreversível</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 text-xs text-slate-300 leading-relaxed font-semibold">
+                <p>
+                  Ao confirmar sua solicitação em conformidade com as diretrizes de privacidade, realizaremos as seguintes ações em nossos registros:
+                </p>
+                
+                <div className="p-3.5 bg-red-500/5 border border-red-500/20 rounded-2xl space-y-2 text-[11px] text-red-200">
+                  <p className="flex items-start gap-1.5 leading-snug">
+                    <span className="text-red-400">🔴</span>
+                    Seu login no Firebase Authentication e seu documento de usuário na coleção <code className="font-mono bg-black/30 px-1 py-0.5 rounded text-[10px] text-white">/users</code> serão apagados definitivamente.
+                  </p>
+                  <p className="flex items-start gap-1.5 leading-snug">
+                    <span className="text-emerald-400">🟢</span>
+                    Para manter a integridade fiscal, contabilidade de vendas das barracas e auditoria, registros em <code className="font-mono bg-black/30 px-1 py-0.5 rounded text-[10px] text-white">/transactions</code> e <code className="font-mono bg-black/30 px-1 py-0.5 rounded text-[10px] text-white">/consumption</code> serão <strong>preservados mas integralmente anonimizados</strong> (substituindo seu identificador pessoal por "Usuário Removido").
+                  </p>
+                </div>
+
+                <p className="text-slate-400 text-[10px] leading-relaxed">
+                  💡 Caso o Firebase solicite login recente, o sistema guiará você com instruções.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 justify-end pt-3">
+                <Button 
+                  variant="ghost"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-white/5 border border-white/10 text-white h-12"
+                  disabled={deletingLoading}
+                >
+                  Cancelar
+                </Button>
+                <Button 
+                  onClick={async () => {
+                    setDeletingLoading(true);
+                    try {
+                      await authService.deleteAccountAndAnonymize(profile.uid);
+                      toast.success('Sua conta foi excluída com sucesso e os registros foram devidamente anonimizados.', { duration: 8000 });
+                      setShowDeleteConfirm(false);
+                      setTimeout(() => {
+                        window.location.reload();
+                      }, 2000);
+                    } catch (err: any) {
+                      toast.error('Erro na exclusão', { description: err.message, duration: 8000 });
+                    } finally {
+                      setDeletingLoading(false);
+                    }
+                  }}
+                  className="bg-red-600 hover:bg-red-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl px-6 h-12"
+                  disabled={deletingLoading}
+                >
+                  {deletingLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                  {deletingLoading ? 'Excluindo...' : 'Confirmar e Excluir'}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Fluent Bottom Navigation Capsule */}

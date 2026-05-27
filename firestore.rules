@@ -119,7 +119,7 @@ service cloud.firestore {
         (isVendor() && incoming().diff(existing()).affectedKeys().hasOnly(['balance'])) ||
         (isRecharge() && incoming().diff(existing()).affectedKeys().hasOnly(['balance']));
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
     }
 
     // TRANSACTIONS

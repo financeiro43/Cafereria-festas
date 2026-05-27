@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Sparkles, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDashboard, User as UserIcon, LogOut, Store, Loader2, ArrowRight, Smartphone, ShoppingCart, Ticket } from 'lucide-react';
+import { authService } from './services/authService';
+import { Sparkles, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDashboard, User as UserIcon, LogOut, Store, Loader2, ArrowRight, Smartphone, ShoppingCart, Ticket, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
@@ -72,6 +73,8 @@ function MainApp() {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [registerName, setRegisterName] = useState('');
+  const [lgpdConsent, setLgpdConsent] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const navigate = useNavigate();
@@ -209,18 +212,58 @@ function MainApp() {
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) return;
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPassword = password.trim();
+    if (!cleanEmail || !cleanPassword) return;
+    
+    if (isRegistering && !registerName.trim()) {
+      toast.error('Erro no cadastro', { description: 'O nome completo é obrigatório.' });
+      return;
+    }
+
+    if (isRegistering && !lgpdConsent) {
+      toast.error('Aceite de LGPD obrigatório', { description: 'Você deve aceitar os Termos de Uso e Política de Privacidade para continuar.' });
+      return;
+    }
+
     setAuthLoading(true);
     try {
       if (isRegistering) {
-        await createUserWithEmailAndPassword(auth, email, password);
+        await authService.registerUser(registerName, cleanEmail, cleanPassword, lgpdConsent);
+        toast.success('Cadastro concluído com sucesso!', {
+          description: 'Enviamos um e-mail de verificação. Acesse sua caixa de entrada.',
+          duration: 6000
+        });
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        await authService.loginUser(cleanEmail, cleanPassword);
+        toast.success('Login efetuado!');
       }
       setIsLoginOpen(false);
     } catch (error: any) {
+      const msg = error.message || '';
+      let friendlyMessage = msg;
+      
+      if (msg.includes('auth/email-already-in-use')) {
+        friendlyMessage = 'Este e-mail já está cadastrado. Se você se cadastrou pelo Google ou está pré-cadastrado, use "Esqueci a senha" para criar sua senha.';
+        setIsRegistering(false);
+      } else if (msg.includes('auth/account-exists-with-different-credential')) {
+        friendlyMessage = 'Esta conta já foi criada usando o Google. Use "Esqueci a senha" para criar uma senha pessoal ou continue com o Google.';
+      } else if (msg.includes('auth/operation-not-allowed')) {
+        friendlyMessage = 'O login com E-mail/Senha está desativado no Console do Firebase. Ative-o em Firebase Auth > Sign-in Method.';
+      } else if (msg.includes('auth/invalid-credential') || msg.includes('auth/wrong-password') || msg.includes('auth/user-not-found')) {
+        friendlyMessage = 'E-mail ou senha incorretos. Se você usou o Google originalmente ou está pré-cadastrado diretamente no sistema, defina a senha em "Esqueci a senha".';
+      } else if (msg.includes('auth/weak-password')) {
+        friendlyMessage = 'A senha digitada é muito fraca. Deve ter pelo menos 6 caracteres.';
+      } else if (msg.includes('auth/invalid-email')) {
+        friendlyMessage = 'O formato do e-mail digitado é inválido.';
+      } else if (msg.includes('auth/user-disabled')) {
+        friendlyMessage = 'Esta conta foi temporariamente desativada.';
+      } else if (msg.includes('auth/too-many-requests')) {
+        friendlyMessage = 'Muitas tentativas malsucedidas. Tente novamente mais tarde.';
+      }
+
       toast.error(isRegistering ? 'Erro no cadastro' : 'Erro no login', { 
-        description: error.message === 'Firebase: Error (auth/invalid-credential).' ? 'E-mail ou senha incorretos' : error.message 
+        description: friendlyMessage 
       });
     } finally {
       setAuthLoading(false);
@@ -336,6 +379,19 @@ function MainApp() {
               </Button>
               <div className="relative"><div className="absolute inset-0 flex items-center"><span className="w-full border-t border-slate-200" /></div><div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-slate-500">Ou e-mail</span></div></div>
               <form onSubmit={handleEmailAuth} className="space-y-4">
+                {isRegistering && (
+                  <div className="space-y-2">
+                    <Label htmlFor="reg-name">Nome Completo</Label>
+                    <Input 
+                      id="reg-name"
+                      type="text" 
+                      value={registerName} 
+                      onChange={(e) => setRegisterName(e.target.value)} 
+                      placeholder="Ex: João da Silva" 
+                      required 
+                    />
+                  </div>
+                )}
                 <div className="space-y-2"><Label>E-mail</Label><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -352,10 +408,43 @@ function MainApp() {
                   </div>
                   <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
                 </div>
+
+                {isRegistering && (
+                  <div className="flex items-start gap-2.5 p-3.5 bg-slate-50 border border-slate-100 rounded-xl">
+                    <input 
+                      id="lgpd-consent-checkbox"
+                      type="checkbox" 
+                      checked={lgpdConsent} 
+                      onChange={(e) => setLgpdConsent(e.target.checked)}
+                      className="mt-1 h-4 w-4 bg-white text-blue-600 rounded border-slate-200 cursor-pointer focus:ring-blue-500"
+                      required
+                    />
+                    <label htmlFor="lgpd-consent-checkbox" className="text-[10px] text-slate-500 font-semibold leading-relaxed cursor-pointer select-none">
+                      Declaro consentimento explícito e de livre e esclarecida vontade, aceitando os{' '}
+                      <span className="text-blue-600 hover:underline font-bold cursor-pointer">Termos de Uso</span> e{' '}
+                      <span className="text-blue-600 hover:underline font-bold cursor-pointer">Política de Privacidade</span>.{' '}
+                      Estou ciente de que meus dados de e-mail e nome são coletados apenas para segurança, login seguro e recuperação de conta.
+                    </label>
+                  </div>
+                )}
+
                 <Button type="submit" className="w-full bg-slate-900" disabled={authLoading}>{authLoading ? 'Processando...' : (isRegistering ? 'Cadastrar' : 'Entrar')}</Button>
               </form>
 
-              <button onClick={() => setIsRegistering(!isRegistering)} className="w-full text-center text-sm text-blue-600 font-semibold">{isRegistering ? 'Já tem conta? Entre' : 'Não tem conta? Cadastre-se'}</button>
+              <button onClick={() => {
+                setIsRegistering(!isRegistering);
+                setRegisterName('');
+                setLgpdConsent(false);
+              }} className="w-full text-center text-sm text-blue-600 font-semibold">{isRegistering ? 'Já tem conta? Entre' : 'Não tem conta? Cadastre-se'}</button>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[10px] text-slate-500 font-medium leading-relaxed">
+                <p className="font-bold text-slate-700 uppercase tracking-widest text-[9px] mb-1">💡 Dica de Acesso:</p>
+                {isRegistering ? (
+                  <p>Caso o sistema informe que seu e-mail já está cadastrado (como pelo Google ou pré-cadastro), mude para <strong>Acessar Conta</strong> e use <strong>Esqueci a senha</strong> para definir uma senha pessoal para este e-mail.</p>
+                ) : (
+                  <p>Se você se cadastrou originalmente via Google ou se seu e-mail foi pré-cadastrado na administração e quer usar uma senha pessoal, clique em <strong>Esqueci a senha</strong> para configurá-la.</p>
+                )}
+              </div>
             </div>
           </DialogContent>
         </Dialog>
