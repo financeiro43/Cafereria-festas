@@ -11,7 +11,12 @@
         "photoURL": { "type": "string" },
         "balance": { "type": "number", "description": "Current available credit" },
         "role": { "type": "string", "enum": ["student", "vendor", "admin"] },
-        "qrCode": { "type": "string", "description": "Unique ID for QR identification" }
+        "qrCode": { "type": "string", "description": "Unique ID for QR identification" },
+        "associatedUids": { "type": "array", "items": { "type": "string" }, "description": "UIDs of other users linked to this account" },
+        "dailyLimit": { "type": "number", "description": "Maximum spending permitted per day (0 or null for unlimited)" },
+        "transactionLimit": { "type": "number", "description": "Maximum spending permitted per individual transaction (0 or null for unlimited)" },
+        "spentToday": { "type": "number", "description": "Amount spent today" },
+        "lastSpentDate": { "type": "string", "description": "The date string representing the last expense" }
       },
       "required": ["uid", "name", "email", "balance", "role", "qrCode"]
     },

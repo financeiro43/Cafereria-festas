@@ -115,9 +115,16 @@ service cloud.firestore {
       
       allow update: if isAdmin() ||
         (incoming()._backendSecret == 'FESTA_PASS_SRV_2026_SECRET') ||
-        (isUser(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL', 'fcmToken'])) ||
-        (isVendor() && incoming().diff(existing()).affectedKeys().hasOnly(['balance'])) ||
-        (isRecharge() && incoming().diff(existing()).affectedKeys().hasOnly(['balance']));
+        (isUser(userId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'photoURL', 'fcmToken', 'associatedUids'])) ||
+        (isVendor() && incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'spentToday', 'lastSpentDate'])) ||
+        (isRecharge() && incoming().diff(existing()).affectedKeys().hasOnly(['balance'])) ||
+        (
+          isSignedIn() && 
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          ('associatedUids' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) &&
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.associatedUids.hasAny([userId])) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['dailyLimit', 'transactionLimit', 'spentToday', 'lastSpentDate', 'balance'])
+        );
 
       allow delete: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
     }

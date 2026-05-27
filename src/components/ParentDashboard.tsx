@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { authService } from '@/services/authService';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff, Sparkles, Ticket, ShieldAlert, Trash2, Lock } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff, Sparkles, Ticket, ShieldAlert, Trash2, Lock, Sliders, SlidersHorizontal } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -474,6 +474,115 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                   <QrCode size={200} />
                 </div>
               </div>
+
+              {/* Configure Limits UI if managing an associated profile */}
+              {displayedUid !== profile.uid && (
+                <div className="bg-slate-900/50 border border-white/5 rounded-[40px] p-8 space-y-6 relative overflow-hidden group mt-6">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 bg-blue-600/10 rounded-xl flex items-center justify-center">
+                        <SlidersHorizontal className="h-5 w-5 text-blue-500" />
+                      </div>
+                      <div className="text-left">
+                        <h4 className="text-sm font-black uppercase tracking-wider text-slate-200">Limites do Cartão</h4>
+                        <p className="text-[10px] text-slate-500 font-bold">Controle de saldo e consumo parental</p>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-blue-500 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/15">
+                      Ativo
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Daily spending limit */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-[11px] font-black uppercase tracking-wider text-slate-400">
+                        <span>Limite de Gasto Diário</span>
+                        <span className="text-emerald-400 font-black">
+                          {displayedProfile.dailyLimit && displayedProfile.dailyLimit > 0 
+                            ? `R$ ${displayedProfile.dailyLimit.toFixed(2)}` 
+                            : 'Sem Limite'}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-black text-xs">R$</span>
+                        <Input 
+                          type="number" 
+                          placeholder="Ex: 50.00"
+                          defaultValue={displayedProfile.dailyLimit || ''}
+                          key={`daily-${displayedProfile.uid}-${displayedProfile.dailyLimit || 0}`}
+                          onBlur={async (e) => {
+                            const val = parseFloat(e.target.value);
+                            const limitVal = isNaN(val) || val <= 0 ? 0 : val;
+                            try {
+                              await updateDoc(doc(db, 'users', displayedProfile.uid), {
+                                dailyLimit: limitVal
+                              });
+                              toast.success('Limite diário atualizado!');
+                            } catch (err) {
+                              console.error(err);
+                              toast.error('Erro ao atualizar limite');
+                            }
+                          }}
+                          className="pl-14 pr-4 h-14 text-sm font-bold bg-slate-950 border-white/5 rounded-2xl focus:ring-blue-600 focus:border-blue-600 text-white"
+                        />
+                      </div>
+                      <p className="text-[9px] text-slate-500 font-medium leading-normal">
+                        O limite de consumo acumulado que o dependente pode gastar no período de 24 horas.
+                      </p>
+                    </div>
+
+                    {/* Single-transaction limit */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center text-[11px] font-black uppercase tracking-wider text-slate-400">
+                        <span>Limite por Compra (PDV)</span>
+                        <span className="text-emerald-400 font-black">
+                          {displayedProfile.transactionLimit && displayedProfile.transactionLimit > 0 
+                            ? `R$ ${displayedProfile.transactionLimit.toFixed(2)}` 
+                            : 'Sem Limite'}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-black text-xs">R$</span>
+                        <Input 
+                          type="number" 
+                          placeholder="Ex: 20.00"
+                          defaultValue={displayedProfile.transactionLimit || ''}
+                          key={`tx-${displayedProfile.uid}-${displayedProfile.transactionLimit || 0}`}
+                          onBlur={async (e) => {
+                            const val = parseFloat(e.target.value);
+                            const limitVal = isNaN(val) || val <= 0 ? 0 : val;
+                            try {
+                              await updateDoc(doc(db, 'users', displayedProfile.uid), {
+                                transactionLimit: limitVal
+                              });
+                              toast.success('Limite por compra atualizado!');
+                            } catch (err) {
+                              console.error(err);
+                              toast.error('Erro ao atualizar limite');
+                            }
+                          }}
+                          className="pl-14 pr-4 h-14 text-sm font-bold bg-slate-950 border-white/5 rounded-2xl focus:ring-blue-600 focus:border-blue-600 text-white"
+                        />
+                      </div>
+                      <p className="text-[9px] text-slate-500 font-medium leading-normal">
+                        O valor máximo autorizado por transação individual direto no caixa do evento.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Consumed status */}
+                  <div className="pt-4 border-t border-white/5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2">
+                      <div className="h-1.5 w-1.5 bg-blue-500 rounded-full animate-pulse" />
+                      <span className="text-slate-400 font-medium">Consumo acumulado hoje:</span>
+                    </div>
+                    <span className="font-mono text-slate-200 font-black bg-slate-950 px-3 py-1.5 rounded-xl border border-white/5 self-start sm:self-auto">
+                      R$ {((displayedProfile.lastSpentDate === new Date().toISOString().split('T')[0]) ? displayedProfile.spentToday : 0) || 0}
+                    </span>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
 

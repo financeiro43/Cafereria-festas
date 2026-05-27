@@ -373,6 +373,8 @@ export default function VendorDashboard({
     try {
       
       if (scannedUser.balance < cartTotal) {
+        clearTimeout(failsafe);
+        setProcessing(false);
         setStatusModal({
           show: true,
           type: 'error',
@@ -382,9 +384,42 @@ export default function VendorDashboard({
         return;
       }
 
-      // Executar todas os registros no banco em paralelo para velocidade máxima (3x mais rápido!)
+      // Validar limite por compra individual (Single transaction limit)
+      if (scannedUser.transactionLimit && scannedUser.transactionLimit > 0 && cartTotal > scannedUser.transactionLimit) {
+        clearTimeout(failsafe);
+        setProcessing(false);
+        setStatusModal({
+          show: true,
+          type: 'error',
+          title: 'Limite por Compra Excedido',
+          message: `Este cartão possui um limite máximo de R$ ${scannedUser.transactionLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} por compra.\n\nCliente: ${scannedUser.name}\nValor da Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+        });
+        return;
+      }
+
+      // Validar limite diário acumulado (Daily spending limit limit)
+      const todayStr = new Date().toISOString().split('T')[0];
+      const currentSpentToday = (scannedUser.lastSpentDate === todayStr) ? (scannedUser.spentToday || 0) : 0;
+      
+      if (scannedUser.dailyLimit && scannedUser.dailyLimit > 0 && (currentSpentToday + cartTotal) > scannedUser.dailyLimit) {
+        clearTimeout(failsafe);
+        setProcessing(false);
+        const remainingLimit = Math.max(0, scannedUser.dailyLimit - currentSpentToday);
+        setStatusModal({
+          show: true,
+          type: 'error',
+          title: 'Limite Diário Excedido',
+          message: `Este cartão possui um limite diário de R$ ${scannedUser.dailyLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.\n\nCliente: ${scannedUser.name}\nJá gasto hoje: R$ ${currentSpentToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nDisponível restante: R$ ${remainingLimit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nTentativa de compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+        });
+        return;
+      }
+
+      // Executar todos os registros no banco em paralelo para velocidade máxima (3x mais rápido!)
+      const nextSpentToday = currentSpentToday + cartTotal;
       const updateBalancePromise = updateDoc(doc(db, 'users', scannedUser.uid), {
-        balance: increment(-cartTotal)
+        balance: increment(-cartTotal),
+        spentToday: nextSpentToday,
+        lastSpentDate: todayStr
       }).catch(e => {
         handleFirestoreError(e, OperationType.UPDATE, `users/${scannedUser!.uid}`);
         throw e;

@@ -11,6 +11,10 @@ export interface UserProfile {
   vendorIds?: string[]; // Multiple stall links
   linkedCards?: string[]; // Array of card IDs (usually the qrCode strings) - DEPRECATED for internal links, used for physical cards
   associatedUids?: string[]; // UIDs of other users linked to this account
+  dailyLimit?: number; // Spending limit per day
+  transactionLimit?: number; // Spending limit per transaction
+  spentToday?: number; // Amount spent today so far
+  lastSpentDate?: string; // Date of the last transaction (YYYY-MM-DD format)
   isPhysicalCard?: boolean;
   timestamp?: any;
   consentedToTermsAt?: any;
