@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, addDoc, doc, updateDoc, increment, serverTimestamp, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, addDoc, doc, updateDoc, increment, serverTimestamp, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,7 +53,19 @@ export default function VendorDashboard({
   const scannedUser = useMemo(() => {
     if (!baseScannedUser) return null;
     const live = localUsers.find(u => u.uid === baseScannedUser.uid);
-    return live ? live : baseScannedUser;
+    const resolvedUser = live ? live : baseScannedUser;
+
+    // If the scanned user is a dependent with a shared balance, we dynamically resolve their balance to the parent's actual balance!
+    if ((!resolvedUser.balanceType || resolvedUser.balanceType === 'shared') && resolvedUser.parentUid) {
+      const parent = localUsers.find(u => u.uid === resolvedUser.parentUid);
+      if (parent) {
+        return {
+          ...resolvedUser,
+          balance: parent.balance || 0
+        };
+      }
+    }
+    return resolvedUser;
   }, [baseScannedUser, localUsers]);
   const setScannedUser = setExternalScannedUser !== undefined ? setExternalScannedUser : setInternalScannedUser;
 
@@ -308,15 +320,30 @@ export default function VendorDashboard({
       );
 
       if (foundLocal) {
-         setScannedUser(foundLocal);
-         setIsScanning(false);
-         setStatusModal({
-           show: true,
-           type: 'success',
-           title: 'Cliente Identificado',
-           message: `Cliente: ${foundLocal.name}\nSaldo: R$ ${foundLocal.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-         });
-         return;
+         let resolvedUser = { ...foundLocal };
+         if ((!resolvedUser.balanceType || resolvedUser.balanceType === 'shared') && resolvedUser.parentUid) {
+           const parentLoc = localUsers.find(u => u.uid === resolvedUser.parentUid);
+           if (parentLoc) {
+             resolvedUser.balance = parentLoc.balance || 0;
+           } else {
+             try {
+               const parentDoc = await getDoc(doc(db, 'users', resolvedUser.parentUid));
+               if (parentDoc.exists()) {
+                 resolvedUser.balance = (parentDoc.data() as UserProfile).balance || 0;
+               }
+             } catch(e) {}
+           }
+         }
+
+          setScannedUser(resolvedUser);
+          setIsScanning(false);
+          setStatusModal({
+            show: true,
+            type: 'success',
+            title: 'Cliente Identificado',
+            message: `Cliente: ${resolvedUser.name}\nSaldo: R$ ${resolvedUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+          });
+          return;
       }
 
       // 2. Fallback Parallel Network Query (only if uncached/new)
@@ -345,8 +372,22 @@ export default function VendorDashboard({
       }
 
       const userDoc = querySnapshot.docs[0];
-      const userData = userDoc.data() as UserProfile;
-      setScannedUser({ ...userData, uid: userDoc.id });
+      let userData = { ...userDoc.data(), uid: userDoc.id } as UserProfile;
+
+      // Se o usuário possuir saldo compartilhado com um parente/responsável (parentUid)
+      if ((!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid) {
+        try {
+          const parentDoc = await getDoc(doc(db, 'users', userData.parentUid));
+          if (parentDoc.exists()) {
+            const parentData = parentDoc.data() as UserProfile;
+            userData.balance = parentData.balance || 0;
+          }
+        } catch (parentErr) {
+          console.error("Erro ao buscar saldo compartilhado do responsável:", parentErr);
+        }
+      }
+
+      setScannedUser(userData);
       
       setStatusModal({
         show: true,
@@ -415,15 +456,33 @@ export default function VendorDashboard({
       }
 
       // Executar todos os registros no banco em paralelo para velocidade máxima (3x mais rápido!)
+      const isShared = (!scannedUser.balanceType || scannedUser.balanceType === 'shared') && !!scannedUser.parentUid;
       const nextSpentToday = currentSpentToday + cartTotal;
-      const updateBalancePromise = updateDoc(doc(db, 'users', scannedUser.uid), {
-        balance: increment(-cartTotal),
-        spentToday: nextSpentToday,
-        lastSpentDate: todayStr
-      }).catch(e => {
-        handleFirestoreError(e, OperationType.UPDATE, `users/${scannedUser!.uid}`);
-        throw e;
-      });
+      
+      let updateBalancePromise;
+      if (isShared) {
+        updateBalancePromise = Promise.all([
+          updateDoc(doc(db, 'users', scannedUser.parentUid!), {
+            balance: increment(-cartTotal)
+          }),
+          updateDoc(doc(db, 'users', scannedUser.uid), {
+            spentToday: nextSpentToday,
+            lastSpentDate: todayStr
+          })
+        ]).catch(e => {
+          handleFirestoreError(e, OperationType.UPDATE, `users/${scannedUser!.uid}`);
+          throw e;
+        });
+      } else {
+        updateBalancePromise = updateDoc(doc(db, 'users', scannedUser.uid), {
+          balance: increment(-cartTotal),
+          spentToday: nextSpentToday,
+          lastSpentDate: todayStr
+        }).catch(e => {
+          handleFirestoreError(e, OperationType.UPDATE, `users/${scannedUser!.uid}`);
+          throw e;
+        });
+      }
 
       const writeTransactionPromise = addDoc(collection(db, 'transactions'), {
         userId: scannedUser.uid,

@@ -123,7 +123,7 @@ service cloud.firestore {
           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
           ('associatedUids' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) &&
           (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.associatedUids.hasAny([userId])) &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['dailyLimit', 'transactionLimit', 'spentToday', 'lastSpentDate', 'balance'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['dailyLimit', 'transactionLimit', 'spentToday', 'lastSpentDate', 'balance', 'balanceType', 'parentUid'])
         );
 
       allow delete: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);

@@ -15,6 +15,8 @@ export interface UserProfile {
   transactionLimit?: number; // Spending limit per transaction
   spentToday?: number; // Amount spent today so far
   lastSpentDate?: string; // Date of the last transaction (YYYY-MM-DD format)
+  balanceType?: 'shared' | 'custom'; // Whether balance is shared with parent or custom
+  parentUid?: string; // UID of parent account if this is a dependent
   isPhysicalCard?: boolean;
   timestamp?: any;
   consentedToTermsAt?: any;

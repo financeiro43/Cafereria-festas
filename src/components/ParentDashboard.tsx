@@ -64,6 +64,16 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
   const displayedProfile = [profile, ...associatedProfiles].find(p => p.uid === displayedUid) || profile;
 
+  const getProfileBalance = (p: UserProfile) => {
+    if (p.uid === profile.uid) {
+      return profile.balance || 0;
+    }
+    if (!p.balanceType || p.balanceType === 'shared') {
+      return profile.balance || 0;
+    }
+    return p.balance || 0;
+  };
+
   // Formata uma string para formato de cartão (XXXX XXXX XXXX XXXX)
   const formatCardNumber = (str: string) => {
     // Usa o UID ou QRCode string para gerar um padrão numérico fixo baseado no hash
@@ -156,6 +166,16 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           await updateDoc(userRef, {
             associatedUids: Array.from(new Set([...(profile.associatedUids || []), userData.uid]))
           });
+
+          // Link parentUid and default balanceType in child's profile
+          try {
+            await updateDoc(doc(db, 'users', userData.uid), {
+              parentUid: profile.uid,
+              balanceType: 'shared'
+            });
+          } catch (childErr) {
+            console.error("Erro ao gravar parentUid no perfil do dependente:", childErr);
+          }
 
           setShowSuccessAnimation(true);
           toast.success(`Conta de ${userData.name} vinculada com sucesso!`, {
@@ -394,7 +414,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                       <div className="space-y-1">
                         <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-100/60">Saldo Arena {displayedUid === profile.uid ? 'Unificado' : 'Associado'}</span>
                         <div className="text-5xl font-black tracking-tighter text-white">
-                          R$ {displayedProfile.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          R$ {getProfileBalance(displayedProfile).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </div>
                         {displayedUid === profile.uid && profile.associatedUids && profile.associatedUids.length > 0 && (
                           <p className="text-[9px] font-bold text-blue-200/40 uppercase mt-1">Gerenciando {profile.associatedUids.length} {profile.associatedUids.length === 1 ? 'conta associada' : 'contas associadas'}</p>
@@ -479,7 +499,153 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
               {/* Configure Limits UI if managing an associated profile */}
               {displayedUid !== profile.uid && (
-                <div className="bg-slate-900/50 border border-white/5 rounded-[40px] p-8 space-y-6 relative overflow-hidden group mt-6">
+                <>
+                  {/* Configure Balance Sharing/Isolation */}
+                  <div className="bg-slate-900/50 border border-white/5 rounded-[40px] p-8 space-y-6 relative overflow-hidden group mt-6">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 bg-indigo-600/10 rounded-xl flex items-center justify-center">
+                          <SlidersHorizontal className="h-5 w-5 text-indigo-500" />
+                        </div>
+                        <div className="text-left font-sans">
+                          <h4 className="text-sm font-black uppercase tracking-wider text-slate-200">Tipo de Saldo</h4>
+                          <p className="text-[10px] text-slate-500 font-bold">Defina se compartilha ou tem saldo próprio</p>
+                        </div>
+                      </div>
+                      <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${(!displayedProfile.balanceType || displayedProfile.balanceType === 'shared') ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/15' : 'text-amber-400 bg-amber-500/10 border-amber-500/15'}`}>
+                        {(!displayedProfile.balanceType || displayedProfile.balanceType === 'shared') ? 'Compartilhado' : 'Personalizado'}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Opção Saldo Compartilhado */}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, 'users', displayedProfile.uid), {
+                              balanceType: 'shared'
+                            });
+                            toast.success('Modo de saldo atualizado para Compartilhado!');
+                          } catch (err) {
+                            console.error(err);
+                            toast.error('Erro ao atualizar modo de saldo');
+                          }
+                        }}
+                        className={`p-5 rounded-2xl border text-left transition-all ${(!displayedProfile.balanceType || displayedProfile.balanceType === 'shared') ? 'bg-indigo-600/10 border-indigo-500/30 ring-1 ring-indigo-500/20' : 'bg-slate-950/40 border-white/5 hover:border-white/10'}`}
+                      >
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <div className={`h-2.5 w-2.5 rounded-full ${(!displayedProfile.balanceType || displayedProfile.balanceType === 'shared') ? 'bg-indigo-500 animate-pulse' : 'bg-slate-700'}`} />
+                          <span className="text-xs font-black uppercase tracking-wider text-slate-200">Saldo Compartilhado</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-normal font-medium">
+                          Consome diretamente do saldo unificado da sua conta (esposa, etc.). O saldo visualizado e consumido é o mesmo.
+                        </p>
+                      </button>
+
+                      {/* Opção Saldo Personalizado */}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await updateDoc(doc(db, 'users', displayedProfile.uid), {
+                              balanceType: 'custom'
+                            });
+                            toast.success('Modo de saldo alterado para Personalizado! Agora você pode definir o valor deste cartão.');
+                          } catch (err) {
+                            console.error(err);
+                            toast.error('Erro ao atualizar modo de saldo');
+                          }
+                        }}
+                        className={`p-5 rounded-2xl border text-left transition-all ${(displayedProfile.balanceType === 'custom') ? 'bg-amber-600/10 border-amber-500/30 ring-1 ring-amber-500/20' : 'bg-slate-950/40 border-white/5 hover:border-white/10'}`}
+                      >
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <div className={`h-2.5 w-2.5 rounded-full ${(displayedProfile.balanceType === 'custom') ? 'bg-amber-500 animate-pulse' : 'bg-slate-700'}`} />
+                          <span className="text-xs font-black uppercase tracking-wider text-slate-200">Saldo Personalizado</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-normal font-medium">
+                          Limite fechado ou pré-pago dedicado exclusivamente a este cartão (ex: R$ 10 para filhas).
+                        </p>
+                      </button>
+                    </div>
+
+                    {/* Ajuste de saldo se for modo Personalizado */}
+                    {displayedProfile.balanceType === 'custom' && (
+                      <div className="p-5 bg-slate-950/60 rounded-3xl border border-white/5 space-y-4">
+                        <div className="flex justify-between items-center text-[11px] font-black uppercase tracking-wider text-slate-400">
+                          <span>Definir Saldo Dedicado</span>
+                          <span className="text-amber-400 font-mono font-black">
+                            R$ {(displayedProfile.balance || 0).toFixed(2)}
+                          </span>
+                        </div>
+                        
+                        <div className="flex flex-col sm:flex-row items-stretch gap-3">
+                          <div className="relative flex-1">
+                            <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-black text-xs">R$</span>
+                            <Input 
+                              type="number" 
+                              placeholder="Ex: 10.00"
+                              defaultValue={displayedProfile.balance || ''}
+                              key={`balance-${displayedProfile.uid}-${displayedProfile.balance || 0}`}
+                              onBlur={async (e) => {
+                                const val = parseFloat(e.target.value);
+                                const balanceVal = isNaN(val) || val < 0 ? 0 : val;
+                                try {
+                                  await updateDoc(doc(db, 'users', displayedProfile.uid), {
+                                    balance: balanceVal
+                                  });
+                                  toast.success('Saldo do cartão atualizado com sucesso!');
+                                } catch (err) {
+                                  console.error(err);
+                                  toast.error('Erro ao atualizar saldo do cartão');
+                                }
+                              }}
+                              className="pl-14 pr-4 h-14 text-sm font-bold bg-slate-900 border-white/5 rounded-2xl focus:ring-blue-600 focus:border-blue-600 text-white"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await updateDoc(doc(db, 'users', displayedProfile.uid), {
+                                    balance: 10
+                                  });
+                                  toast.success('Saldo definido para R$ 10,00!');
+                                } catch (err) {
+                                  toast.error('Erro ao atualizar saldo');
+                                }
+                              }}
+                              className="h-14 px-4 bg-slate-900 hover:bg-slate-800 border border-white/5 text-slate-300 font-bold text-xs uppercase tracking-wider rounded-2xl"
+                            >
+                              R$ 10
+                            </Button>
+                            <Button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await updateDoc(doc(db, 'users', displayedProfile.uid), {
+                                    balance: 20
+                                  });
+                                  toast.success('Saldo definido para R$ 20,00!');
+                                } catch (err) {
+                                  toast.error('Erro ao atualizar saldo');
+                                }
+                              }}
+                              className="h-14 px-4 bg-slate-900 hover:bg-slate-800 border border-white/5 text-slate-300 font-bold text-xs uppercase tracking-wider rounded-2xl"
+                            >
+                              R$ 20
+                            </Button>
+                          </div>
+                        </div>
+                        <p className="text-[9px] text-slate-500 font-medium leading-normal">
+                          Você pode atribuir um saldo fixo específico para esse cartão (como R$ 10 ou R$ 20 para as filhas). Isso evita que elas consumam o saldo principal da família.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-slate-900/50 border border-white/5 rounded-[40px] p-8 space-y-6 relative overflow-hidden group mt-6">
                   <div className="flex items-center justify-between border-b border-white/5 pb-4">
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 bg-blue-600/10 rounded-xl flex items-center justify-center">
@@ -584,7 +750,8 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                     </span>
                   </div>
                 </div>
-              )}
+              </>
+            )}
             </motion.div>
           )}
 
@@ -714,7 +881,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                               <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter">Associado</span>
                             </div>
                           </div>
-                          <span className="text-xs font-black text-blue-400">R$ {assoc.balance.toFixed(2)}</span>
+                          <span className="text-xs font-black text-blue-400">R$ {getProfileBalance(assoc).toFixed(2)}</span>
                         </button>
                       ))}
                     </div>
