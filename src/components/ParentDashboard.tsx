@@ -49,6 +49,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
   const [editingChildProfile, setEditingChildProfile] = useState<UserProfile | null>(null);
   const [allocatedBalanceInput, setAllocatedBalanceInput] = useState<string>('');
+  const [parentProfile, setParentProfile] = useState<UserProfile | null>(null);
 
   // Monitor connection status
   useEffect(() => {
@@ -63,12 +64,28 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
     };
   }, []);
 
+  // Listen to parent user profile if current profile has a parentUid and is in 'shared' mode
+  useEffect(() => {
+    if (!profile.parentUid) {
+      setParentProfile(null);
+      return;
+    }
+    return onSnapshot(doc(db, 'users', profile.parentUid), (snap) => {
+      if (snap.exists()) {
+        setParentProfile({ ...snap.data(), uid: snap.id } as UserProfile);
+      }
+    });
+  }, [profile.parentUid]);
+
   const [lastSelectedVal, setLastSelectedVal] = useState<string | null>(null);
 
   const displayedProfile = [profile, ...associatedProfiles].find(p => p.uid === displayedUid) || profile;
 
   const getProfileBalance = (p: UserProfile) => {
     if (p.uid === profile.uid) {
+      if ((!profile.balanceType || profile.balanceType === 'shared') && profile.parentUid) {
+        return parentProfile?.balance || 0;
+      }
       return profile.balance || 0;
     }
     if (!p.balanceType || p.balanceType === 'shared') {
@@ -852,7 +869,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                             <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter">Própria</span>
                           </div>
                         </div>
-                        <span className="text-xs font-black text-blue-400">R$ {profile.balance.toFixed(2)}</span>
+                        <span className="text-xs font-black text-blue-400">R$ {getProfileBalance(profile).toFixed(2)}</span>
                       </button>
 
                       {/* Associated Profiles */}
