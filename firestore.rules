@@ -109,7 +109,7 @@ service cloud.firestore {
     // USERS
     match /users/{userId} {
       allow get: if true;
-      allow list: if isAdmin() || isVendor() || isRecharge() || (isSignedIn() && resource.data.email == request.auth.token.email);
+      allow list: if isSignedIn();
       
       allow create: if isUser(userId) || isAdmin();
       

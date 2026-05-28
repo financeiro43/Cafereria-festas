@@ -171,9 +171,11 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       } else {
         toast.success('Este cartão já é o principal da sua conta.');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast.error('Erro ao processar leitura do cartão');
+      toast.error('Erro ao processar leitura do cartão', {
+        description: error?.message || 'Erro inesperado ao acessar o banco de dados.'
+      });
     }
   };
 
