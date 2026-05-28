@@ -47,6 +47,9 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [isOnline, setIsOnline] = useState(true);
   const shareCardRef = useRef<HTMLDivElement>(null);
 
+  const [editingChildProfile, setEditingChildProfile] = useState<UserProfile | null>(null);
+  const [allocatedBalanceInput, setAllocatedBalanceInput] = useState<string>('');
+
   // Monitor connection status
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -419,9 +422,134 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
     }
   };
 
-  const handleUnlinkAccount = async (targetUid: string) => {
-    if (!confirm(`Deseja realmente desvincular o cartão de ${displayedProfile.name}? Ele deixará de fazer parte do seu grupo familiar.`)) return;
+  const handleAllocateBalanceForChild = async (targetUid: string, newAmount: number): Promise<boolean> => {
+    if (isNaN(newAmount) || newAmount < 0) {
+      toast.error('Valor de saldo inválido');
+      return false;
+    }
     
+    try {
+      const childProfile = associatedProfiles.find(p => p.uid === targetUid);
+      if (!childProfile) return false;
+      
+      const isShared = !childProfile.balanceType || childProfile.balanceType === 'shared';
+      const currentChildBalance = isShared ? 0 : (childProfile.balance || 0);
+      
+      if (newAmount === 0) {
+        if (isShared) {
+          // Já era compartilhado, nada a fazer
+          return true;
+        }
+        
+        // Devolve o saldo personalizado restante para a carteira principal do responsável
+        await updateDoc(doc(db, 'users', profile.uid), {
+          balance: increment(currentChildBalance)
+        });
+        
+        await updateDoc(doc(db, 'users', targetUid), {
+          balanceType: 'shared',
+          balance: 0
+        });
+        
+        toast.success(`Modo de saldo alterado para Compartilhado! O saldo de R$ ${currentChildBalance.toFixed(2)} foi unificado à sua Carteira Principal.`);
+        return true;
+      }
+      
+      if (isShared) {
+        // Se era compartilhado, vamos primeiro atualizar para 'custom'
+        const parentBalance = profile.balance || 0;
+        if (parentBalance < newAmount) {
+          toast.error('Saldo insuficiente na Carteira Principal.', {
+            description: `Você tem R$ ${parentBalance.toFixed(2)} livre, mas precisa de R$ ${newAmount.toFixed(2)} para esta alocação.`
+          });
+          return false;
+        }
+        
+        await updateDoc(doc(db, 'users', profile.uid), {
+          balance: increment(-newAmount)
+        });
+        await updateDoc(doc(db, 'users', targetUid), {
+          balanceType: 'custom',
+          balance: newAmount
+        });
+        
+        toast.success(`R$ ${newAmount.toFixed(2)} transferidos para o cartão de ${childProfile.name} (Saldo Personalizado Ativado).`);
+        return true;
+      }
+      
+      // Se já era customizado, calculamos a diferença
+      const diff = newAmount - currentChildBalance;
+      if (diff === 0) return true;
+      
+      if (diff > 0) {
+        const parentBalance = profile.balance || 0;
+        if (parentBalance < diff) {
+          toast.error('Saldo insuficiente na Carteira Principal.', {
+            description: `Você tem R$ ${parentBalance.toFixed(2)} livre, mas precisa de R$ ${diff.toFixed(2)} adicionais para esta transferência.`
+          });
+          return false;
+        }
+        
+        await updateDoc(doc(db, 'users', profile.uid), {
+          balance: increment(-diff)
+        });
+        await updateDoc(doc(db, 'users', targetUid), {
+          balance: increment(diff)
+        });
+        toast.success(`R$ ${diff.toFixed(2)} adicionais transferidos para o cartão de ${childProfile.name}.`);
+      } else {
+        const absDiff = Math.abs(diff);
+        await updateDoc(doc(db, 'users', profile.uid), {
+          balance: increment(absDiff)
+        });
+        await updateDoc(doc(db, 'users', targetUid), {
+          balance: increment(-absDiff)
+        });
+        toast.success(`R$ ${absDiff.toFixed(2)} devolvidos para sua Carteira Principal.`);
+      }
+      return true;
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Erro ao calibrar saldo: ' + (err.message || ''));
+      return false;
+    }
+  };
+
+  const handleUpdateBalanceTypeForChild = async (targetUid: string, type: 'shared' | 'custom') => {
+    try {
+      const childProfile = associatedProfiles.find(p => p.uid === targetUid);
+      if (!childProfile) return;
+      
+      if (type === childProfile.balanceType) return;
+      
+      if (type === 'shared') {
+        const childCustomBalance = childProfile.balance || 0;
+        
+        // Devolve o saldo personalizado restante para a carteira principal do responsável
+        await updateDoc(doc(db, 'users', profile.uid), {
+          balance: increment(childCustomBalance)
+        });
+        
+        await updateDoc(doc(db, 'users', targetUid), {
+          balanceType: 'shared',
+          balance: 0
+        });
+        
+        toast.success(`Modo de saldo de ${childProfile.name} alterado para Compartilhado! O saldo de R$ ${childCustomBalance.toFixed(2)} foi unificado à sua carteira.`);
+      } else {
+        await updateDoc(doc(db, 'users', targetUid), {
+          balanceType: 'custom',
+          balance: 0
+        });
+        toast.success(`Modo de saldo de ${childProfile.name} alterado para Personalizado! Agora você pode definir um saldo fixo dedicado para este cartão.`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Erro ao atualizar modo de saldo: ' + (err.message || ''));
+    }
+  };
+
+  const handleUnlinkAccount = async (targetUid: string) => {
     try {
       const targetProfile = associatedProfiles.find(p => p.uid === targetUid);
       if (!targetProfile) return;
@@ -613,243 +741,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                 </div>
               </div>
 
-              {/* Configure Limits UI if managing an associated profile */}
-              {displayedUid !== profile.uid && (
-                <>
-                  {/* Configure Balance Sharing/Isolation */}
-                  <div className="bg-slate-900/50 border border-white/5 rounded-[40px] p-8 space-y-6 relative overflow-hidden group mt-6">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 bg-indigo-600/10 rounded-xl flex items-center justify-center">
-                          <SlidersHorizontal className="h-5 w-5 text-indigo-500" />
-                        </div>
-                        <div className="text-left font-sans">
-                          <h4 className="text-sm font-black uppercase tracking-wider text-slate-200">Tipo de Saldo</h4>
-                          <p className="text-[10px] text-slate-500 font-bold">Defina se compartilha ou tem saldo próprio</p>
-                        </div>
-                      </div>
-                      <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${(!displayedProfile.balanceType || displayedProfile.balanceType === 'shared') ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/15' : 'text-amber-400 bg-amber-500/10 border-amber-500/15'}`}>
-                        {(!displayedProfile.balanceType || displayedProfile.balanceType === 'shared') ? 'Compartilhado' : 'Personalizado'}
-                      </span>
-                    </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Opção Saldo Compartilhado */}
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateBalanceType('shared')}
-                        className={`p-5 rounded-2xl border text-left transition-all ${(!displayedProfile.balanceType || displayedProfile.balanceType === 'shared') ? 'bg-indigo-600/10 border-indigo-500/30 ring-1 ring-indigo-500/20' : 'bg-slate-950/40 border-white/5 hover:border-white/10'}`}
-                      >
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <div className={`h-2.5 w-2.5 rounded-full ${(!displayedProfile.balanceType || displayedProfile.balanceType === 'shared') ? 'bg-indigo-500 animate-pulse' : 'bg-slate-700'}`} />
-                          <span className="text-xs font-black uppercase tracking-wider text-slate-200">Saldo Compartilhado</span>
-                        </div>
-                        <p className="text-[10px] text-slate-500 leading-normal font-medium">
-                          Consome diretamente do saldo unificado da sua conta (esposa, etc.). O saldo visualizado e consumido é o mesmo.
-                        </p>
-                      </button>
-
-                      {/* Opção Saldo Personalizado */}
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateBalanceType('custom')}
-                        className={`p-5 rounded-2xl border text-left transition-all ${(displayedProfile.balanceType === 'custom') ? 'bg-amber-600/10 border-amber-500/30 ring-1 ring-amber-500/20' : 'bg-slate-950/40 border-white/5 hover:border-white/10'}`}
-                      >
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <div className={`h-2.5 w-2.5 rounded-full ${(displayedProfile.balanceType === 'custom') ? 'bg-amber-500 animate-pulse' : 'bg-slate-700'}`} />
-                          <span className="text-xs font-black uppercase tracking-wider text-slate-200">Saldo Personalizado</span>
-                        </div>
-                        <p className="text-[10px] text-slate-500 leading-normal font-medium">
-                          Limite fechado ou pré-pago dedicado exclusivamente a este cartão (ex: R$ 10 para filhas).
-                        </p>
-                      </button>
-                    </div>
-
-                    {/* Ajuste de saldo se for modo Personalizado */}
-                    {displayedProfile.balanceType === 'custom' && (
-                      <div className="p-5 bg-slate-950/60 rounded-3xl border border-white/5 space-y-4">
-                        <div className="flex justify-between items-center text-[11px] font-black uppercase tracking-wider text-slate-400">
-                          <span>Definir Saldo Dedicado</span>
-                          <span className="text-amber-400 font-mono font-black">
-                            R$ {(displayedProfile.balance || 0).toFixed(2)}
-                          </span>
-                        </div>
-                        
-                        <div className="flex flex-col sm:flex-row items-stretch gap-3">
-                          <div className="relative flex-1">
-                            <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-black text-xs">R$</span>
-                            <Input 
-                              type="number" 
-                              placeholder="Ex: 10.00"
-                              defaultValue={displayedProfile.balance || ''}
-                              key={`balance-${displayedProfile.uid}-${displayedProfile.balance || 0}`}
-                              onBlur={(e) => {
-                                const val = parseFloat(e.target.value);
-                                const balanceVal = isNaN(val) || val < 0 ? 0 : val;
-                                handleAllocateCustomBalance(balanceVal);
-                              }}
-                              className="pl-14 pr-4 h-14 text-sm font-bold bg-slate-900 border-white/5 rounded-2xl focus:ring-blue-600 focus:border-blue-600 text-white"
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              onClick={() => handleAllocateCustomBalance(10)}
-                              className="h-14 px-4 bg-slate-900 hover:bg-slate-800 border border-white/5 text-slate-300 font-bold text-xs uppercase tracking-wider rounded-2xl"
-                            >
-                              R$ 10
-                            </Button>
-                            <Button
-                              type="button"
-                              onClick={() => handleAllocateCustomBalance(20)}
-                              className="h-14 px-4 bg-slate-900 hover:bg-slate-800 border border-white/5 text-slate-300 font-bold text-xs uppercase tracking-wider rounded-2xl"
-                            >
-                              R$ 20
-                            </Button>
-                          </div>
-                        </div>
-                        <p className="text-[9px] text-slate-500 font-medium leading-normal">
-                          Você pode atribuir um saldo fixo específico para esse cartão (como R$ 10 ou R$ 20 para as filhas). Isso evita que elas consumam o saldo principal da família. O saldo atribuído é deduzido ou reincorporado à sua Carteira Principal em tempo real.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="bg-slate-900/50 border border-white/5 rounded-[40px] p-8 space-y-6 relative overflow-hidden group mt-6">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 bg-blue-600/10 rounded-xl flex items-center justify-center">
-                        <SlidersHorizontal className="h-5 w-5 text-blue-500" />
-                      </div>
-                      <div className="text-left">
-                        <h4 className="text-sm font-black uppercase tracking-wider text-slate-200">Limites do Cartão</h4>
-                        <p className="text-[10px] text-slate-500 font-bold">Controle de saldo e consumo parental</p>
-                      </div>
-                    </div>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-blue-500 bg-blue-500/10 px-3 py-1 rounded-full border border-blue-500/15">
-                      Ativo
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Daily spending limit */}
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        <span>Limite de Gasto Diário</span>
-                        <span className="text-emerald-400 font-black">
-                          {displayedProfile.dailyLimit && displayedProfile.dailyLimit > 0 
-                            ? `R$ ${displayedProfile.dailyLimit.toFixed(2)}` 
-                            : 'Sem Limite'}
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-black text-xs">R$</span>
-                        <Input 
-                          type="number" 
-                          placeholder="Ex: 50.00"
-                          defaultValue={displayedProfile.dailyLimit || ''}
-                          key={`daily-${displayedProfile.uid}-${displayedProfile.dailyLimit || 0}`}
-                          onBlur={async (e) => {
-                            const val = parseFloat(e.target.value);
-                            const limitVal = isNaN(val) || val <= 0 ? 0 : val;
-                            try {
-                              await updateDoc(doc(db, 'users', displayedProfile.uid), {
-                                dailyLimit: limitVal
-                              });
-                              toast.success('Limite diário atualizado!');
-                            } catch (err) {
-                              console.error(err);
-                              toast.error('Erro ao atualizar limite');
-                            }
-                          }}
-                          className="pl-14 pr-4 h-14 text-sm font-bold bg-slate-950 border-white/5 rounded-2xl focus:ring-blue-600 focus:border-blue-600 text-white"
-                        />
-                      </div>
-                      <p className="text-[9px] text-slate-500 font-medium leading-normal">
-                        O limite de consumo acumulado que o dependente pode gastar no período de 24 horas.
-                      </p>
-                    </div>
-
-                    {/* Single-transaction limit */}
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center text-[11px] font-black uppercase tracking-wider text-slate-400">
-                        <span>Limite por Compra (PDV)</span>
-                        <span className="text-emerald-400 font-black">
-                          {displayedProfile.transactionLimit && displayedProfile.transactionLimit > 0 
-                            ? `R$ ${displayedProfile.transactionLimit.toFixed(2)}` 
-                            : 'Sem Limite'}
-                        </span>
-                      </div>
-                      <div className="relative">
-                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-500 font-black text-xs">R$</span>
-                        <Input 
-                          type="number" 
-                          placeholder="Ex: 20.00"
-                          defaultValue={displayedProfile.transactionLimit || ''}
-                          key={`tx-${displayedProfile.uid}-${displayedProfile.transactionLimit || 0}`}
-                          onBlur={async (e) => {
-                            const val = parseFloat(e.target.value);
-                            const limitVal = isNaN(val) || val <= 0 ? 0 : val;
-                            try {
-                              await updateDoc(doc(db, 'users', displayedProfile.uid), {
-                                transactionLimit: limitVal
-                              });
-                              toast.success('Limite por compra atualizado!');
-                            } catch (err) {
-                              console.error(err);
-                              toast.error('Erro ao atualizar limite');
-                            }
-                          }}
-                          className="pl-14 pr-4 h-14 text-sm font-bold bg-slate-950 border-white/5 rounded-2xl focus:ring-blue-600 focus:border-blue-600 text-white"
-                        />
-                      </div>
-                      <p className="text-[9px] text-slate-500 font-medium leading-normal">
-                        O valor máximo autorizado por transação individual direto no caixa do evento.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Consumed status */}
-                  <div className="pt-4 border-t border-white/5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-1.5 bg-blue-500 rounded-full animate-pulse" />
-                      <span className="text-slate-400 font-medium">Consumo acumulado hoje:</span>
-                    </div>
-                    <span className="font-mono text-slate-200 font-black bg-slate-950 px-3 py-1.5 rounded-xl border border-white/5 self-start sm:self-auto">
-                      R$ {((displayedProfile.lastSpentDate === new Date().toISOString().split('T')[0]) ? displayedProfile.spentToday : 0) || 0}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Zona de Perigo / Desvincular Cartão */}
-                <div className="bg-red-500/5 border border-red-500/10 rounded-[40px] p-8 space-y-6 mt-6 relative overflow-hidden">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 bg-red-600/10 rounded-xl flex items-center justify-center">
-                      <Trash2 className="h-5 w-5 text-red-500" />
-                    </div>
-                    <div className="text-left font-sans">
-                      <h4 className="text-sm font-black uppercase tracking-wider text-red-200">Zona de Perigo</h4>
-                      <p className="text-[10px] text-slate-500 font-bold">Ações definitivas para este cartão</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <p className="text-[10px] text-slate-400 leading-normal font-medium">
-                      Ao desvincular o cartão de <strong className="text-white">{displayedProfile.name}</strong>, ele deixará de fazer parte do seu grupo familiar e voltará a ter uma carteira pré-paga independente com saldo próprio.
-                    </p>
-                    
-                    <Button
-                      type="button"
-                      onClick={() => handleUnlinkAccount(displayedProfile.uid)}
-                      className="w-full h-14 bg-red-950 hover:bg-red-900 border border-red-500/20 hover:border-red-500/45 text-red-200 hover:text-white font-black text-xs uppercase tracking-wider rounded-2xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-95"
-                    >
-                      <Trash2 className="h-4 w-4 text-red-400" />
-                      Desvincular Cartão do Dependente
-                    </Button>
-                  </div>
-                </div>
-              </>
-            )}
             </motion.div>
           )}
 
@@ -964,24 +856,65 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                       </button>
 
                       {/* Associated Profiles */}
-                      {associatedProfiles.map(assoc => (
-                        <button 
-                          key={assoc.uid}
-                          onClick={() => setDisplayedUid(assoc.uid)}
-                          className={`w-full flex items-center justify-between p-3.5 rounded-2xl border transition-all ${displayedUid === assoc.uid ? 'bg-blue-600/10 border-blue-600/30 ring-1 ring-blue-600/20' : 'bg-slate-950/50 border-white/5'}`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${displayedUid === assoc.uid ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'}`}>
-                              <Users className="h-4 w-4" />
+                      {associatedProfiles.map(assoc => {
+                        const isSelected = displayedUid === assoc.uid;
+                        const isCustom = assoc.balanceType === 'custom';
+                        const childBal = getProfileBalance(assoc);
+                        
+                        return (
+                          <div 
+                            key={assoc.uid}
+                            onDoubleClick={() => {
+                              setEditingChildProfile(assoc);
+                              setAllocatedBalanceInput(isCustom ? (assoc.balance || 0).toString() : '');
+                            }}
+                            className={`w-full group/card flex items-center justify-between p-3.5 rounded-2xl border transition-all cursor-pointer relative hover:border-white/10 ${isSelected ? 'bg-blue-600/10 border-blue-600/30' : 'bg-slate-950/50 border-white/5'}`}
+                          >
+                            <div 
+                              onClick={() => setDisplayedUid(assoc.uid)}
+                              className="flex-1 flex items-center gap-3 select-none"
+                            >
+                              <div className={`h-8 w-8 rounded-lg flex items-center justify-center transition-all ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-500'}`}>
+                                <Users className="h-4 w-4" />
+                              </div>
+                              <div className="text-left">
+                                <span className="block text-xs font-black text-slate-200 truncate max-w-[120px]">{assoc.name}</span>
+                                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter flex items-center gap-1">
+                                  <span>Associado</span>
+                                  {isCustom && (
+                                    <>
+                                      <span className="h-1 w-1 bg-amber-500 rounded-full animate-pulse" />
+                                      <span className="text-amber-400 font-extrabold normal-case">Dedicado</span>
+                                    </>
+                                  )}
+                                </span>
+                              </div>
                             </div>
-                            <div className="text-left">
-                              <span className="block text-xs font-black text-slate-200 truncate max-w-[120px]">{assoc.name}</span>
-                              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-tighter">Associado</span>
+                            
+                            <div className="flex items-center gap-2">
+                              <span 
+                                onClick={() => setDisplayedUid(assoc.uid)}
+                                className="text-xs font-black text-blue-400 select-none cursor-pointer pr-1"
+                              >
+                                R$ {childBal.toFixed(2)}
+                              </span>
+                              
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingChildProfile(assoc);
+                                  setAllocatedBalanceInput(isCustom ? (assoc.balance || 0).toString() : '');
+                                }}
+                                className="p-2 hover:bg-white/5 rounded-lg text-slate-400 hover:text-blue-400 transition-all cursor-pointer"
+                                title="Ajustar saldo e limites"
+                              >
+                                <SlidersHorizontal className="h-4 w-4" />
+                              </button>
                             </div>
                           </div>
-                          <span className="text-xs font-black text-blue-400">R$ {getProfileBalance(assoc).toFixed(2)}</span>
-                        </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -1458,6 +1391,244 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
               onCancel={() => setShowPaymentModal(false)}
             />
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editingChildProfile !== null} onOpenChange={(open) => { if (!open) setEditingChildProfile(null); }}>
+        <DialogContent className="sm:max-w-md bg-slate-950 border border-white/5 rounded-[32px] p-0 overflow-hidden outline-none text-white font-sans text-center">
+          {editingChildProfile && (
+            <div className="p-8 space-y-6">
+              {/* Header */}
+              <div className="space-y-1 text-center">
+                <div className="flex justify-center mb-4">
+                  <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-500/10">
+                    <SlidersHorizontal className="h-6 w-6 text-amber-500 animate-pulse" />
+                  </div>
+                </div>
+                <h3 className="text-xl font-black uppercase tracking-tighter text-slate-200">
+                  Gerenciar {editingChildProfile.name}
+                </h3>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
+                  Parâmetros de Saldo & Limites Parental
+                </p>
+              </div>
+
+              {/* Selector de tipo de saldo: Compartilhado vs Personalizado */}
+              <div className="space-y-3 text-left">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Definição do Tipo de Saldo
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    type="button"
+                    onClick={async () => {
+                      const updatedProfile = { ...editingChildProfile, balanceType: 'shared' as const };
+                      await handleUpdateBalanceTypeForChild(editingChildProfile.uid, 'shared');
+                      setEditingChildProfile(updatedProfile);
+                    }}
+                    className={`p-3.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
+                      editingChildProfile.balanceType !== 'custom'
+                        ? 'bg-blue-600/10 border-blue-500/40 ring-1 ring-blue-500/20' 
+                        : 'bg-slate-900 border-white/5 hover:border-white/10'
+                    }`}
+                  >
+                    <span className="text-xs font-black text-slate-200">Compartilhado</span>
+                    <span className="text-[9px] text-slate-500 font-medium">Consome saldo da Carteira Principal</span>
+                  </button>
+
+                  <button 
+                    type="button"
+                    onClick={async () => {
+                      const updatedProfile = { ...editingChildProfile, balanceType: 'custom' as const };
+                      await handleUpdateBalanceTypeForChild(editingChildProfile.uid, 'custom');
+                      setEditingChildProfile(updatedProfile);
+                    }}
+                    className={`p-3.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
+                      editingChildProfile.balanceType === 'custom'
+                        ? 'bg-amber-600/10 border-amber-500/40 ring-1 ring-amber-500/20' 
+                        : 'bg-slate-900 border-white/5 hover:border-white/10'
+                    }`}
+                  >
+                    <span className="text-xs font-black text-amber-400">Personalizado</span>
+                    <span className="text-[9px] text-slate-500 font-medium font-semibold">Saldo/Limite fixo dedicado</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Se for Personalizado: campo de alocação de saldo */}
+              {editingChildProfile.balanceType === 'custom' && (
+                <div className="p-4 bg-slate-900 rounded-2xl border border-white/5 space-y-3 text-left">
+                  <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    <span>Definir Saldo Dedicado</span>
+                    <span className="text-amber-400 font-mono font-black">
+                      R$ {(editingChildProfile.balance || 0).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-black text-xs">R$</span>
+                      <Input 
+                        type="number" 
+                        placeholder="Ex: 10.00"
+                        value={allocatedBalanceInput}
+                        onChange={(e) => setAllocatedBalanceInput(e.target.value)}
+                        className="pl-10 pr-3 h-11 text-xs font-bold bg-slate-950 border-white/5 rounded-xl text-white focus:ring-amber-500"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={async () => {
+                        const amt = parseFloat(allocatedBalanceInput);
+                        if (isNaN(amt) || amt < 0) {
+                          toast.error("Informe um valor válido");
+                          return;
+                        }
+                        const success = await handleAllocateBalanceForChild(editingChildProfile.uid, amt);
+                        if (success) {
+                          setEditingChildProfile({
+                            ...editingChildProfile,
+                            balance: amt
+                          });
+                        }
+                      }}
+                      className="h-11 px-5 bg-amber-600 hover:bg-amber-500 text-white font-black text-xs uppercase tracking-wider rounded-xl cursor-pointer"
+                    >
+                      Definir
+                    </Button>
+                  </div>
+                  
+                  <div className="flex justify-start gap-1 p-0.5">
+                    {[10, 20, 50].map((quickAmt) => (
+                      <button
+                        type="button"
+                        key={quickAmt}
+                        onClick={async () => {
+                          setAllocatedBalanceInput(quickAmt.toString());
+                          const success = await handleAllocateBalanceForChild(editingChildProfile.uid, quickAmt);
+                          if (success) {
+                            setEditingChildProfile({
+                              ...editingChildProfile,
+                              balance: quickAmt
+                            });
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-slate-950 hover:bg-slate-900 border border-white/5 text-[9px] text-slate-300 font-black rounded-lg transition-all"
+                      >
+                        + R$ {quickAmt}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setAllocatedBalanceInput('0');
+                        await handleAllocateBalanceForChild(editingChildProfile.uid, 0);
+                        setEditingChildProfile({
+                          ...editingChildProfile,
+                          balanceType: 'shared',
+                          balance: 0
+                        });
+                      }}
+                      className="px-3 py-1.5 bg-red-950/65 hover:bg-red-900 border border-red-500/10 text-[9px] text-red-200 font-black rounded-lg transition-all ml-auto"
+                    >
+                      Zerar (Restaurar)
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-slate-500 text-left leading-normal font-medium">
+                    Caso você defina como <span className="text-amber-500 font-bold">R$ 10</span>, esse valor é deduzido da Carteira Principal e dedicado à dependente. Quando o saldo é zerado, ele retorna automaticamente ao seu pool compartilhado.
+                  </p>
+                </div>
+              )}
+
+              {/* Spend Limits section inside parameters popup */}
+              <div className="space-y-3 pt-2 border-t border-white/5 text-left">
+                <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  Limites do Dependente (24h e Caixas)
+                </label>
+                <div className="grid grid-cols-2 gap-3 text-left">
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-black uppercase text-slate-500">Gasto Diário (R$)</span>
+                    <Input 
+                      type="number" 
+                      placeholder="Sem limite"
+                      defaultValue={editingChildProfile.dailyLimit || ''}
+                      onBlur={async (e) => {
+                        const val = parseFloat(e.target.value);
+                        const limitVal = isNaN(val) || val <= 0 ? 0 : val;
+                        try {
+                          await updateDoc(doc(db, 'users', editingChildProfile.uid), {
+                            dailyLimit: limitVal
+                          });
+                          toast.success('Limite diário atualizado!');
+                        } catch (err) {
+                          console.error(err);
+                          toast.error('Erro ao atualizar limite');
+                        }
+                      }}
+                      className="h-11 text-xs bg-slate-900 border border-white/5 rounded-xl text-white pl-3.5 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[9px] font-black uppercase text-slate-500">Por Compra (R$)</span>
+                    <Input 
+                      type="number" 
+                      placeholder="Sem limite"
+                      defaultValue={editingChildProfile.transactionLimit || ''}
+                      onBlur={async (e) => {
+                        const val = parseFloat(e.target.value);
+                        const limitVal = isNaN(val) || val <= 0 ? 0 : val;
+                        try {
+                          await updateDoc(doc(db, 'users', editingChildProfile.uid), {
+                            transactionLimit: limitVal
+                          });
+                          toast.success('Limite por compra atualizado!');
+                        } catch (err) {
+                          console.error(err);
+                          toast.error('Erro ao atualizar limite');
+                        }
+                      }}
+                      className="h-11 text-xs bg-slate-900 border border-white/5 rounded-xl text-white pl-3.5 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Danger Zone: Desvincular Cartão */}
+              <div className="p-4 bg-red-500/5 rounded-2xl border border-red-500/10 flex flex-col gap-2.5 text-left">
+                <div>
+                  <span className="text-[9px] font-black uppercase text-red-400 block mb-0.5">Desvincular Conta</span>
+                  <p className="text-[9px] text-slate-500 leading-normal font-semibold">
+                    Remove este cartão da sua tutela familiar revertendo-o para conta independente pré-paga única.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  onClick={async () => {
+                    const confirmUnlink = window.confirm(`Deseja mesmo desvincular o cartão de ${editingChildProfile.name}?`);
+                    if (confirmUnlink) {
+                      await handleUnlinkAccount(editingChildProfile.uid);
+                      setEditingChildProfile(null);
+                    }
+                  }}
+                  className="w-full h-11 bg-red-950 hover:bg-red-900 text-red-200 hover:text-white font-black text-[10px] uppercase tracking-wider rounded-xl border border-red-500/10 flex items-center justify-center gap-2 cursor-pointer transition-all"
+                >
+                  <Trash2 className="h-3.5 w-3.5 animate-bounce" />
+                  Desvincular da Conta
+                </Button>
+              </div>
+
+              {/* Action buttons */}
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  onClick={() => setEditingChildProfile(null)}
+                  className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-widest rounded-xl cursor-pointer"
+                >
+                  Salvar e Fechar
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
