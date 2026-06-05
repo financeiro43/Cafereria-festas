@@ -1,6 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { auth, db } from '@/lib/firebase';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 import { doc, getDoc, setDoc, onSnapshot, collection, query, where, getDocs, updateDoc, deleteDoc, limit } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { UserProfile, UserRole } from './types';
@@ -84,6 +84,22 @@ function MainApp() {
   const [isForgotPassOpen, setIsForgotPassOpen] = useState(false);
 
   useEffect(() => {
+    // Process redirect result if any when page loads
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          console.log("[AUTH] Successfully logged in via Google redirect:", result.user.email);
+        }
+      })
+      .catch((err) => {
+        const isCancelled = err.code === 'auth/cancelled-popup-request' || 
+                            err.code === 'auth/popup-closed-by-user' ||
+                            err.code === 'auth/redirect-cancelled-by-user';
+        if (!isCancelled) {
+          console.warn("[AUTH] Error getting Google redirect result:", err);
+        }
+      });
+
     let unsubProfile: (() => void) | null = null;
     
     const unsubAuth = onAuthStateChanged(auth, async (authUser) => {
@@ -198,15 +214,57 @@ function MainApp() {
   }, [navigate]);
 
   const handleGoogleLogin = async () => {
+    if (authLoading) return;
     setAuthLoading(true);
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    
+    // Check if running in installed PWA standalone mode or inside a social media webview where popups are blocked 100% of the time.
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+    const isInAppBrowser = /FBAN|FBAV|Instagram|WhatsApp|Line|Snapchat/i.test(navigator.userAgent);
+
+    if (isStandalone || isInAppBrowser) {
+      console.log("[AUTH] Standalone PWA or In-App Browser detected. Using redirect for Google Sign-In.");
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (error: any) {
+        console.error("[AUTH] Error during signInWithRedirect:", error);
+        toast.error('Erro no login Google', { description: 'Não foi possível processar o fluxo Google neste navegador local. Por favor entre com e-mail/senha.' });
+        setAuthLoading(false);
+      }
+      return;
+    }
+
     try {
       await signInWithPopup(auth, provider);
       setIsLoginOpen(false);
     } catch (error: any) {
-      toast.error('Erro no login Google', { description: error.message });
+      console.warn("[AUTH] Popup authorization failed, testing for redirect fallback or cancellation...", error);
+      
+      const isCancelled = error.code === 'auth/cancelled-popup-request' || 
+                          error.code === 'auth/popup-closed-by-user' ||
+                          error.code === 'auth/redirect-cancelled-by-user';
+                          
+      if (isCancelled) {
+        console.log("[AUTH] Google login popup cancelled or closed by user.");
+        setAuthLoading(false);
+        return;
+      }
+
+      // If popup was blocked or unsupported (frequent on mobile/tablets), fallback transparently to redirect
+      console.log("[AUTH] Popup blocked or unplayable. Falling back to signInWithRedirect...");
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (redirectError: any) {
+        console.error("[AUTH] Redirect fallback failed too:", redirectError);
+        toast.error('Erro no login Google', { description: 'O navegador impediu o fluxo automático. Por favor utilize e-mail/senha ou redefina sua senha.' });
+        setAuthLoading(false);
+      }
     } finally {
-      setAuthLoading(false);
+      // Delay disabling authLoading state to handle smooth transition or reload
+      setTimeout(() => {
+        setAuthLoading(false);
+      }, 1500);
     }
   };
 
