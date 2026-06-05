@@ -38,16 +38,17 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
 
     const startScanner = async () => {
       if (!isMounted) return;
+
+      // 1. Verificar suporte básico e HTTPS seguro (essencial em PWAs e navegadores mobile)
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        if (isMounted) {
+          setError("Acesso à câmera bloqueado. Para utilizar o leitor de QR Code, você precisa obrigatoriamente acessar o aplicativo através de um endereço seguro iniciado por HTTPS (https://) e conceder permissão de câmera ao site nas configurações do dispositivo.");
+          setIsInitializing(false);
+        }
+        return;
+      }
       
       try {
-        // Pedir permissão explicitamente via getCameras antes de tentar instanciar
-        // Isso costuma ser mais robusto em alguns navegadores móveis (Safari/Chrome iOS)
-        try {
-          await Html5Qrcode.getCameras();
-        } catch (permError) {
-          console.warn("Permission check via getCameras failed:", permError);
-        }
-
         // @ts-ignore
         scanner = new Html5Qrcode(elementId, { 
           verbose: false,
@@ -69,7 +70,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
           }
         };
 
-        // Função auxiliar para iniciar o scanner
+        // Função auxiliar para iniciar o leitor com determinado cameraId ou configurações de constraints
         const tryStart = async (cameraIdOrConfig: any) => {
           if (!scanner) return;
           return scanner.start(
@@ -86,58 +87,67 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         };
 
         // Pequeno delay para garantir que o DOM está pronto e animado
-        await new Promise(resolve => setTimeout(resolve, 300));
+        await new Promise(resolve => setTimeout(resolve, 350));
         if (!isMounted) return;
 
+        let success = false;
+
+        // SEQUÊNCIA DE CONEXÃO ÓPTICA ULTRA-ROBUSTA:
+        // Tentativa 1: facingMode "environment" simples (99% de compatibilidade em celulares sem causar OverconstrainedError)
         try {
-          // Tentar primeiro com câmera traseira e boas dimensões (HD)
-          await tryStart({ 
-            facingMode: { exact: "environment" },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          });
-        } catch (e) {
+          await tryStart({ facingMode: "environment" });
+          success = true;
+          console.log("Câmera frontal/traseira inteligente iniciada via padrão environment.");
+        } catch (e1) {
+          console.warn("Tentativa 01 (facingMode simples) falhou. Tentando com exact. Erro:", e1);
+          
+          // Tentativa 2: facingMode exato (fallback para motores estritos)
           try {
-             // Fallback para facingMode sem exact
-             await tryStart({ 
-               facingMode: "environment",
-               width: { ideal: 1280 },
-               height: { ideal: 720 }
-             });
+            await tryStart({ facingMode: { exact: "environment" } });
+            success = true;
+            console.log("Câmera traseira iniciada via exact environment.");
           } catch (e2) {
-            console.warn("Could not start with environment camera, trying any available camera...", e2);
+            console.warn("Tentativa 02 (exact environment) falhou. Listando câmeras manualmente...", e2);
             
-            // Tentar qualquer câmera disponível
+            // Tentativa 3: Enumerar dispositivos manualmente e buscar especificamente a câmera física traseira
             try {
-              const allDevices = await Html5Qrcode.getCameras();
-              const backCamera = allDevices.find(c => 
-                c.label.toLowerCase().includes('back') || 
-                c.label.toLowerCase().includes('traseira') ||
-                c.label.toLowerCase().includes('rear') ||
-                c.label.toLowerCase().includes('0')
-              );
-              
-              if (backCamera) {
-                await tryStart(backCamera.id);
-              } else if (allDevices.length > 0) {
-                // Tenta a última câmera da lista (geralmente a melhor ultra-wide/principal em celulares)
-                await tryStart(allDevices[allDevices.length - 1].id);
+              const allDevices = await Html5Qrcode.getCameras().catch(() => []);
+              if (allDevices && allDevices.length > 0) {
+                // Procurar por câmera traseira na descrição literal
+                const backCamera = allDevices.find(c => 
+                  /back|traseira|rear|environment|direcional|outdoor/i.test(c.label)
+                );
+                
+                if (backCamera) {
+                  await tryStart(backCamera.id);
+                  success = true;
+                  console.log("Câmera identificada e iniciada via ID de zoom traseiro:", backCamera.id);
+                } else {
+                  // Sem câmera explicitamente rotulada como traseira, tenta usar o último índice do vetor de hardware (comum para ultra-wide ou câmera principal traseira em celulares modernos)
+                  const lastCamera = allDevices[allDevices.length - 1];
+                  await tryStart(lastCamera.id);
+                  success = true;
+                  console.log("Câmera de último nível físico iniciada via ID:", lastCamera.id);
+                }
               } else {
+                // Tentativa 4: Sem câmeras enumeradas ou falha no scanner, tentar padrão frontal/universal do sistema
                 await tryStart({ facingMode: "user" });
+                success = true;
+                console.log("Fallback final para câmera frontal padrão.");
               }
-            } catch (fallbackError) {
-              console.error("All camera start attempts failed:", fallbackError);
+            } catch (fallbackError: any) {
+              console.error("Todas as tentativas de inicialização óptica esgotaram-se:", fallbackError);
               throw fallbackError;
             }
           }
         }
 
         if (!isMounted) {
-          if (scanner.isScanning) await scanner.stop();
+          if (scanner && scanner.isScanning) await scanner.stop();
           return;
         }
 
-        // Capability check for torch
+        // Se iniciou, verificar se há lanterna (torch)
         try {
           const track = scanner.getRunningTrackCapabilities();
           //@ts-ignore
@@ -145,14 +155,24 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
             setHasTorch(true);
           }
         } catch (e) {
-          console.log("Torch capability check failed:", e);
+          console.log("Suporte a lanterna não detectado neste hardware:", e);
         }
 
         setIsInitializing(false);
       } catch (e: any) {
         if (isMounted) {
-          console.error("Scanner init error:", e);
-          setError("Não foi possível acessar a câmera. Verifique as permissões do navegador e se nenhuma outra aba está usando a sua webcam.");
+          console.error("Erro fatal de inicialização do leitor de QR:", e);
+          
+          const rawErrorString = e?.toString() || "";
+          if (
+            rawErrorString.includes("NotAllowedError") || 
+            rawErrorString.includes("Permission denied") || 
+            rawErrorString.includes("PermissionDeniedError")
+          ) {
+            setError("A permissão de acesso à câmera do celular foi recusada. Acesse as configurações de privacidade/permissões do seu aparelho ou do navegador e conceda acesso à câmera para este aplicativo.");
+          } else {
+            setError("Não foi possível acessar a câmera. Certifique-se de que de fato há uma câmera conectada, que concedeu permissões nas configurações e que nenhuma outra aba ou app está utilizando o hardware.");
+          }
           setIsInitializing(false);
         }
       }
@@ -273,6 +293,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         #universal-qr-reader video {
           width: 100% !important;
           height: 100% !important;
+          object-fit: cover !important;
         }
       `}</style>
     </div>
