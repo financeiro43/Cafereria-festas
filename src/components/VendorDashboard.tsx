@@ -38,36 +38,77 @@ export default function VendorDashboard({
   const cart = externalCart !== undefined ? externalCart : internalCart;
   const setCart = setExternalCart !== undefined ? setExternalCart : setInternalCart;
 
-  const [localUsers, setLocalUsers] = useState<UserProfile[]>([]);
-
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
-      setLocalUsers(snap.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
-    });
-    return () => unsub();
-  }, []);
-
   const [internalScannedUser, setInternalScannedUser] = useState<UserProfile | null>(null);
   const baseScannedUser = externalScannedUser !== undefined ? externalScannedUser : internalScannedUser;
-  // Get the absolute latest, live synchronized user data from localUsers for real-time reactivity
-  const scannedUser = useMemo(() => {
-    if (!baseScannedUser) return null;
-    const live = localUsers.find(u => u.uid === baseScannedUser.uid);
-    const resolvedUser = live ? live : baseScannedUser;
-
-    // If the scanned user is a dependent with a shared balance, we dynamically resolve their balance to the parent's actual balance!
-    if ((!resolvedUser.balanceType || resolvedUser.balanceType === 'shared') && resolvedUser.parentUid) {
-      const parent = localUsers.find(u => u.uid === resolvedUser.parentUid);
-      if (parent) {
-        return {
-          ...resolvedUser,
-          balance: parent.balance || 0
-        };
-      }
-    }
-    return resolvedUser;
-  }, [baseScannedUser, localUsers]);
   const setScannedUser = setExternalScannedUser !== undefined ? setExternalScannedUser : setInternalScannedUser;
+
+  const [liveScannedUser, setLiveScannedUser] = useState<UserProfile | null>(null);
+  const [liveParentUser, setLiveParentUser] = useState<UserProfile | null>(null);
+
+  // Real-time synchronization for the scanned user
+  useEffect(() => {
+    if (!baseScannedUser?.uid) {
+      setLiveScannedUser(null);
+      return;
+    }
+
+    const unsubUser = onSnapshot(doc(db, 'users', baseScannedUser.uid), (snap) => {
+      if (snap.exists()) {
+        setLiveScannedUser({ ...snap.data(), uid: snap.id } as UserProfile);
+      } else {
+        setLiveScannedUser(null);
+      }
+    }, (err) => {
+      console.error("Error listening to scanned user:", err);
+    });
+
+    return () => {
+      unsubUser();
+    };
+  }, [baseScannedUser?.uid]);
+
+  // Real-time synchronization for the parent if the user is a dependent with shared balance
+  useEffect(() => {
+    if (!liveScannedUser) {
+      setLiveParentUser(null);
+      return;
+    }
+
+    const isShared = (!liveScannedUser.balanceType || liveScannedUser.balanceType === 'shared') && liveScannedUser.parentUid;
+    if (!isShared) {
+      setLiveParentUser(null);
+      return;
+    }
+
+    const parentUid = liveScannedUser.parentUid!;
+    const unsubParent = onSnapshot(doc(db, 'users', parentUid), (snap) => {
+      if (snap.exists()) {
+        setLiveParentUser({ ...snap.data(), uid: snap.id } as UserProfile);
+      } else {
+        setLiveParentUser(null);
+      }
+    }, (err) => {
+      console.error("Error listening to parent user:", err);
+    });
+
+    return () => {
+      unsubParent();
+    };
+  }, [liveScannedUser?.uid, liveScannedUser?.parentUid, liveScannedUser?.balanceType]);
+
+  // Compute scannedUser dynamically and reactively with resolved shared balance
+  const scannedUser = useMemo(() => {
+    if (!liveScannedUser) return null;
+    const isShared = (!liveScannedUser.balanceType || liveScannedUser.balanceType === 'shared') && liveScannedUser.parentUid;
+    
+    if (isShared && liveParentUser) {
+      return {
+        ...liveScannedUser,
+        balance: liveParentUser.balance || 0
+      };
+    }
+    return liveScannedUser;
+  }, [liveScannedUser, liveParentUser]);
 
   const [showMobileCart, setShowMobileCart] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -313,40 +354,6 @@ export default function VendorDashboard({
       const cleanText = decodedText.trim();
       if (!cleanText) return;
 
-      // 1. Instant Local Memory Search (0ms response) - No network or loading toast needed!
-      const foundLocal = localUsers.find(u => 
-        u.qrCode === cleanText || 
-        (u.linkedCards && u.linkedCards.includes(cleanText))
-      );
-
-      if (foundLocal) {
-         let resolvedUser = { ...foundLocal };
-         if ((!resolvedUser.balanceType || resolvedUser.balanceType === 'shared') && resolvedUser.parentUid) {
-           const parentLoc = localUsers.find(u => u.uid === resolvedUser.parentUid);
-           if (parentLoc) {
-             resolvedUser.balance = parentLoc.balance || 0;
-           } else {
-             try {
-               const parentDoc = await getDoc(doc(db, 'users', resolvedUser.parentUid));
-               if (parentDoc.exists()) {
-                 resolvedUser.balance = (parentDoc.data() as UserProfile).balance || 0;
-               }
-             } catch(e) {}
-           }
-         }
-
-          setScannedUser(resolvedUser);
-          setIsScanning(false);
-          setStatusModal({
-            show: true,
-            type: 'success',
-            title: 'Cliente Identificado',
-            message: `Cliente: ${resolvedUser.name}\nSaldo: R$ ${resolvedUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-          });
-          return;
-      }
-
-      // 2. Fallback Parallel Network Query (only if uncached/new)
       setIsScanning(false);
       const toastId = toast.loading('Identificando cliente...', { id: 'v-scan' });
       

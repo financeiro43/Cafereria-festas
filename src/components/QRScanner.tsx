@@ -56,10 +56,10 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         html5QrCodeRef.current = scanner;
 
         const config = {
-          fps: 25,
+          fps: 30,
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const size = Math.floor(minEdge * 0.7);
+            const size = Math.floor(minEdge * 0.85);
             return { width: size, height: size };
           },
           aspectRatio: undefined,
@@ -90,12 +90,20 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         if (!isMounted) return;
 
         try {
-          // Tentar primeiro com câmera traseira
-          await tryStart({ facingMode: { exact: "environment" } });
+          // Tentar primeiro com câmera traseira e boas dimensões (HD)
+          await tryStart({ 
+            facingMode: { exact: "environment" },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          });
         } catch (e) {
           try {
              // Fallback para facingMode sem exact
-             await tryStart({ facingMode: "environment" });
+             await tryStart({ 
+               facingMode: "environment",
+               width: { ideal: 1280 },
+               height: { ideal: 720 }
+             });
           } catch (e2) {
             console.warn("Could not start with environment camera, trying any available camera...", e2);
             
