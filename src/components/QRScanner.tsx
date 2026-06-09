@@ -91,16 +91,17 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         if (!isMounted) return;
 
         let success = false;
+        let cameraIdOrConfig: any = { facingMode: "environment" };
 
-        // SEQUÊNCIA DE SELEÇÃO E CONEXÃO ÓPTICA INTELIGENTE ULTRA-ROBUSTA:
-        // Evita a seleção automática de lentes ultra-wide (0.5x), teleobjetivas (3x/5x) ou macro que focam incorretamente ou geram imagens desfocadas
-        const getBestCameraConfig = async () => {
-          try {
-            const devices = await Html5Qrcode.getCameras().catch(() => []);
-            console.log("[SCANNER] Dispositivos de captura encontrados:", devices);
+        try {
+          const devices = await Html5Qrcode.getCameras().catch(() => []);
+          console.log("[SCANNER] Dispositivos de captura encontrados:", devices);
+
+          if (devices && devices.length > 0) {
+            // Verificar se as etiquetas (labels) estão visíveis (concedidas ou expostas)
+            const hasLabels = devices.some(d => d.label && d.label.trim().length > 0);
             
-            if (devices && devices.length > 0) {
-              // Filtrar apenas câmeras traseiras catalogadas na etiqueta
+            if (hasLabels) {
               const backDevices = devices.filter(d => 
                 /back|traseira|rear|environment|direcional|outdoor|retaguarda|principal/i.test(d.label) || 
                 /camera\s*0|câmera\s*0/i.test(d.label)
@@ -112,90 +113,45 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
                   !/ultra|wide|tele|zoom|macro|0\.5|3x|5x|virtual/i.test(d.label.toLowerCase())
                 );
                 
-                console.log("[SCANNER] Câmeras traseiras identificadas:", backDevices);
+                console.log("[SCANNER] Lentes traseiras identificadas:", backDevices);
                 console.log("[SCANNER] Lente traseira principal (1x) sugerida:", mainBackDevices);
                 
                 const selectedCameraId = mainBackDevices.length > 0 
                   ? mainBackDevices[0].id 
                   : backDevices[0].id;
-                  
-                return {
-                  deviceId: { exact: selectedCameraId },
-                  width: { ideal: 1280 },
-                  height: { ideal: 720 },
-                  facingMode: "environment"
-                };
-              }
-            }
-          } catch (err) {
-            console.warn("[SCANNER] Erro obtendo lista de hardware de imagem:", err);
-          }
-          
-          // Fallback padrão se não puder enumerar ou labels estiverem ocultas por falta de permissão imediata
-          return {
-            facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          };
-        };
-
-        const cameraConfig = await getBestCameraConfig();
-        console.log("[SCANNER] Aplicando parâmetros de inicialização óptica:", cameraConfig);
-
-        // Tentativa 1: Perfil de Resolução + Câmera Principal selecionada + Foco Contínuo Autônomo
-        try {
-          await tryStart({
-            ...cameraConfig,
-            // @ts-ignore
-            focusMode: "continuous"
-          });
-          success = true;
-          console.log("[SCANNER] Conectado via perfil completo de autofoco contínuo.");
-        } catch (e1) {
-          console.warn("[SCANNER] Perfil com foco falhou, tentando apenas com resolução ideal:", e1);
-          
-          // Tentativa 2: Perfil com resolução ideal sem restrição de foco explícita
-          try {
-            await tryStart(cameraConfig);
-            success = true;
-            console.log("[SCANNER] Conectado via perfil de resolução ideal.");
-          } catch (e2) {
-            console.warn("[SCANNER] Tentativa 2 falhou. Usando environment simples (legado):", e2);
-            
-            // Tentativa 3: Padrão environment genérico do browser
-            try {
-              await tryStart({ facingMode: "environment" });
-              success = true;
-              console.log("[SCANNER] Conectado via facingMode simples.");
-            } catch (e3) {
-              console.warn("[SCANNER] Tentativa 3 falhou. Usando exatidão de ambiente:", e3);
-              
-              // Tentativa 4: Padrão exact environment
-              try {
-                await tryStart({ facingMode: { exact: "environment" } });
-                success = true;
-                console.log("[SCANNER] Conectado via exact environment.");
-              } catch (e4) {
-                console.warn("[SCANNER] Todas as tentativas falharam. Usando ID bruto se disponível:", e4);
                 
-                // Tentativa 5: ID bruto ou câmera frontal
-                try {
-                  const allDevices = await Html5Qrcode.getCameras().catch(() => []);
-                  if (allDevices && allDevices.length > 0) {
-                    await tryStart(allDevices[0].id);
-                    success = true;
-                    console.log("[SCANNER] Conectado via ID físico direto:", allDevices[0].id);
-                  } else {
-                    await tryStart({ facingMode: "user" });
-                    success = true;
-                    console.log("[SCANNER] Conectado via câmera secundária frontal.");
-                  }
-                } catch (e5) {
-                  console.error("[SCANNER] Falha irrecuperável de inicialização óptica:", e5);
-                  throw e5;
-                }
+                // Usando ID bruto de string para evitar conflitos (super seguro)
+                cameraIdOrConfig = selectedCameraId;
+              } else {
+                cameraIdOrConfig = devices[0].id;
               }
+            } else {
+              cameraIdOrConfig = { facingMode: "environment" };
             }
+          }
+        } catch (err) {
+          console.warn("[SCANNER] Erro enumerando câmeras, usando padrão environment:", err);
+          cameraIdOrConfig = { facingMode: "environment" };
+        }
+
+        console.log("[SCANNER] Inicializando leitor óptico com:", cameraIdOrConfig);
+
+        // Tentativa 1: ID selecionado pré-filtrado ou facingMode em primeiro acesso
+        try {
+          await tryStart(cameraIdOrConfig);
+          success = true;
+          console.log("[SCANNER] Conectado via câmera sugerida com sucesso.");
+        } catch (e1) {
+          console.warn("[SCANNER] Falha na inicialização com câmera específica. Tentando padrão genérico...", e1);
+          
+          try {
+            // Tentativa 2: facingMode padrão de contingência
+            await tryStart({ facingMode: "environment" });
+            success = true;
+            console.log("[SCANNER] Conectado via facingMode simples de contingência.");
+          } catch (e2) {
+            console.error("[SCANNER] Todas as tentativas de conexão óptica falharam:", e2);
+            throw e2;
           }
         }
 
