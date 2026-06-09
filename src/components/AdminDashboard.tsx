@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import VendorDashboard from './VendorDashboard';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -510,6 +511,94 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       return matchesSearch && matchesBalance;
     });
   }, [users, physicalSearchQuery, physicalBalanceFilter]);
+
+  const downloadSingleQRCode = (card: UserProfile) => {
+    try {
+      const canvas = document.getElementById(`canvas-qr-${card.uid}`) as HTMLCanvasElement;
+      if (!canvas) {
+        toast.error("Não foi possível encontrar o elemento visual deste QR Code.");
+        return;
+      }
+      const dataUrl = canvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      const safeName = (card.name || "sem_nome").replace(/[^a-z0-9_]/gi, "_").toLowerCase();
+      const formattedNum = (card.uid || card.qrCode || '').replace(/\s+/g, '');
+      link.href = dataUrl;
+      link.download = `qrcode_${safeName}_${formattedNum}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      toast.success(`QR Code de ${card.name} baixado!`);
+    } catch (error) {
+      console.error("Erro ao baixar QR code:", error);
+      toast.error("Erro ao gerar imagem do QR Code.");
+    }
+  };
+
+  const downloadSelectedQRCodes = async () => {
+    const cardsToDownload = selectedPhysicalCards.length > 0 
+      ? users.filter(u => u.isPhysicalCard && selectedPhysicalCards.includes(u.uid))
+      : filteredPhysicalCards;
+
+    if (cardsToDownload.length === 0) {
+      toast.error("Nenhum cartão para download de QR Code.");
+      return;
+    }
+
+    const noun = cardsToDownload.length === 1 ? "QR Code" : "QR Codes";
+    const toastId = toast.loading(`Preparando e compactando ${cardsToDownload.length} ${noun}...`);
+
+    try {
+      const zip = new JSZip();
+      let addedCount = 0;
+
+      for (let i = 0; i < cardsToDownload.length; i++) {
+        const card = cardsToDownload[i];
+        const canvas = document.getElementById(`canvas-qr-${card.uid}`) as HTMLCanvasElement;
+        
+        if (canvas) {
+          try {
+            const dataUrl = canvas.toDataURL("image/png");
+            // Extrair os dados binários do Base64
+            const base64Data = dataUrl.split(',')[1];
+            if (base64Data) {
+              const safeName = (card.name || "sem_nome").replace(/[^a-z0-9_]/gi, "_").toLowerCase();
+              const formattedNum = (card.uid || card.qrCode || '').replace(/\s+/g, '');
+              const filename = `qrcode_${safeName}_${formattedNum}.png`;
+              
+              zip.file(filename, base64Data, { base64: true });
+              addedCount++;
+            }
+          } catch (e) {
+            console.error("Erro ao converter QR code em imagem para o ZIP:", e);
+          }
+        }
+      }
+
+      if (addedCount === 0) {
+        toast.dismiss(toastId);
+        toast.error("Não foi possível gerar imagens para os QR Codes.");
+        return;
+      }
+
+      toast.loading(`Gerando arquivo compactado (.ZIP)...`, { id: toastId });
+      
+      const content = await zip.generateAsync({ type: 'blob' });
+      
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(content);
+      const today = new Date().toISOString().slice(0, 10);
+      link.download = `qrcodes_lote_${today}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      toast.success(`Download de ${addedCount} ${noun} em arquivo ZIP concluído!`, { id: toastId });
+    } catch (error) {
+      console.error("Erro ao gerar o arquivo ZIP:", error);
+      toast.error("Ocorreu um erro ao gerar o arquivo compactado.", { id: toastId });
+    }
+  };
 
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
@@ -2139,6 +2228,14 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   <FileText className="h-4 w-4 mr-2 text-emerald-600" /> Baixar Excel
                 </Button>
                 <Button 
+                  onClick={downloadSelectedQRCodes} 
+                  variant="outline"
+                  className="bg-white border-blue-200 hover:bg-blue-50 text-blue-700 font-bold rounded-xl h-11"
+                  title="Baixar cada imagem do QR Code em lote individualmente"
+                >
+                  <Download className="h-4 w-4 mr-2 text-blue-600" /> Baixar QR Codes ({selectedPhysicalCards.length > 0 ? selectedPhysicalCards.length : filteredPhysicalCards.length})
+                </Button>
+                <Button 
                   onClick={handlePrint} 
                   variant="outline"
                   className="bg-white border-slate-200 text-slate-900 font-bold rounded-xl h-11"
@@ -2573,6 +2670,16 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                     title="Copiar Link QR"
                                   >
                                     <QrCode className="h-3.5 w-3.5" />
+                                  </Button>
+
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    onClick={() => downloadSingleQRCode(card)}
+                                    className="h-7 w-7 text-slate-400 hover:text-blue-600"
+                                    title="Baixar Imagem do QR Code"
+                                  >
+                                    <Download className="h-3.5 w-3.5" />
                                   </Button>
 
                                   <Button 

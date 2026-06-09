@@ -92,52 +92,109 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
 
         let success = false;
 
-        // SEQUÊNCIA DE CONEXÃO ÓPTICA ULTRA-ROBUSTA:
-        // Tentativa 1: facingMode "environment" simples (99% de compatibilidade em celulares sem causar OverconstrainedError)
-        try {
-          await tryStart({ facingMode: "environment" });
-          success = true;
-          console.log("Câmera frontal/traseira inteligente iniciada via padrão environment.");
-        } catch (e1) {
-          console.warn("Tentativa 01 (facingMode simples) falhou. Tentando com exact. Erro:", e1);
-          
-          // Tentativa 2: facingMode exato (fallback para motores estritos)
+        // SEQUÊNCIA DE SELEÇÃO E CONEXÃO ÓPTICA INTELIGENTE ULTRA-ROBUSTA:
+        // Evita a seleção automática de lentes ultra-wide (0.5x), teleobjetivas (3x/5x) ou macro que focam incorretamente ou geram imagens desfocadas
+        const getBestCameraConfig = async () => {
           try {
-            await tryStart({ facingMode: { exact: "environment" } });
-            success = true;
-            console.log("Câmera traseira iniciada via exact environment.");
-          } catch (e2) {
-            console.warn("Tentativa 02 (exact environment) falhou. Listando câmeras manualmente...", e2);
+            const devices = await Html5Qrcode.getCameras().catch(() => []);
+            console.log("[SCANNER] Dispositivos de captura encontrados:", devices);
             
-            // Tentativa 3: Enumerar dispositivos manualmente e buscar especificamente a câmera física traseira
-            try {
-              const allDevices = await Html5Qrcode.getCameras().catch(() => []);
-              if (allDevices && allDevices.length > 0) {
-                // Procurar por câmera traseira na descrição literal
-                const backCamera = allDevices.find(c => 
-                  /back|traseira|rear|environment|direcional|outdoor/i.test(c.label)
+            if (devices && devices.length > 0) {
+              // Filtrar apenas câmeras traseiras catalogadas na etiqueta
+              const backDevices = devices.filter(d => 
+                /back|traseira|rear|environment|direcional|outdoor|retaguarda|principal/i.test(d.label) || 
+                /camera\s*0|câmera\s*0/i.test(d.label)
+              );
+              
+              if (backDevices.length > 0) {
+                // Filtrar lentes especiais de grande ângulo ou zoom teleobjetivo
+                const mainBackDevices = backDevices.filter(d => 
+                  !/ultra|wide|tele|zoom|macro|0\.5|3x|5x|virtual/i.test(d.label.toLowerCase())
                 );
                 
-                if (backCamera) {
-                  await tryStart(backCamera.id);
-                  success = true;
-                  console.log("Câmera identificada e iniciada via ID de zoom traseiro:", backCamera.id);
-                } else {
-                  // Sem câmera explicitamente rotulada como traseira, tenta usar o último índice do vetor de hardware (comum para ultra-wide ou câmera principal traseira em celulares modernos)
-                  const lastCamera = allDevices[allDevices.length - 1];
-                  await tryStart(lastCamera.id);
-                  success = true;
-                  console.log("Câmera de último nível físico iniciada via ID:", lastCamera.id);
-                }
-              } else {
-                // Tentativa 4: Sem câmeras enumeradas ou falha no scanner, tentar padrão frontal/universal do sistema
-                await tryStart({ facingMode: "user" });
-                success = true;
-                console.log("Fallback final para câmera frontal padrão.");
+                console.log("[SCANNER] Câmeras traseiras identificadas:", backDevices);
+                console.log("[SCANNER] Lente traseira principal (1x) sugerida:", mainBackDevices);
+                
+                const selectedCameraId = mainBackDevices.length > 0 
+                  ? mainBackDevices[0].id 
+                  : backDevices[0].id;
+                  
+                return {
+                  deviceId: { exact: selectedCameraId },
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                  facingMode: "environment"
+                };
               }
-            } catch (fallbackError: any) {
-              console.error("Todas as tentativas de inicialização óptica esgotaram-se:", fallbackError);
-              throw fallbackError;
+            }
+          } catch (err) {
+            console.warn("[SCANNER] Erro obtendo lista de hardware de imagem:", err);
+          }
+          
+          // Fallback padrão se não puder enumerar ou labels estiverem ocultas por falta de permissão imediata
+          return {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          };
+        };
+
+        const cameraConfig = await getBestCameraConfig();
+        console.log("[SCANNER] Aplicando parâmetros de inicialização óptica:", cameraConfig);
+
+        // Tentativa 1: Perfil de Resolução + Câmera Principal selecionada + Foco Contínuo Autônomo
+        try {
+          await tryStart({
+            ...cameraConfig,
+            // @ts-ignore
+            focusMode: "continuous"
+          });
+          success = true;
+          console.log("[SCANNER] Conectado via perfil completo de autofoco contínuo.");
+        } catch (e1) {
+          console.warn("[SCANNER] Perfil com foco falhou, tentando apenas com resolução ideal:", e1);
+          
+          // Tentativa 2: Perfil com resolução ideal sem restrição de foco explícita
+          try {
+            await tryStart(cameraConfig);
+            success = true;
+            console.log("[SCANNER] Conectado via perfil de resolução ideal.");
+          } catch (e2) {
+            console.warn("[SCANNER] Tentativa 2 falhou. Usando environment simples (legado):", e2);
+            
+            // Tentativa 3: Padrão environment genérico do browser
+            try {
+              await tryStart({ facingMode: "environment" });
+              success = true;
+              console.log("[SCANNER] Conectado via facingMode simples.");
+            } catch (e3) {
+              console.warn("[SCANNER] Tentativa 3 falhou. Usando exatidão de ambiente:", e3);
+              
+              // Tentativa 4: Padrão exact environment
+              try {
+                await tryStart({ facingMode: { exact: "environment" } });
+                success = true;
+                console.log("[SCANNER] Conectado via exact environment.");
+              } catch (e4) {
+                console.warn("[SCANNER] Todas as tentativas falharam. Usando ID bruto se disponível:", e4);
+                
+                // Tentativa 5: ID bruto ou câmera frontal
+                try {
+                  const allDevices = await Html5Qrcode.getCameras().catch(() => []);
+                  if (allDevices && allDevices.length > 0) {
+                    await tryStart(allDevices[0].id);
+                    success = true;
+                    console.log("[SCANNER] Conectado via ID físico direto:", allDevices[0].id);
+                  } else {
+                    await tryStart({ facingMode: "user" });
+                    success = true;
+                    console.log("[SCANNER] Conectado via câmera secundária frontal.");
+                  }
+                } catch (e5) {
+                  console.error("[SCANNER] Falha irrecuperável de inicialização óptica:", e5);
+                  throw e5;
+                }
+              }
             }
           }
         }

@@ -219,45 +219,58 @@ function MainApp() {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     
-    // Check if running in installed PWA standalone mode or inside a social media webview where popups are blocked 100% of the time.
+    // Check if running in installed PWA standalone mode
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+    // Check if on a mobile device (tablet/phone)
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    // Check if inside an in-app browser (social webviews, etc)
     const isInAppBrowser = /FBAN|FBAV|Instagram|WhatsApp|Line|Snapchat/i.test(navigator.userAgent);
 
-    if (isStandalone || isInAppBrowser) {
-      console.log("[AUTH] Standalone PWA or In-App Browser detected. Using redirect for Google Sign-In.");
+    console.log("[AUTH] Google Login info:", { isStandalone, isMobile, isInAppBrowser });
+
+    // For standard mobile browsers (not installed PWA), popups are blocked 100% of the time.
+    // Use standard redirect to ensure it works beautifully without popup blockages!
+    if ((isMobile || isInAppBrowser) && !isStandalone) {
+      console.log("[AUTH] Standard mobile or in-app browser. Directing to signInWithRedirect...");
       try {
         await signInWithRedirect(auth, provider);
       } catch (error: any) {
-        console.error("[AUTH] Error during signInWithRedirect:", error);
-        toast.error('Erro no login Google', { description: 'Não foi possível processar o fluxo Google neste navegador local. Por favor entre com e-mail/senha.' });
+        console.error("[AUTH] Error during signInWithRedirect on mobile:", error);
+        toast.error('Erro no login Google', { 
+          description: 'Não foi possível iniciar o login neste navegador. Por favor, tente pelo Chrome/Safari normal ou use seu e-mail.' 
+        });
         setAuthLoading(false);
       }
       return;
     }
 
+    // For Desktop or Standalone PWA (which uses ASWebAuthenticationSession sheet on iOS where popup is supported):
+    console.log("[AUTH] Desktop or PWA mode. Attempting signInWithPopup first.");
     try {
       await signInWithPopup(auth, provider);
       setIsLoginOpen(false);
     } catch (error: any) {
-      console.warn("[AUTH] Popup authorization failed, testing for redirect fallback or cancellation...", error);
+      console.warn("[AUTH] Popup authorization failed, testing fallback or cancellation...", error);
       
       const isCancelled = error.code === 'auth/cancelled-popup-request' || 
                           error.code === 'auth/popup-closed-by-user' ||
                           error.code === 'auth/redirect-cancelled-by-user';
                           
       if (isCancelled) {
-        console.log("[AUTH] Google login popup cancelled or closed by user.");
+        console.log("[AUTH] Google login popup/sheet cancelled or closed by user.");
         setAuthLoading(false);
         return;
       }
 
-      // If popup was blocked or unsupported (frequent on mobile/tablets), fallback transparently to redirect
+      // If popup was blocked or unsupported, fallback smoothly to redirect
       console.log("[AUTH] Popup blocked or unplayable. Falling back to signInWithRedirect...");
       try {
         await signInWithRedirect(auth, provider);
       } catch (redirectError: any) {
         console.error("[AUTH] Redirect fallback failed too:", redirectError);
-        toast.error('Erro no login Google', { description: 'O navegador impediu o fluxo automático. Por favor utilize e-mail/senha ou redefina sua senha.' });
+        toast.error('Erro no login Google', { 
+          description: 'O navegador impediu o fluxo de login automático. Por favor, tente pelo e-mail/senha.' 
+        });
         setAuthLoading(false);
       }
     } finally {
