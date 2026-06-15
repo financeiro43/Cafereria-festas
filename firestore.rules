@@ -42,24 +42,21 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email.lower() == 'financeiro@modeloalpha.com.br' ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
       );
     }
 
     function isVendor() {
       return isSignedIn() && (
         isAdmin() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor')
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor'
       );
     }
 
     function isRecharge() {
       return isSignedIn() && (
         isAdmin() ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'recharge')
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'recharge'
       );
     }
 
@@ -129,7 +126,7 @@ service cloud.firestore {
           incoming().diff(existing()).affectedKeys().hasOnly(['dailyLimit', 'transactionLimit', 'spentToday', 'lastSpentDate', 'balance', 'balanceType', 'parentUid'])
         );
 
-      allow delete: if isAdmin() || (isSignedIn() && (resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower()));
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
     }
 
     // TRANSACTIONS

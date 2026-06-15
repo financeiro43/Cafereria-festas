@@ -118,76 +118,12 @@ function MainApp() {
       }
 
       console.log("[AUTH] User authenticated:", authUser.email);
-      setLoading(true);
       setUser(authUser);
       const userRef = doc(db, 'users', authUser.uid);
       
       let retryCount = 0;
       const MAX_RETRIES = 3;
 
-      // 1. One-time check and ensure profile exists on Firestore first (migration/creation) before starting the snapshot
-      try {
-        console.log("[AUTH] Assuring profile existence for:", authUser.uid);
-        const checkSnap = await getDoc(userRef);
-        
-        if (!checkSnap.exists()) {
-          console.log("[AUTH] Profile missing, starting migration/creation process...");
-          const userEmail = authUser.email?.toLowerCase();
-          
-          if (userEmail) {
-            const q = query(
-              collection(db, 'users'), 
-              where('email', '==', userEmail),
-              limit(1)
-            );
-            const emailSnap = await getDocs(q);
-            
-            if (!emailSnap.empty) {
-              const existingDoc = emailSnap.docs[0];
-              const existingData = existingDoc.data();
-              console.log("[AUTH] Migration: pre-register record found for email", authUser.email);
-              
-              const newProfile: UserProfile = {
-                ...(existingData as any),
-                uid: authUser.uid,
-                qrCode: (existingData.qrCode && !existingData.qrCode.startsWith('PENDING-')) ? existingData.qrCode : authUser.uid,
-                name: existingData.name || authUser.displayName || 'Usuário',
-                email: userEmail,
-                role: authUser.email?.toLowerCase() === 'financeiro@modeloalpha.com.br' ? 'admin' : (existingData.role || 'student')
-              };
-              
-              console.log("[AUTH] Creating secure migrated user document:", newProfile);
-              await setDoc(userRef, newProfile);
-              
-              if (existingDoc.id !== authUser.uid) {
-                console.log("[AUTH] Deleting old duplicate pre-register reference:", existingDoc.id);
-                try {
-                  await deleteDoc(existingDoc.ref);
-                } catch (delError) {
-                  console.warn("[AUTH] Minor warning: could not delete duplicate pre-register doc:", delError);
-                }
-              }
-            } else {
-              console.log("[AUTH] No pre-register found. Creating standard clean new profile.");
-              const newProfile: UserProfile = {
-                uid: authUser.uid,
-                name: authUser.displayName || 'Usuário',
-                email: userEmail,
-                balance: 0,
-                role: authUser.email?.toLowerCase() === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
-                qrCode: authUser.uid
-              };
-              await setDoc(userRef, newProfile);
-            }
-          }
-        } else {
-          console.log("[AUTH] Profile assured. Realtime sync will activate.");
-        }
-      } catch (initErr) {
-        console.error("[AUTH] Error checking/ensuring Firestore user profile on start:", initErr);
-      }
-
-      // 2. Start the realtime profile listener, now fully guaranteed to find a premade doc
       const startProfileListener = () => {
         console.log("[AUTH] Starting profile listener for:", authUser.uid);
         return onSnapshot(userRef, async (snap) => {
@@ -196,7 +132,7 @@ function MainApp() {
               const data = snap.data() as UserProfile;
               console.log("[AUTH] Profile found, role:", data.role);
 
-              if (authUser.email?.toLowerCase() === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
+              if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
                 await updateDoc(userRef, { role: 'admin' });
                 data.role = 'admin';
               }
@@ -209,20 +145,46 @@ function MainApp() {
                 const target = data.role === 'admin' ? '/admin' : 
                              data.role === 'vendor' ? '/pdv' : 
                              data.role === 'recharge' ? '/recharge' : '/portal';
-                console.log("[AUTH] Auto-redirecting on login/root to:", target);
+                console.log("[AUTH] Auto-redirecting to:", target);
                 navigate(target);
               }
             } else {
-              console.warn("[AUTH] Profile not found in direct snap. Re-creating safe fallback.");
-              const newProfile: UserProfile = {
-                uid: authUser.uid,
-                name: authUser.displayName || 'Usuário',
-                email: authUser.email?.toLowerCase() || '',
-                balance: 0,
-                role: authUser.email?.toLowerCase() === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
-                qrCode: authUser.uid
-              };
-              await setDoc(userRef, newProfile);
+              console.log("[AUTH] Profile missing, starting migration/creation...");
+              // Check for migration
+              const q = query(
+                collection(db, 'users'), 
+                where('email', '==', authUser.email?.toLowerCase()),
+                limit(1)
+              );
+              const emailSnap = await getDocs(q);
+              
+              if (!emailSnap.empty) {
+                const existingDoc = emailSnap.docs[0];
+                const existingData = existingDoc.data();
+                console.log("[AUTH] Migration: record found for email", authUser.email);
+                const newProfile: UserProfile = {
+                  ...(existingData as any),
+                  uid: authUser.uid,
+                  qrCode: existingData.qrCode || authUser.uid,
+                  name: existingData.name || authUser.displayName || 'Usuário',
+                  email: authUser.email?.toLowerCase() || existingData.email,
+                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : (existingData.role || 'student')
+                };
+                await setDoc(userRef, newProfile);
+                if (existingDoc.id !== authUser.uid) await deleteDoc(existingDoc.ref);
+              } else {
+                console.log("[AUTH] Creating new profile for:", authUser.email);
+                const newProfile: UserProfile = {
+                  uid: authUser.uid,
+                  name: authUser.displayName || 'Usuário',
+                  email: authUser.email || '',
+                  balance: 0,
+                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
+                  qrCode: authUser.uid
+                };
+                await setDoc(userRef, newProfile);
+              }
+              // setDoc will trigger the snapshot listener again
             }
           } catch (e) {
             console.error("[AUTH] Error in snapshot processing:", e);

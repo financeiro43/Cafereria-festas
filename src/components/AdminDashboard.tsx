@@ -648,7 +648,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
   const filteredUsers = useMemo(() => {
     let list = users.filter(user => {
-      if (user.role === 'admin' && profile.email?.toLowerCase() !== 'financeiro@modeloalpha.com.br') return false; // Hide other admins unless super admin
+      if (user.role === 'admin' && profile.email !== 'financeiro@modeloalpha.com.br') return false; // Hide other admins unless super admin
       
       const matchesSearch = 
         user.name.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
