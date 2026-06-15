@@ -357,8 +357,8 @@ export default function VendorDashboard({
       setIsScanning(false);
       const toastId = toast.loading('Identificando cliente...', { id: 'v-scan' });
       
-      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText));
-      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
+      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
+      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
       
       const [snapMain, snapCards] = await Promise.all([
         getDocs(qMain),

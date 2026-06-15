@@ -154,15 +154,16 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       const cleanText = decodedText.trim();
       if (!cleanText) return;
 
-      // Try qrCode first
-      let q = query(collection(db, 'users'), where('qrCode', '==', cleanText));
-      let querySnapshot = await getDocs(q);
+      // Run queries in parallel to make dynamic identification twice as fast!
+      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
+      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
       
-      // Fallback to linkedCards if not found
-      if (querySnapshot.empty) {
-        q = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText));
-        querySnapshot = await getDocs(q);
-      }
+      const [snapMain, snapCards] = await Promise.all([
+        getDocs(qMain),
+        getDocs(qCards)
+      ]);
+      
+      const querySnapshot = !snapMain.empty ? snapMain : snapCards;
       
       if (querySnapshot.empty) {
         toast.error('Cartão não identificado no sistema');
