@@ -118,6 +118,7 @@ function MainApp() {
       }
 
       console.log("[AUTH] User authenticated:", authUser.email);
+      setLoading(true);
       setUser(authUser);
       const userRef = doc(db, 'users', authUser.uid);
       
@@ -152,7 +153,7 @@ function MainApp() {
                 qrCode: (existingData.qrCode && !existingData.qrCode.startsWith('PENDING-')) ? existingData.qrCode : authUser.uid,
                 name: existingData.name || authUser.displayName || 'Usuário',
                 email: userEmail,
-                role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : (existingData.role || 'student')
+                role: authUser.email?.toLowerCase() === 'financeiro@modeloalpha.com.br' ? 'admin' : (existingData.role || 'student')
               };
               
               console.log("[AUTH] Creating secure migrated user document:", newProfile);
@@ -173,7 +174,7 @@ function MainApp() {
                 name: authUser.displayName || 'Usuário',
                 email: userEmail,
                 balance: 0,
-                role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
+                role: authUser.email?.toLowerCase() === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
                 qrCode: authUser.uid
               };
               await setDoc(userRef, newProfile);
@@ -195,7 +196,7 @@ function MainApp() {
               const data = snap.data() as UserProfile;
               console.log("[AUTH] Profile found, role:", data.role);
 
-              if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
+              if (authUser.email?.toLowerCase() === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
                 await updateDoc(userRef, { role: 'admin' });
                 data.role = 'admin';
               }
@@ -218,7 +219,7 @@ function MainApp() {
                 name: authUser.displayName || 'Usuário',
                 email: authUser.email?.toLowerCase() || '',
                 balance: 0,
-                role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
+                role: authUser.email?.toLowerCase() === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
                 qrCode: authUser.uid
               };
               await setDoc(userRef, newProfile);

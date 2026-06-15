@@ -42,21 +42,24 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email.lower() == 'financeiro@modeloalpha.com.br' ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
     }
 
     function isVendor() {
       return isSignedIn() && (
         isAdmin() ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor'
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor')
       );
     }
 
     function isRecharge() {
       return isSignedIn() && (
         isAdmin() ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'recharge'
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'recharge')
       );
     }
 
