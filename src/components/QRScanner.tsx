@@ -86,72 +86,68 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
           );
         };
 
-        // Pequeno delay para garantir que o DOM está pronto e animado
-        await new Promise(resolve => setTimeout(resolve, 350));
-        if (!isMounted) return;
-
+        // 1. PRIMEIRA TENTATIVA DE ALTA VELOCIDADE (Sem delongas ou setTimeout para preservar o gesto de clique no iOS PWA/Safaripreciso)
         let success = false;
-        let cameraIdOrConfig: any = { facingMode: "environment" };
-
+        
+        console.log("[SCANNER] Tentando inicialização óptica imediata via padrão 'environment' para preservar o gesto do usuário...");
         try {
-          const devices = await Html5Qrcode.getCameras().catch(() => []);
-          console.log("[SCANNER] Dispositivos de captura encontrados:", devices);
+          // Usando facingMode de primeira linha para desencadear o prompt de permissão nativo imediatamente no fluxo síncrono do clique
+          await tryStart({ facingMode: "environment" });
+          success = true;
+          console.log("[SCANNER] Conectado instantaneamente em primeiro plano.");
+        } catch (e1) {
+          console.warn("[SCANNER] Primeira tentativa direta falhou ou requer varredura de câmeras detalhada:", e1);
+          
+          if (!isMounted) return;
 
-          if (devices && devices.length > 0) {
-            // Verificar se as etiquetas (labels) estão visíveis (concedidas ou expostas)
-            const hasLabels = devices.some(d => d.label && d.label.trim().length > 0);
+          // Se falhou (ou se precisamos verificar lentes específicas por erro de restrição), tentamos buscar câmeras enumeradas
+          try {
+            console.log("[SCANNER] Tentando varredura e filtro avançado de lentes físicas traseiras...");
+            const devices = await Html5Qrcode.getCameras().catch(() => []);
             
-            if (hasLabels) {
-              const backDevices = devices.filter(d => 
-                /back|traseira|rear|environment|direcional|outdoor|retaguarda|principal/i.test(d.label) || 
-                /camera\s*0|câmera\s*0/i.test(d.label)
-              );
+            if (devices && devices.length > 0) {
+              const hasLabels = devices.some(d => d.label && d.label.trim().length > 0);
+              let fallbackConfig: any = { facingMode: "environment" };
               
-              if (backDevices.length > 0) {
-                // Filtrar lentes especiais de grande ângulo ou zoom teleobjetivo
-                const mainBackDevices = backDevices.filter(d => 
-                  !/ultra|wide|tele|zoom|macro|0\.5|3x|5x|virtual/i.test(d.label.toLowerCase())
+              if (hasLabels) {
+                const backDevices = devices.filter(d => 
+                  /back|traseira|rear|environment|direcional|outdoor|retaguarda|principal/i.test(d.label) || 
+                  /camera\s*0|câmera\s*0/i.test(d.label)
                 );
                 
-                console.log("[SCANNER] Lentes traseiras identificadas:", backDevices);
-                console.log("[SCANNER] Lente traseira principal (1x) sugerida:", mainBackDevices);
-                
-                const selectedCameraId = mainBackDevices.length > 0 
-                  ? mainBackDevices[0].id 
-                  : backDevices[0].id;
-                
-                // Usando ID bruto de string para evitar conflitos (super seguro)
-                cameraIdOrConfig = selectedCameraId;
-              } else {
-                cameraIdOrConfig = devices[0].id;
+                if (backDevices.length > 0) {
+                  const mainBackDevices = backDevices.filter(d => 
+                    !/ultra|wide|tele|zoom|macro|0\.5|3x|5x|virtual/i.test(d.label.toLowerCase())
+                  );
+                  
+                  const selectedCameraId = mainBackDevices.length > 0 
+                    ? mainBackDevices[0].id 
+                    : backDevices[0].id;
+                    
+                  fallbackConfig = selectedCameraId;
+                } else {
+                  fallbackConfig = devices[0].id;
+                }
               }
+              
+              console.log("[SCANNER] Tentando iniciar via ID calibrado:", fallbackConfig);
+              await tryStart(fallbackConfig);
+              success = true;
+              console.log("[SCANNER] Conectado em segunda linha via câmera candidata.");
             } else {
-              cameraIdOrConfig = { facingMode: "environment" };
+              // Sem câmeras enumeradas ou falhou, tenta outra abordagem ou re-throw
+              throw e1;
             }
-          }
-        } catch (err) {
-          console.warn("[SCANNER] Erro enumerando câmeras, usando padrão environment:", err);
-          cameraIdOrConfig = { facingMode: "environment" };
-        }
-
-        console.log("[SCANNER] Inicializando leitor óptico com:", cameraIdOrConfig);
-
-        // Tentativa 1: ID selecionado pré-filtrado ou facingMode em primeiro acesso
-        try {
-          await tryStart(cameraIdOrConfig);
-          success = true;
-          console.log("[SCANNER] Conectado via câmera sugerida com sucesso.");
-        } catch (e1) {
-          console.warn("[SCANNER] Falha na inicialização com câmera específica. Tentando padrão genérico...", e1);
-          
-          try {
-            // Tentativa 2: facingMode padrão de contingência
-            await tryStart({ facingMode: "environment" });
-            success = true;
-            console.log("[SCANNER] Conectado via facingMode simples de contingência.");
           } catch (e2) {
-            console.error("[SCANNER] Todas as tentativas de conexão óptica falharam:", e2);
-            throw e2;
+            console.warn("[SCANNER] Segunda tentativa detalhada falhou. Tentando facingMode exato...", e2);
+            try {
+              await tryStart({ facingMode: { exact: "environment" } });
+              success = true;
+              console.log("[SCANNER] Conectado via exact environment.");
+            } catch (e3) {
+              console.error("[SCANNER] Falha total em todas as estratégias ópticas:", e3);
+              throw e3;
+            }
           }
         }
 
