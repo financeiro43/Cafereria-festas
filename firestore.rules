@@ -126,7 +126,7 @@ service cloud.firestore {
           incoming().diff(existing()).affectedKeys().hasOnly(['dailyLimit', 'transactionLimit', 'spentToday', 'lastSpentDate', 'balance', 'balanceType', 'parentUid'])
         );
 
-      allow delete: if isAdmin() || (isSignedIn() && resource.data.email == request.auth.token.email);
+      allow delete: if isAdmin() || (isSignedIn() && (resource.data.email == request.auth.token.email || resource.data.email.lower() == request.auth.token.email.lower()));
     }
 
     // TRANSACTIONS
