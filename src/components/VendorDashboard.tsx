@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, getDoc, addDoc, doc, updateDoc, increment, serverTimestamp, onSnapshot, orderBy, limit, getDocsFromCache } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, addDoc, doc, updateDoc, increment, serverTimestamp, onSnapshot, orderBy, limit, getDocsFromCache, getDocFromCache } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -402,8 +402,18 @@ export default function VendorDashboard({
       // Se o usuário possuir saldo compartilhado com um parente/responsável (parentUid)
       if ((!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid) {
         try {
-          const parentDoc = await getDoc(doc(db, 'users', userData.parentUid));
-          if (parentDoc.exists()) {
+          let parentDoc: any = null;
+          try {
+            parentDoc = await getDocFromCache(doc(db, 'users', userData.parentUid));
+          } catch (cacheErr) {
+            console.warn("[CACHE] Parent lookup from cache failed, trying server...", cacheErr);
+          }
+
+          if (!parentDoc) {
+            parentDoc = await getDoc(doc(db, 'users', userData.parentUid));
+          }
+
+          if (parentDoc && parentDoc.exists()) {
             const parentData = parentDoc.data() as UserProfile;
             userData.balance = parentData.balance || 0;
           }

@@ -57,7 +57,7 @@ export default function QRScanner({ onScan, onClose, title = "Escanear QR Code" 
         html5QrCodeRef.current = scanner;
 
         const config = {
-          fps: 30,
+          fps: 20,
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
             const size = Math.floor(minEdge * 0.85);
