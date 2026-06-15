@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc, orderBy, limit, Timestamp, increment, serverTimestamp, where, getDocs, getDoc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc, orderBy, limit, Timestamp, increment, serverTimestamp, where, getDocs, getDoc, setDoc, getDocsFromCache } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -3551,12 +3551,30 @@ function RechargePortal({
       const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
       const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
       
-      const [snapMain, snapCards] = await Promise.all([
-        getDocs(qMain),
-        getDocs(qCards)
-      ]);
+      let snapMain: any = null;
+      let snapCards: any = null;
       
-      const snap = !snapMain.empty ? snapMain : snapCards;
+      try {
+        // Try local offline cache first (extremely fast, ~0ms latency!)
+        [snapMain, snapCards] = await Promise.all([
+          getDocsFromCache(qMain),
+          getDocsFromCache(qCards)
+        ]);
+      } catch (cacheErr) {
+        console.warn("[CACHE] Cache lookup failed, searching server...", cacheErr);
+      }
+      
+      // Fallback to fetch from server if cache was empty or failed
+      if (!snapMain || (snapMain.empty && (!snapCards || snapCards.empty))) {
+        const [serverMain, serverCards] = await Promise.all([
+          getDocs(qMain),
+          getDocs(qCards)
+        ]);
+        snapMain = serverMain;
+        snapCards = serverCards;
+      }
+      
+      const snap = (snapMain && !snapMain.empty) ? snapMain : (snapCards || { empty: true });
 
       if (!snap.empty) {
         const userData = snap.docs[0].data() as UserProfile;

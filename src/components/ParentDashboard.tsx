@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs, updateDoc, increment, startAfter } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs, updateDoc, increment, startAfter, getDocsFromCache } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -158,12 +158,30 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
       const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
       
-      const [snapMain, snapCards] = await Promise.all([
-        getDocs(qMain),
-        getDocs(qCards)
-      ]);
+      let snapMain: any = null;
+      let snapCards: any = null;
       
-      const querySnapshot = !snapMain.empty ? snapMain : snapCards;
+      try {
+        // Try local offline cache first (extremely fast, ~0ms latency!)
+        [snapMain, snapCards] = await Promise.all([
+          getDocsFromCache(qMain),
+          getDocsFromCache(qCards)
+        ]);
+      } catch (cacheErr) {
+        console.warn("[CACHE] Cache lookup failed, searching server...", cacheErr);
+      }
+      
+      // Fallback to fetch from server if cache was empty or failed
+      if (!snapMain || (snapMain.empty && (!snapCards || snapCards.empty))) {
+        const [serverMain, serverCards] = await Promise.all([
+          getDocs(qMain),
+          getDocs(qCards)
+        ]);
+        snapMain = serverMain;
+        snapCards = serverCards;
+      }
+      
+      const querySnapshot = (snapMain && !snapMain.empty) ? snapMain : (snapCards || { empty: true });
       
       if (querySnapshot.empty) {
         toast.error('Cartão não identificado no sistema');
