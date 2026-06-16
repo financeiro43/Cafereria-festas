@@ -360,54 +360,30 @@ export default function VendorDashboard({
       
       let userDoc: any = null;
 
-      // Tier 1: Try reading as absolute direct Document Uid from local cache first, then server
       try {
-        const userRef = doc(db, 'users', cleanText);
-        userDoc = await getDocFromCache(userRef).catch(() => null);
-        if (!userDoc || !userDoc.exists()) {
-          const directServer = await getDoc(userRef);
-          if (directServer.exists()) {
-            userDoc = directServer;
-          }
-        }
-      } catch (directQueryErr) {
-        console.warn("[DIRECT LOOKUP/CACHE] SKipped or failed:", directQueryErr);
-      }
+        // Ejecutar las tres búsquedas en paralelo con control de errores individual para
+        // evitar que cualquier problema de permisos, de índice o de ID inválido bloquee el proceso.
+        const promises = [
+          // 1. Buscar directamente por Document ID
+          getDoc(doc(db, 'users', cleanText))
+            .then(snap => (snap.exists() ? snap : null))
+            .catch(() => null),
 
-      // Tier 2: Search by 'qrCode' property (indexed single field) from local cache, then server
-      if (!userDoc) {
-        const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
-        try {
-          const cachedMain = await getDocsFromCache(qMain).catch(() => null);
-          if (cachedMain && !cachedMain.empty) {
-            userDoc = cachedMain.docs[0];
-          } else {
-            const serverMain = await getDocs(qMain);
-            if (!serverMain.empty) {
-              userDoc = serverMain.docs[0];
-            }
-          }
-        } catch (qrFieldErr) {
-          console.warn("[QRCODE PROP LOOKUP] Skipped or failed:", qrFieldErr);
-        }
-      }
+          // 2. Buscar por campo qrCode
+          getDocs(query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1)))
+            .then(snap => (!snap.empty ? snap.docs[0] : null))
+            .catch(() => null),
 
-      // Tier 3: Search by 'linkedCards' array (array search can be slower, so we isolate it last)
-      if (!userDoc) {
-        const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
-        try {
-          const cachedCards = await getDocsFromCache(qCards).catch(() => null);
-          if (cachedCards && !cachedCards.empty) {
-            userDoc = cachedCards.docs[0];
-          } else {
-            const serverCards = await getDocs(qCards);
-            if (!serverCards.empty) {
-              userDoc = serverCards.docs[0];
-            }
-          }
-        } catch (cardsErr) {
-          console.warn("[LINKED CARDS LOOKUP] Skipped or failed:", cardsErr);
-        }
+          // 3. Buscar en el array linkedCards
+          getDocs(query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1)))
+            .then(snap => (!snap.empty ? snap.docs[0] : null))
+            .catch(() => null)
+        ];
+
+        const results = await Promise.all(promises);
+        userDoc = results.find(docRef => docRef !== null);
+      } catch (err) {
+        console.warn("Erro ao buscar usuário em paralelo:", err);
       }
 
       toast.dismiss(toastId);
@@ -426,12 +402,7 @@ export default function VendorDashboard({
       // Se o usuário possuir saldo compartilhado com um parente/responsável (parentUid)
       if ((!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid) {
         try {
-          let parentDoc: any = null;
-          try {
-            parentDoc = await getDocFromCache(doc(db, 'users', userData.parentUid));
-          } catch (cacheErr) {
-            parentDoc = await getDoc(doc(db, 'users', userData.parentUid));
-          }
+          const parentDoc = await getDoc(doc(db, 'users', userData.parentUid)).catch(() => null);
           if (parentDoc && parentDoc.exists()) {
             const parentData = parentDoc.data() as UserProfile;
             userData.balance = parentData.balance || 0;
