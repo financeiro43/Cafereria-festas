@@ -174,6 +174,34 @@ export default function VendorDashboard({
     timestamp: Date;
   } | null>(null);
 
+  const [posSales, setPosSales] = useState<any[]>([]);
+  const [deliveredDigitalOrders, setDeliveredDigitalOrders] = useState<any[]>([]);
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
+  const [ordersSubTab, setOrdersSubTab] = useState<'pending' | 'history'>('pending');
+
+  const allPreviousOrders = useMemo(() => {
+    const combined = [...posSales, ...deliveredDigitalOrders];
+    return combined.sort((a, b) => {
+      const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp instanceof Date ? a.timestamp.getTime() : 0);
+      const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp instanceof Date ? b.timestamp.getTime() : 0);
+      return timeB - timeA;
+    });
+  }, [posSales, deliveredDigitalOrders]);
+
+  const filteredPreviousOrders = useMemo(() => {
+    return allPreviousOrders.filter(order => {
+      const queryStr = historySearchQuery.toLowerCase().trim();
+      if (!queryStr) return true;
+      
+      const clientMatch = order.clientName.toLowerCase().includes(queryStr);
+      const cardMatch = order.cardNumber?.toLowerCase().includes(queryStr) || formatCardNumber(order.cardNumber || '').toLowerCase().includes(queryStr);
+      const itemsMatch = order.items.some((item: string) => item.toLowerCase().includes(queryStr));
+      const idMatch = order.id.toLowerCase().includes(queryStr);
+      
+      return clientMatch || cardMatch || itemsMatch || idMatch;
+    });
+  }, [allPreviousOrders, historySearchQuery]);
+
   useEffect(() => {
     if (profile.role === 'admin') {
       const unsub = onSnapshot(collection(db, 'stalls'), (snap) => {
@@ -221,24 +249,62 @@ export default function VendorDashboard({
     // Fetch Digital Orders
     const qO = query(
       collection(db, 'orders'), 
-      where('stallId', '==', activeStallId), 
-      where('status', '==', 'pending')
+      where('stallId', '==', activeStallId)
     );
     const unsubOrders = onSnapshot(qO, (snap) => {
-      const ordersData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+      const allOrders = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
+      
+      // Filter out pending ones
+      const pendingOrders = allOrders.filter(o => o.status === 'pending');
       // Sort on client side to avoid composite index requirement
-      const sortedOrders = ordersData.sort((a, b) => {
+      const sortedOrders = pendingOrders.sort((a, b) => {
         const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
         const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
         return timeA - timeB; // Oldest first for delivery queue
       });
       setOrders(sortedOrders);
+
+      // Filter out completed / delivered/ cancelled ones
+      const completedOrders = allOrders.filter(o => o.status !== 'pending').map(order => ({
+        id: order.id,
+        type: 'digital',
+        clientName: order.studentName || 'Cliente anônimo',
+        items: order.items || [],
+        total: order.total || 0,
+        cardNumber: '',
+        timestamp: order.timestamp,
+        status: order.status
+      }));
+      setDeliveredDigitalOrders(completedOrders);
+    });
+
+    // Fetch POS Sales (consumption)
+    const qC = query(
+      collection(db, 'consumption'),
+      where('stallId', '==', activeStallId)
+    );
+    const unsubConsumption = onSnapshot(qC, (snap) => {
+      const sales = snap.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          type: 'pdv',
+          clientName: data.clientName || data.studentName || 'Cliente anônimo',
+          items: data.items || [],
+          total: data.amount || 0,
+          cardNumber: data.cardNumber || '',
+          timestamp: data.timestamp,
+          status: 'completed'
+        };
+      });
+      setPosSales(sales);
     });
 
     return () => {
       unsubStall();
       unsubProducts();
       unsubOrders();
+      unsubConsumption();
     };
   }, [activeStallId]);
 
@@ -1064,224 +1130,360 @@ export default function VendorDashboard({
             exit={{ opacity: 0, scale: 1.02 }}
             className="space-y-8 pb-10"
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
                <div className="flex items-center gap-4">
                  <div className="h-14 w-14 bg-gradient-to-br from-blue-500 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
                     <Package className="h-7 w-7 text-white" />
                  </div>
                  <div>
-                    <h3 className="text-2xl font-black text-white uppercase tracking-tight">Pedidos Ativos</h3>
-                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Gerencie e entregue os pedidos do evento</p>
+                    <h3 className="text-2xl font-black text-white uppercase tracking-tight">Central de Pedidos</h3>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Controle seus pedidos digitais e vendas diretas do PDV</p>
                  </div>
                </div>
-               <div className="flex items-center gap-3">
-                 <div className="bg-blue-500/10 px-4 py-2 rounded-2xl border border-blue-500/20 flex items-center gap-2">
-                   <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-                   <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">{orders.length} Pedidos Pendentes</span>
-                 </div>
+               
+               {/* Sub-tabs comutadoras embutidas */}
+               <div className="flex bg-slate-950/80 p-1 rounded-2xl border border-white/10 w-full lg:w-auto self-stretch lg:self-center">
+                 <button
+                   onClick={() => setOrdersSubTab('pending')}
+                   className={`flex-1 lg:flex-none py-2.5 px-6 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                     ordersSubTab === 'pending'
+                       ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                       : 'text-slate-400 hover:text-white hover:bg-white/5'
+                   }`}
+                 >
+                   <Clock className="h-3.5 w-3.5" />
+                   Pendentes ({orders.length})
+                 </button>
+                 <button
+                   onClick={() => setOrdersSubTab('history')}
+                   className={`flex-1 lg:flex-none py-2.5 px-6 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                     ordersSubTab === 'history'
+                       ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                       : 'text-slate-400 hover:text-white hover:bg-white/5'
+                   }`}
+                 >
+                   <Search className="h-3.5 w-3.5" />
+                   Histórico / PDV ({allPreviousOrders.length})
+                 </button>
                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Seção de Última Venda Realizada - Para Conferência */}
-              {lastSale && (
-                <motion.div 
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="col-span-full"
-                >
-                  <Card className="bg-emerald-500/10 border-emerald-500/20 text-emerald-100 rounded-[32px] overflow-hidden">
-                    <CardHeader className="bg-emerald-500/10 border-b border-emerald-500/10 p-5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                            <CheckCircle2 className="h-5 w-5 text-white" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-sm font-black uppercase tracking-widest text-emerald-400">Última Venda Realizada</CardTitle>
-                            <CardDescription className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-widest">Concluída há pouco para conferência</CardDescription>
-                          </div>
-                        </div>
-                        <span className="text-[10px] font-black tabular-nums bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-500/10">
-                          {lastSale.timestamp.toLocaleTimeString('pt-BR')}
-                        </span>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="p-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                        <div className="space-y-4">
-                          <div className="bg-black/20 p-4 rounded-2xl border border-emerald-500/10">
-                             <div className="flex items-center gap-2 mb-2">
-                                <UserCheck className="h-4 w-4 text-emerald-500" />
-                                <span className="text-[10px] font-black uppercase text-emerald-500/70">Cliente</span>
-                             </div>
-                             <p className="font-black text-lg uppercase tracking-tight">{lastSale.userName}</p>
-                          </div>
-                          <div className="bg-black/20 p-4 rounded-2xl border border-emerald-500/10">
-                             <div className="flex items-center gap-2 mb-2">
-                                <Receipt className="h-4 w-4 text-emerald-500" />
-                                <span className="text-[10px] font-black uppercase text-emerald-500/70">Total Pago</span>
-                             </div>
-                             <p className="font-black text-3xl tracking-tighter">
-                               <span className="text-base font-bold opacity-50 mr-1">R$</span>
-                               {lastSale.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                             </p>
-                          </div>
-                        </div>
-                        
-                        <div className="bg-emerald-950/20 p-6 rounded-3xl border-2 border-emerald-500/10 relative overflow-hidden">
-                           <div className="absolute top-0 right-0 p-4 opacity-5">
-                             <ShoppingCart className="h-24 w-24" />
-                           </div>
-                           <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-4 flex items-center gap-2">
-                             <Package className="h-3 w-3" /> Itens Vendidos
-                           </h4>
-                           <ul className="space-y-2">
-                              {lastSale.items.map((item, i) => (
-                                <li key={i} className="flex justify-between items-center text-xs font-bold text-emerald-100/90 py-2 border-b border-white/5 last:border-0">
-                                   <span className="bg-emerald-500/20 px-2 py-0.5 rounded text-[10px] font-black mr-2">{item.split('x')[0]}x</span>
-                                   <span className="flex-1 truncate uppercase">{item.split('x')[1].trim()}</span>
-                                </li>
-                              ))}
-                           </ul>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              )}
-
-              {orders.length === 0 ? (
-                <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="col-span-full py-48 text-center text-slate-500 border-4 border-dashed border-white/5 rounded-[48px] bg-white/[0.01] backdrop-blur-sm"
-                >
-                  <Clock className="h-24 w-24 mx-auto opacity-10 mb-8" />
-                  <p className="text-xl font-black uppercase tracking-[0.2em] opacity-30">Aguardando novos pedidos...</p>
-                  <Button 
-                    variant="ghost" 
-                    onClick={() => setActiveTab('pos')} 
-                    className="mt-6 font-black text-[10px] uppercase tracking-widest text-blue-500 hover:text-white hover:bg-blue-600/20 rounded-full px-8 py-6 h-auto transition-all"
+            {ordersSubTab === 'pending' ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Seção de Última Venda Realizada - Para Conferência */}
+                {lastSale && (
+                  <motion.div 
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="col-span-full"
                   >
-                    VOLTAR AO PDV
-                  </Button>
-                </motion.div>
-              ) : (
-                orders.map((order, idx) => {
-                  const isExpanded = expandedOrderId === order.id;
-                  return (
-                    <motion.div
-                      key={order.id}
-                      initial={{ opacity: 0, y: 30 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.05 }}
-                      layout
-                    >
-                      <Card 
-                        onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
-                        className={`bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative cursor-pointer active:scale-[0.99] ${isExpanded ? 'ring-2 ring-blue-500/40' : ''}`}
-                      >
-                        {/* Status Badge */}
-                        <div className="absolute top-6 right-6 flex items-center gap-2 z-20">
-                          <div className="flex items-center gap-1.5 bg-blue-500/10 px-3 py-1.5 rounded-xl border border-blue-500/20">
-                            <Clock className="h-3 w-3 text-blue-400 animate-pulse" />
-                            <span className="text-[9px] font-black uppercase text-blue-400 tracking-widest">PENDENTE</span>
+                    <Card className="bg-emerald-500/10 border-emerald-500/20 text-emerald-100 rounded-[32px] overflow-hidden">
+                      <CardHeader className="bg-emerald-500/10 border-b border-emerald-500/10 p-5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="h-10 w-10 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                              <CheckCircle2 className="h-5 w-5 text-white" />
+                            </div>
+                            <div>
+                              <CardTitle className="text-sm font-black uppercase tracking-widest text-emerald-400">Última Venda Realizada</CardTitle>
+                              <CardDescription className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-widest">Concluída há pouco para conferência</CardDescription>
+                            </div>
                           </div>
-                          <div className={`transition-transform duration-300 bg-white/5 p-1.5 rounded-xl border border-white/5 ${isExpanded ? 'rotate-180' : ''}`}>
-                            <ChevronDown className="h-4 w-4 text-slate-500" />
+                          <span className="text-[10px] font-black tabular-nums bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-500/10">
+                            {lastSale.timestamp.toLocaleTimeString('pt-BR')}
+                          </span>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                          <div className="space-y-4">
+                            <div className="bg-black/20 p-4 rounded-2xl border border-emerald-500/10">
+                               <div className="flex items-center gap-2 mb-2">
+                                  <UserCheck className="h-4 w-4 text-emerald-500" />
+                                  <span className="text-[10px] font-black uppercase text-emerald-500/70">Cliente</span>
+                               </div>
+                               <p className="font-black text-lg uppercase tracking-tight">{lastSale.userName}</p>
+                            </div>
+                            <div className="bg-black/20 p-4 rounded-2xl border border-emerald-500/10">
+                               <div className="flex items-center gap-2 mb-2">
+                                  <Receipt className="h-4 w-4 text-emerald-500" />
+                                  <span className="text-[10px] font-black uppercase text-emerald-500/70">Total Pago</span>
+                               </div>
+                               <p className="font-black text-3xl tracking-tighter">
+                                 <span className="text-base font-bold opacity-50 mr-1">R$</span>
+                                 {lastSale.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                               </p>
+                            </div>
+                          </div>
+                          
+                          <div className="bg-emerald-950/20 p-6 rounded-3xl border-2 border-emerald-500/10 relative overflow-hidden">
+                             <div className="absolute top-0 right-0 p-4 opacity-5">
+                               <ShoppingCart className="h-24 w-24" />
+                             </div>
+                             <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-4 flex items-center gap-2">
+                               <Package className="h-3 w-3" /> Itens Vendidos
+                             </h4>
+                             <ul className="space-y-2">
+                                {lastSale.items.map((item, i) => (
+                                  <li key={i} className="flex justify-between items-center text-xs font-bold text-emerald-100/90 py-2 border-b border-white/5 last:border-0">
+                                     <span className="bg-emerald-500/20 px-2 py-0.5 rounded text-[10px] font-black mr-2">{item.split('x')[0]}x</span>
+                                     <span className="flex-1 truncate uppercase">{item.split('x')[1].trim()}</span>
+                                  </li>
+                                ))}
+                             </ul>
                           </div>
                         </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                )}
 
-                        <CardHeader className={`p-8 transition-colors ${isExpanded ? 'bg-white/5' : 'bg-transparent'}`}>
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">#{order.id.slice(-6).toUpperCase()}</span>
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 bg-blue-600/20 rounded-xl flex items-center justify-center font-black text-blue-400 border border-blue-500/20">
-                                {order.studentName.charAt(0).toUpperCase()}
-                              </div>
-                              <CardTitle className="text-xl font-black tracking-tight">{order.studentName}</CardTitle>
+                {orders.length === 0 ? (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="col-span-full py-40 text-center text-slate-500 border-4 border-dashed border-white/5 rounded-[48px] bg-white/[0.01] backdrop-blur-sm"
+                  >
+                    <Clock className="h-20 w-20 mx-auto opacity-10 mb-6" />
+                    <p className="text-lg font-black uppercase tracking-[0.2em] opacity-30">Aguardando novos pedidos...</p>
+                    <Button 
+                      variant="ghost" 
+                      onClick={() => setActiveTab('pos')} 
+                      className="mt-6 font-black text-[10px] uppercase tracking-widest text-blue-500 hover:text-white hover:bg-blue-600/20 rounded-full px-8 py-6 h-auto transition-all"
+                    >
+                      VOLTAR AO PDV
+                    </Button>
+                  </motion.div>
+                ) : (
+                  orders.map((order, idx) => {
+                    const isExpanded = expandedOrderId === order.id;
+                    return (
+                      <motion.div
+                        key={order.id}
+                        initial={{ opacity: 0, y: 30 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: idx * 0.05 }}
+                        layout
+                      >
+                        <Card 
+                          onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
+                          className={`bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative cursor-pointer active:scale-[0.99] ${isExpanded ? 'ring-2 ring-blue-500/40' : ''}`}
+                        >
+                          {/* Status Badge */}
+                          <div className="absolute top-6 right-6 flex items-center gap-2 z-20">
+                            <div className="flex items-center gap-1.5 bg-blue-500/10 px-3 py-1.5 rounded-xl border border-blue-500/20">
+                              <Clock className="h-3 w-3 text-blue-400 animate-pulse" />
+                              <span className="text-[9px] font-black uppercase text-blue-400 tracking-widest">PENDENTE</span>
                             </div>
-                            <div className="flex items-center gap-4 mt-3">
-                              <div className="flex items-center gap-1.5 text-slate-400">
-                                <Package className="h-3.5 w-3.5" />
-                                <span className="text-[10px] font-black uppercase tracking-widest">{order.items.length} {order.items.length === 1 ? 'Item' : 'Itens'}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-blue-400">
-                                <TrendingUp className="h-3.5 w-3.5" />
-                                <span className="text-[10px] font-black uppercase tracking-widest tabular-nums">R$ {order.total.toFixed(2)}</span>
-                              </div>
+                            <div className={`transition-transform duration-300 bg-white/5 p-1.5 rounded-xl border border-white/5 ${isExpanded ? 'rotate-180' : ''}`}>
+                              <ChevronDown className="h-4 w-4 text-slate-500" />
                             </div>
                           </div>
-                        </CardHeader>
 
-                        <AnimatePresence>
-                          {isExpanded && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-                            >
-                              <CardContent className="p-8 pt-0 space-y-6">
-                                <div className="h-px bg-white/5 w-full mb-6" />
-                                
-                                <div className="space-y-3">
-                                  <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-500 flex items-center justify-between">
-                                    <span>Produtos do Pedido</span>
-                                    {order.timestamp && (
-                                       <span className="text-slate-600 lowercase font-normal italic">
-                                         at {new Date(order.timestamp.toMillis?.() || Date.now()).toLocaleTimeString()}
-                                       </span>
-                                    )}
-                                  </p>
-                                  <div className="grid gap-2">
-                                    {order.items.map((item, idx) => (
-                                      <div key={idx} className="group/item flex items-center justify-between bg-white/[0.03] p-4 rounded-2xl border border-white/5 hover:bg-white/[0.05] transition-all">
-                                        <div className="flex items-center gap-3">
-                                          <div className="h-6 w-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                                            <Package className="h-3 w-3 text-blue-500 group-hover/item:scale-110 transition-transform" />
+                          <CardHeader className={`p-8 transition-colors ${isExpanded ? 'bg-white/5' : 'bg-transparent'}`}>
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">#{order.id.slice(-6).toUpperCase()}</span>
+                              <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 bg-blue-600/20 rounded-xl flex items-center justify-center font-black text-blue-400 border border-blue-500/20">
+                                  {order.studentName.charAt(0).toUpperCase()}
+                                </div>
+                                <CardTitle className="text-xl font-black tracking-tight">{order.studentName}</CardTitle>
+                              </div>
+                              <div className="flex items-center gap-4 mt-3">
+                                <div className="flex items-center gap-1.5 text-slate-400">
+                                  <Package className="h-3.5 w-3.5" />
+                                  <span className="text-[10px] font-black uppercase tracking-widest">{order.items.length} {order.items.length === 1 ? 'Item' : 'Itens'}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 text-blue-400">
+                                  <TrendingUp className="h-3.5 w-3.5" />
+                                  <span className="text-[10px] font-black uppercase tracking-widest tabular-nums">R$ {order.total.toFixed(2)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </CardHeader>
+
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+                              >
+                                <CardContent className="p-8 pt-0 space-y-6">
+                                  <div className="h-px bg-white/5 w-full mb-6" />
+                                  
+                                  <div className="space-y-3">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-500 flex items-center justify-between">
+                                      <span>Produtos do Pedido</span>
+                                      {order.timestamp && (
+                                         <span className="text-slate-600 lowercase font-normal italic">
+                                           at {new Date(order.timestamp.toMillis?.() || Date.now()).toLocaleTimeString()}
+                                         </span>
+                                      )}
+                                    </p>
+                                    <div className="grid gap-2">
+                                      {order.items.map((item, idx) => (
+                                        <div key={idx} className="group/item flex items-center justify-between bg-white/[0.03] p-4 rounded-2xl border border-white/5 hover:bg-white/[0.05] transition-all">
+                                          <div className="flex items-center gap-3">
+                                            <div className="h-6 w-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                                              <Package className="h-3 w-3 text-blue-500 group-hover/item:scale-110 transition-transform" />
+                                            </div>
+                                            <p className="font-black text-xs uppercase text-slate-200 tracking-tight">{item}</p>
                                           </div>
-                                          <p className="font-black text-xs uppercase text-slate-200 tracking-tight">{item}</p>
                                         </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row gap-4 items-center justify-between">
+                                    <div className="text-center sm:text-left">
+                                      <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Total Confirmado</p>
+                                      <div className="text-3xl font-black text-white tracking-tighter">
+                                        <span className="text-sm font-bold opacity-30 mr-1">R$</span>
+                                        {order.total.toFixed(2)}
                                       </div>
-                                    ))}
+                                    </div>
+
+                                    <Button 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        markAsDelivered(order.id);
+                                      }}
+                                      className="w-full sm:w-auto h-14 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase tracking-[0.2em] gap-3 rounded-2xl shadow-[0_15px_30px_-5px_rgba(16,185,129,0.3)] transition-all group overflow-hidden relative px-8"
+                                    >
+                                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
+                                      <div className="flex items-center gap-2">
+                                        <PackageCheck className="h-5 w-5" />
+                                        ENTREGAR AGORA
+                                      </div>
+                                    </Button>
+                                  </div>
+                                </CardContent>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </Card>
+                      </motion.div>
+                    );
+                  })
+                )}
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Campo de Busca de Pedidos Anteriores */}
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
+                  <Input
+                    type="text"
+                    placeholder="Buscar por nome do cliente, produto comprado, final do ID ou cartão..."
+                    value={historySearchQuery}
+                    onChange={(e) => setHistorySearchQuery(e.target.value)}
+                    className="pl-12 pr-4 py-6 h-auto bg-white/[0.02] border-white/10 rounded-2xl text-white placeholder-slate-500 text-sm focus:ring-blue-500/50 focus:border-blue-500 w-full"
+                  />
+                </div>
+
+                {filteredPreviousOrders.length === 0 ? (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="py-32 text-center text-slate-500 border-4 border-dashed border-white/5 rounded-[48px] bg-white/[0.01]"
+                  >
+                    <Search className="h-16 w-16 mx-auto opacity-10 mb-4" />
+                    <p className="text-base font-black uppercase tracking-[0.2em] opacity-30">Nenhum pedido anterior encontrado</p>
+                    <p className="text-slate-600 text-xs mt-2 uppercase tracking-widest">Tente usar outros termos de pesquisa</p>
+                  </motion.div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {filteredPreviousOrders.slice(0, 80).map((histOrder, idx) => {
+                      const isPDV = histOrder.type === 'pdv';
+                      const dateStr = histOrder.timestamp?.toMillis 
+                        ? new Date(histOrder.timestamp.toMillis()).toLocaleString('pt-BR')
+                        : (histOrder.timestamp instanceof Date ? histOrder.timestamp.toLocaleString('pt-BR') : 'Sem data');
+
+                      return (
+                        <motion.div
+                          key={histOrder.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: Math.min(idx * 0.03, 0.3) }}
+                        >
+                          <Card className="bg-slate-900/30 backdrop-blur-xl border border-white/10 text-white rounded-[24px] overflow-hidden hover:border-blue-500/30 transition-all shadow-xl h-full flex flex-col justify-between">
+                            <CardHeader className="p-5 bg-white/[0.02] border-b border-white/5">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider">
+                                    #{histOrder.id.slice(-6).toUpperCase()}
+                                  </span>
+                                  {isPDV ? (
+                                    <span className="bg-emerald-500/10 text-emerald-400 text-[8px] font-black uppercase px-2 py-0.5 rounded-lg border border-emerald-500/20 tracking-wider">
+                                      Venda Direta PDV
+                                    </span>
+                                  ) : (
+                                    <span className="bg-blue-500/10 text-blue-400 text-[8px] font-black uppercase px-2 py-0.5 rounded-lg border border-blue-500/20 tracking-wider">
+                                      Pedido Digital
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-500 tabular-nums">
+                                  {dateStr}
+                                </span>
+                              </div>
+                            </CardHeader>
+                            <CardContent className="p-5 space-y-4 flex-1 flex flex-col justify-between">
+                              <div className="space-y-3">
+                                <div className="flex justify-between items-start gap-4">
+                                  <div className="space-y-1 min-w-0">
+                                    <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider leading-none">Cliente</p>
+                                    <p className="font-extrabold text-sm text-slate-200 uppercase tracking-tight truncate max-w-[180px]">
+                                      {histOrder.clientName}
+                                    </p>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider leading-none">Total Pago</p>
+                                    <p className="font-black text-sm text-blue-400 tabular-nums">
+                                      R$ {histOrder.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </p>
                                   </div>
                                 </div>
 
-                                <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row gap-4 items-center justify-between">
-                                  <div className="text-center sm:text-left">
-                                    <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Total Confirmado</p>
-                                    <div className="text-3xl font-black text-white tracking-tighter">
-                                      <span className="text-sm font-bold opacity-30 mr-1">R$</span>
-                                      {order.total.toFixed(2)}
-                                    </div>
+                                {histOrder.cardNumber && (
+                                  <div className="bg-slate-950/40 p-2.5 rounded-xl border border-white/5 flex items-center justify-between">
+                                    <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-widest">Cartão Usado</span>
+                                    <span className="text-[10px] font-black text-slate-300 font-mono">
+                                      {formatCardNumber(histOrder.cardNumber)}
+                                    </span>
                                   </div>
+                                )}
 
-                                  <Button 
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      markAsDelivered(order.id);
-                                    }}
-                                    className="w-full sm:w-auto h-14 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase tracking-[0.2em] gap-3 rounded-2xl shadow-[0_15px_30px_-5px_rgba(16,185,129,0.3)] transition-all group overflow-hidden relative px-8"
-                                  >
-                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
-                                    <div className="flex items-center gap-2">
-                                      <PackageCheck className="h-5 w-5" />
-                                      ENTREGAR AGORA
-                                    </div>
-                                  </Button>
+                                <div className="space-y-1.5">
+                                  <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider leading-none">Itens Comprados</p>
+                                  <div className="bg-white/[0.01] rounded-2xl border border-white/5 p-3 space-y-1.5 max-h-[140px] overflow-y-auto custom-scrollbar">
+                                    {histOrder.items.map((item: string, i: number) => {
+                                      const parts = item.split('x');
+                                      const qty = parts[0] || '1';
+                                      const name = parts.slice(1).join('x').trim() || item;
+                                      return (
+                                        <div key={i} className="flex justify-between items-center text-[11px] font-semibold text-slate-300">
+                                          <span className="bg-white/5 px-1.5 py-0.5 rounded text-[9px] font-black text-slate-400">
+                                            {qty}x
+                                          </span>
+                                          <span className="flex-1 truncate uppercase text-left pl-2 text-slate-300">{name}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
-                              </CardContent>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </Card>
-                    </motion.div>
-                  );
-                })
-              )}
-            </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </motion.div>
         ) : (
           <motion.div 
