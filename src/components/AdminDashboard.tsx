@@ -2932,6 +2932,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               users={users}
               transactions={transactions}
               withdrawals={withdrawals}
+              consumption={recentSales}
             />
           )}
 

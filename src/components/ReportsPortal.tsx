@@ -38,6 +38,7 @@ interface ReportsPortalProps {
   users?: UserProfile[];
   transactions?: Transaction[];
   withdrawals?: Withdrawal[];
+  consumption?: any[];
 }
 
 export default function ReportsPortal({ 
@@ -45,7 +46,8 @@ export default function ReportsPortal({
   products = [], 
   users = [], 
   transactions = [], 
-  withdrawals = [] 
+  withdrawals = [],
+  consumption = []
 }: ReportsPortalProps) {
   const [reportType, setReportType] = useState<'sales_by_stall' | 'sales_by_product' | 'financial_summary' | 'user_balances' | 'transactions_log' | 'cards_report'>('financial_summary');
   const [startDate, setStartDate] = useState<string>('');
@@ -54,11 +56,37 @@ export default function ReportsPortal({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [cardOriginFilter, setCardOriginFilter] = useState<'all' | 'system' | 'client'>('all');
   const [cardUsageFilter, setCardUsageFilter] = useState<'all' | 'used' | 'unused'>('all');
+  const [expandedStall, setExpandedStall] = useState<string | null>(null);
 
   // Helper to format currency
   const formatCurrency = (val: number) => {
     return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
+
+  // 1. Filtered Sales (Consumption) records
+  const filteredSales = useMemo(() => {
+    return consumption.filter(s => {
+      let isDateMatch = true;
+      try {
+        const sDate = s.timestamp?.toDate ? s.timestamp.toDate() : new Date(s.timestamp);
+        if (isNaN(sDate.getTime())) return true;
+        
+        if (startDate) {
+          const start = new Date(startDate);
+          start.setHours(0, 0, 0, 0);
+          isDateMatch = isDateMatch && sDate >= start;
+        }
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          isDateMatch = isDateMatch && sDate <= end;
+        }
+      } catch (e) {
+        console.warn("Error parsing sales date", e);
+      }
+      return isDateMatch;
+    });
+  }, [consumption, startDate, endDate]);
 
   // Helper to format date safety
   const formatDate = (timestamp: any) => {
@@ -318,19 +346,145 @@ export default function ReportsPortal({
     }));
   }, [filteredTransactions]);
 
+  // 5. Sales by Product Data (Aggregates real values & quantities from consumption and transactions)
+  const salesByProduct = useMemo(() => {
+    // Start with a map populated of all products in the catalogue to support showing items with 0 sales too
+    const productMap: { [key: string]: { name: string; price: number; stall: string; quantity: number; totalValue: number } } = {};
+    
+    products.forEach(p => {
+      const stall = stalls.find(s => s.id === p.vendorId);
+      const key = `${stall?.name || 'Barraca N/A'}_${p.name}`;
+      productMap[key] = {
+        name: p.name || 'Produto sem nome',
+        price: p.price || 0,
+        stall: stall?.name || 'Barraca N/A',
+        quantity: 0,
+        totalValue: 0
+      };
+    });
+
+    // Accumulate sales from filteredSales (detailed records)
+    filteredSales.forEach(sale => {
+      const stall = stalls.find(s => s.id === sale.stallId) || stalls.find(s => s.id === sale.vendorId);
+      const stallName = stall?.name || sale.stallName || 'Barraca N/A';
+
+      if (sale.detailedItems && Array.isArray(sale.detailedItems)) {
+        sale.detailedItems.forEach((item: any) => {
+          const key = `${stallName}_${item.name}`;
+          if (!productMap[key]) {
+            productMap[key] = {
+              name: item.name,
+              price: item.price || 0,
+              stall: stallName,
+              quantity: 0,
+              totalValue: 0
+            };
+          }
+          productMap[key].quantity += (item.quantity || 0);
+          productMap[key].totalValue += (item.subtotal || (item.price * item.quantity) || 0);
+        });
+      } else if (sale.items && Array.isArray(sale.items)) {
+        sale.items.forEach((itemStr: string) => {
+          const match = itemStr.match(/^(\d+)x\s+(.+)$/);
+          if (match) {
+            const qty = parseInt(match[1]);
+            const name = match[2].trim();
+            const key = `${stallName}_${name}`;
+            
+            if (!productMap[key]) {
+              const foundProduct = products.find(p => p.name.toLowerCase() === name.toLowerCase());
+              const price = foundProduct ? foundProduct.price : 0;
+              productMap[key] = {
+                name,
+                price,
+                stall: stallName,
+                quantity: 0,
+                totalValue: 0
+              };
+            }
+            productMap[key].quantity += qty;
+            productMap[key].totalValue += qty * productMap[key].price;
+          }
+        });
+      }
+    });
+
+    // Supplement or Fallback from filteredTransactions if totalSales is zero
+    const currentQtySold = Object.values(productMap).reduce((acc, p) => acc + p.quantity, 0);
+    if (currentQtySold === 0) {
+      const debits = filteredTransactions.filter(t => t.type === 'debit' && t.status === 'completed');
+      debits.forEach(t => {
+        const stallName = t.stallName || 'Barraca N/A';
+        if (t.items && Array.isArray(t.items)) {
+          t.items.forEach((itemStr: string) => {
+            const match = itemStr.match(/^(\d+)x\s+(.+)$/);
+            if (match) {
+              const qty = parseInt(match[1]);
+              const name = match[2].trim();
+              const key = `${stallName}_${name}`;
+
+              if (productMap[key]) {
+                productMap[key].quantity += qty;
+                productMap[key].totalValue += qty * productMap[key].price;
+              } else {
+                const foundProduct = products.find(p => p.name.toLowerCase() === name.toLowerCase());
+                const price = foundProduct ? foundProduct.price : (Math.abs(t.amount) / qty || 0);
+                productMap[key] = {
+                  name,
+                  price,
+                  stall: stallName,
+                  quantity: qty,
+                  totalValue: qty * price
+                };
+              }
+            }
+          });
+        }
+      });
+    }
+
+    return Object.values(productMap)
+      .filter(row => {
+        if (!searchQuery.trim()) return true;
+        const queryNorm = searchQuery.toLowerCase().trim();
+        return row.name.toLowerCase().includes(queryNorm) || row.stall.toLowerCase().includes(queryNorm);
+      })
+      .sort((a, b) => b.totalValue - a.totalValue); // Sort by highest faturamento
+  }, [products, stalls, filteredSales, filteredTransactions, searchQuery]);
+
   // 3. Sales by Stall Data
   const salesByStall = useMemo(() => {
     return stalls.map(stall => {
-      const stallSales = filteredTransactions
-        .filter(t => t.type === 'debit' && t.status === 'completed' && t.vendorId === stall.id);
-      
-      const totalAmount = stallSales.reduce((acc, t) => acc + (t.amount || 0), 0);
-      const totalCount = stallSales.length;
+      // 1. Get transaction records matching this stall
+      const stallSales = filteredTransactions.filter(t => {
+        if (t.type !== 'debit' || t.status !== 'completed') return false;
+
+        // Match stallName or vendorId
+        if (t.stallName && t.stallName.toLowerCase().trim() === stall.name.toLowerCase().trim()) return true;
+        if (t.vendorId === stall.id) return true;
+        if (t.description && t.description.toLowerCase().includes(`na barraca ${stall.name.toLowerCase()}`)) return true;
+
+        return false;
+      });
+
+      // 2. Determine total SALES AMOUNT
+      // Aggregated items from salesByProduct (which is computed from filteredSales and filteredTransactions)
+      const stallItems = salesByProduct.filter(p => p.stall.toLowerCase().trim() === stall.name.toLowerCase().trim());
+      const itemsTotalSales = stallItems.reduce((acc, p) => acc + p.totalValue, 0);
+      const txsTotalSales = stallSales.reduce((acc, t) => acc + Math.abs(t.amount || 0), 0);
+      const totalAmount = itemsTotalSales > 0 ? itemsTotalSales : txsTotalSales;
+
+      // 3. Determine TRANSACTION COUNT (Volume of purchases)
+      const consumptionCount = filteredSales.filter(sale => {
+        const sStall = stalls.find(s => s.id === sale.stallId) || stalls.find(s => s.id === sale.vendorId);
+        return (sStall?.name === stall.name || sale.stallName === stall.name || sale.stallId === stall.id);
+      }).length;
+      const transactionCount = consumptionCount > 0 ? consumptionCount : stallSales.length;
 
       return {
         stallName: stall.name || 'Sem nome',
         totalSales: totalAmount,
-        transactionCount: totalCount,
+        transactionCount: transactionCount,
       };
     })
     .filter(row => {
@@ -339,7 +493,7 @@ export default function ReportsPortal({
       return row.stallName.toLowerCase().includes(queryNorm);
     })
     .sort((a, b) => b.totalSales - a.totalSales);
-  }, [stalls, filteredTransactions, searchQuery]);
+  }, [stalls, filteredTransactions, filteredSales, salesByProduct, searchQuery]);
 
   // 4. Transactions Log mapped and filtered
   const transactionsLog = useMemo(() => {
@@ -372,23 +526,7 @@ export default function ReportsPortal({
       });
   }, [filteredTransactions, users]);
 
-  // 5. Sales by Product Data
-  const salesByProduct = useMemo(() => {
-    return products.map(p => {
-      const stall = stalls.find(s => s.id === p.vendorId);
-      return {
-        name: p.name || 'Produto sem nome',
-        price: p.price || 0,
-        stall: stall?.name || 'Barraca N/A',
-      };
-    })
-    .filter(row => {
-      if (!searchQuery.trim()) return true;
-      const queryNorm = searchQuery.toLowerCase().trim();
-      return row.name.toLowerCase().includes(queryNorm) || row.stall.toLowerCase().includes(queryNorm);
-    })
-    .sort((a, b) => a.stall.localeCompare(b.stall));
-  }, [products, stalls, searchQuery]);
+
 
   // 6. User Balances
   const userBalances = useMemo(() => {
@@ -536,16 +674,18 @@ export default function ReportsPortal({
       }
       case 'sales_by_product': {
         const totalProdCount = salesByProduct.length;
-        const distinctStalls = new Set(salesByProduct.map(p => p.stall)).size;
-        const prSum = salesByProduct.reduce((acc, p) => acc + p.price, 0);
-        const avgPrice = totalProdCount > 0 ? prSum / totalProdCount : 0;
-        const highestPrice = totalProdCount > 0 ? Math.max(...salesByProduct.map(p => p.price)) : 0;
+        const totalItemsSold = salesByProduct.reduce((acc, p) => acc + p.quantity, 0);
+        const totalFaturamento = salesByProduct.reduce((acc, p) => acc + p.totalValue, 0);
+        
+        // Find product with largest quantity sold
+        const sortedByQty = [...salesByProduct].sort((a, b) => b.quantity - a.quantity);
+        const bestSeller = sortedByQty[0]?.quantity > 0 ? `${sortedByQty[0].name} (${sortedByQty[0].quantity} un.)` : 'Nenhum';
 
         return [
-          { label: 'Itens no Catálogo', value: `${totalProdCount} produtos`, text: 'Cadastrados no cardápio', type: 'success' },
-          { label: 'Barracas Participantes', value: `${distinctStalls} pontos`, text: 'Pontos com catálogo ativo', type: 'info' },
-          { label: 'Preço Médio Unitário', value: formatCurrency(avgPrice), text: 'Média de precificação', type: 'warning' },
-          { label: 'Preço Máximo Praticado', value: formatCurrency(highestPrice), text: 'Item mais valioso do menu', type: 'danger' },
+          { label: 'Faturamento Total', value: formatCurrency(totalFaturamento), text: 'Valor gerado por produtos', type: 'success' },
+          { label: 'Unidades Vendidas', value: `${totalItemsSold} un.`, text: 'Total de produtos servidos', type: 'info' },
+          { label: 'Mais Vendido (Qtd)', value: bestSeller, text: 'Líder do cardápio', type: 'warning' },
+          { label: 'Produtos Ativos', value: `${totalProdCount} itens`, text: 'Modelos no catálogo', type: 'danger' },
         ];
       }
       case 'cards_report': {
@@ -582,11 +722,34 @@ export default function ReportsPortal({
         }));
         filename = 'resumo_financeiro';
       } else if (reportType === 'sales_by_stall') {
-        data = salesByStall.map(row => ({
-          'Barraca': row.stallName,
-          'Total Vendas (R$)': typeof row.totalSales === 'number' ? row.totalSales : Number(row.totalSales || 0),
-          'Qtd Transações': row.transactionCount
-        }));
+        const expandedRows: any[] = [];
+        salesByStall.forEach(stallRow => {
+          const stallItems = salesByProduct.filter(p => p.stall.toLowerCase().trim() === stallRow.stallName.toLowerCase().trim() && p.quantity > 0);
+          if (stallItems.length === 0) {
+            expandedRows.push({
+              'Barraca': stallRow.stallName,
+              'Produto': 'Sem vendas de produtos',
+              'Preço Unitário (R$)': 0,
+              'Qtd Vendida': 0,
+              'Faturamento do Produto (R$)': 0,
+              'Faturamento Total da Barraca (R$)': stallRow.totalSales,
+              'Total de Compras': stallRow.transactionCount
+            });
+          } else {
+            stallItems.forEach(item => {
+              expandedRows.push({
+                'Barraca': stallRow.stallName,
+                'Produto': item.name,
+                'Preço Unitário (R$)': item.price,
+                'Qtd Vendida': item.quantity,
+                'Faturamento do Produto (R$)': item.totalValue,
+                'Faturamento Total da Barraca (R$)': stallRow.totalSales,
+                'Total de Compras': stallRow.transactionCount
+              });
+            });
+          }
+        });
+        data = expandedRows;
         filename = 'vendas_por_barraca';
       } else if (reportType === 'user_balances') {
         data = userBalances.map(row => ({
@@ -598,10 +761,12 @@ export default function ReportsPortal({
       } else if (reportType === 'sales_by_product') {
         data = salesByProduct.map(row => ({
           'Produto': row.name,
+          'Barraca': row.stall,
           'Preço Unitário (R$)': typeof row.price === 'number' ? row.price : Number(row.price || 0),
-          'Barraca': row.stall
+          'Qtd Vendida': row.quantity || 0,
+          'Faturamento Total (R$)': typeof row.totalValue === 'number' ? row.totalValue : Number(row.totalValue || 0)
         }));
-        filename = 'catalogo_produtos';
+        filename = 'vendas_por_produto';
       } else if (reportType === 'transactions_log') {
         data = transactionsLog.map(row => ({
           'Data': row.date,
@@ -689,14 +854,47 @@ export default function ReportsPortal({
         head = [['Categoria', 'Valor (R$)', 'Descrição']];
         body = filteredFinancialSummary.map(row => [row.category, formatCurrency(row.amount), row.desc]);
       } else if (reportType === 'sales_by_stall') {
-        head = [['Barraca', 'Total Vendas (R$)', 'Qtd Transações']];
-        body = salesByStall.map(row => [row.stallName, formatCurrency(row.totalSales), row.transactionCount]);
+        head = [['Barraca', 'Produto', 'Preço Unitário', 'Qtd Vendida', 'Total Prod (R$)', 'Total Barraca (R$)', 'Compras']];
+        const rows: any[][] = [];
+        salesByStall.forEach(stallRow => {
+          const stallItems = salesByProduct.filter(p => p.stall.toLowerCase().trim() === stallRow.stallName.toLowerCase().trim() && p.quantity > 0);
+          if (stallItems.length === 0) {
+            rows.push([
+              stallRow.stallName,
+              'Sem vendas no período',
+              formatCurrency(0),
+              '0 un.',
+              formatCurrency(0),
+              formatCurrency(stallRow.totalSales),
+              stallRow.transactionCount.toString()
+            ]);
+          } else {
+            stallItems.forEach((item, itemIdx) => {
+              rows.push([
+                itemIdx === 0 ? stallRow.stallName : '', // Show stall name on the first line of the stall group
+                item.name,
+                formatCurrency(item.price),
+                `${item.quantity} un.`,
+                formatCurrency(item.totalValue),
+                itemIdx === 0 ? formatCurrency(stallRow.totalSales) : '', // Show total on the first line
+                itemIdx === 0 ? stallRow.transactionCount.toString() : '' // Show transactions count on the first line
+              ]);
+            });
+          }
+        });
+        body = rows;
       } else if (reportType === 'user_balances') {
         head = [['Nome', 'Email', 'Saldo Atual (R$)']];
         body = userBalances.map(row => [row.name, row.email, formatCurrency(row.balance)]);
       } else if (reportType === 'sales_by_product') {
-        head = [['Produto', 'Preço Unitário (R$)', 'Barraca']];
-        body = salesByProduct.map(row => [row.name, formatCurrency(row.price), row.stall]);
+        head = [['Produto', 'Barraca', 'Preço Unitário', 'Qtd Vendida', 'Total Faturado']];
+        body = salesByProduct.map(row => [
+          row.name,
+          row.stall,
+          formatCurrency(row.price),
+          `${row.quantity || 0} un.`,
+          formatCurrency(row.totalValue || 0)
+        ]);
       } else if (reportType === 'transactions_log') {
         head = [['Data', 'Usuário', 'Tipo', 'Meio', 'Valor', 'Barraca']];
         body = transactionsLog.map(row => [row.date, row.user, row.type, row.paymentMethod, formatCurrency(row.amount), row.stall]);
@@ -957,7 +1155,7 @@ export default function ReportsPortal({
                 { id: 'transactions_log', label: 'Histórico de Vendas', icon: History },
                 { id: 'cards_report', label: 'Ativação de Cartões', icon: CreditCard, subtitle: 'Físico vs Online' },
                 { id: 'user_balances', label: 'Saldos Atuais', icon: Users },
-                { id: 'sales_by_product', label: 'Catálogo/Preços', icon: Package },
+                { id: 'sales_by_product', label: 'Vendas por Produto', icon: Package },
               ].map((type) => (
                 <button
                   key={type.id}
@@ -1004,7 +1202,7 @@ export default function ReportsPortal({
                     {reportType === 'sales_by_stall' && 'Desempenho por Ponto de Venda'}
                     {reportType === 'transactions_log' && 'Histórico de Vendas Detalhado'}
                     {reportType === 'user_balances' && 'Relatório de Créditos Ativos'}
-                    {reportType === 'sales_by_product' && 'Catálogo e Precificação'}
+                    {reportType === 'sales_by_product' && 'Desempenho de Vendas por Produto'}
                     {reportType === 'cards_report' && 'Ativação de Cartões (Físico vs Online)'}
                   </CardTitle>
                   <CardDescription className="font-semibold mt-1">
@@ -1057,6 +1255,8 @@ export default function ReportsPortal({
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Descrição do Item</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Barraca / Ponto</th>
                           <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Preço Unitário</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Qtd Vendida</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Total Acumulado</th>
                         </>
                       )}
                       {reportType === 'cards_report' && (
@@ -1081,20 +1281,80 @@ export default function ReportsPortal({
                       </tr>
                     ))}
                     
-                    {reportType === 'sales_by_stall' && salesByStall.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-black text-[10px] shrink-0">
-                              {row.stallName.substring(0, 2).toUpperCase()}
-                            </div>
-                            <span className="font-bold text-slate-700">{row.stallName}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right font-bold text-slate-400">{row.transactionCount} compras</td>
-                        <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(row.totalSales)}</td>
-                      </tr>
-                    ))}
+                    {reportType === 'sales_by_stall' && salesByStall.map((row, idx) => {
+                      const isExpanded = expandedStall === row.stallName;
+                      // Filter items sold at this specific stall
+                      const stallItems = salesByProduct.filter(item => item.stall === row.stallName && item.quantity > 0);
+
+                      return (
+                        <React.Fragment key={idx}>
+                          <tr 
+                            onClick={() => setExpandedStall(isExpanded ? null : row.stallName)}
+                            className="hover:bg-slate-50/50 cursor-pointer transition-colors border-b border-slate-100"
+                          >
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-black text-[10px] shrink-0">
+                                  {row.stallName.substring(0, 2).toUpperCase()}
+                                </div>
+                                <div className="leading-tight">
+                                  <span className="font-bold text-slate-700 block">{row.stallName}</span>
+                                  <span className="text-[10px] text-blue-600 font-extrabold hover:underline select-none">
+                                    {isExpanded ? 'Ocultar faturamento detalhado ▲' : 'Ver faturamento detalhado ▼'}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-right font-bold text-slate-400 font-mono">{row.transactionCount} compras</td>
+                            <td className="px-6 py-4 text-right font-black text-slate-900 font-mono">{formatCurrency(row.totalSales)}</td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="bg-slate-50/40 border-b border-slate-100">
+                              <td colSpan={3} className="px-8 py-4">
+                                <div className="bg-white/90 rounded-2xl border border-slate-200/60 p-5 space-y-3.5 shadow-inner">
+                                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                                    <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                      Produtos Vendidos - {row.stallName}
+                                    </h4>
+                                    <span className="text-[10px] font-bold text-slate-500">
+                                      Total do Período: {formatCurrency(row.totalSales)}
+                                    </span>
+                                  </div>
+                                  {stallItems.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic">Nenhum item vendido registrado com detalhes neste período.</p>
+                                  ) : (
+                                    <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto pr-1">
+                                      {stallItems.map((item, itemIdx) => {
+                                        const percentageShare = row.totalSales > 0 ? Math.round((item.totalValue / row.totalSales) * 100) : 0;
+                                        return (
+                                          <div key={itemIdx} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                                            <div className="flex items-center gap-2">
+                                              <span className="h-1.5 w-1.5 rounded-full bg-slate-900 shrink-0 animate-pulse" />
+                                              <span className="font-bold text-slate-700">{item.name}</span>
+                                              <span className="text-[9px] px-1.5 py-0.5 rounded-md font-black bg-slate-100 text-slate-600 font-mono">
+                                                {percentageShare}%
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-4 justify-between font-mono shrink-0">
+                                              <span className="text-[10px] font-bold text-slate-400 font-mono">
+                                                {item.quantity} un. x {formatCurrency(item.price)}
+                                              </span>
+                                              <span className="font-black text-slate-900 w-24 text-right font-mono">
+                                                {formatCurrency(item.totalValue)}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
 
                     {reportType === 'transactions_log' && transactionsLog.map((row, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
@@ -1139,7 +1399,9 @@ export default function ReportsPortal({
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4 font-bold text-slate-700">{row.name}</td>
                         <td className="px-6 py-4 font-semibold text-slate-500 text-xs">{row.stall}</td>
-                        <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(row.price)}</td>
+                        <td className="px-6 py-4 text-right font-black text-slate-900 font-mono">{formatCurrency(row.price)}</td>
+                        <td className="px-6 py-4 text-right font-bold text-slate-500 font-mono">{row.quantity || 0} un.</td>
+                        <td className="px-6 py-4 text-right font-black text-emerald-600 font-mono">{formatCurrency(row.totalValue || 0)}</td>
                       </tr>
                     ))}
 
