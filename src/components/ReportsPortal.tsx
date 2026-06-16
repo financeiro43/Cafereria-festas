@@ -515,7 +515,8 @@ export default function ReportsPortal({
         
         return {
           date: formatDate(t.timestamp),
-          user: user?.name || 'Sistema',
+          user: user?.name || t.userName || 'Sistema',
+          cardNumber: t.cardNumber || user?.qrCode || t.userId || '',
           type: t.type === 'credit' ? 'CARGA' : 'COMPRA',
           status: t.status || 'completed',
           amount: t.amount || 0,
@@ -771,6 +772,7 @@ export default function ReportsPortal({
         data = transactionsLog.map(row => ({
           'Data': row.date,
           'Usuário': row.user,
+          'Cartão / Código': row.cardNumber || '',
           'Tipo': row.type,
           'Meio': row.paymentMethod,
           'Valor (R$)': typeof row.amount === 'number' ? row.amount : Number(row.amount || 0),
@@ -896,8 +898,16 @@ export default function ReportsPortal({
           formatCurrency(row.totalValue || 0)
         ]);
       } else if (reportType === 'transactions_log') {
-        head = [['Data', 'Usuário', 'Tipo', 'Meio', 'Valor', 'Barraca']];
-        body = transactionsLog.map(row => [row.date, row.user, row.type, row.paymentMethod, formatCurrency(row.amount), row.stall]);
+        head = [['Data', 'Usuário', 'Cartão', 'Tipo', 'Meio', 'Valor', 'Barraca']];
+        body = transactionsLog.map(row => [
+          row.date,
+          row.user,
+          row.cardNumber || '',
+          row.type,
+          row.paymentMethod,
+          formatCurrency(row.amount),
+          row.stall
+        ]);
       } else if (reportType === 'cards_report') {
         head = [['Nome', 'Email', 'QR Code', 'Uso', 'Total Recarregado', 'Origem', 'Saldo (R$)', 'Cadastro']];
         body = cardsReport.map(row => [
@@ -1361,6 +1371,9 @@ export default function ReportsPortal({
                         <td className="px-6 py-4 text-[11px] font-bold text-slate-400">{row.date}</td>
                         <td className="px-6 py-4">
                           <span className="font-bold text-slate-700 block text-sm">{row.user}</span>
+                          {row.cardNumber && (
+                            <span className="text-[10px] text-slate-400 font-mono block">Cartão: {row.cardNumber}</span>
+                          )}
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className={`text-[9px] font-black uppercase tracking-widest ${row.type === 'CARGA' ? 'text-green-500' : 'text-blue-500'}`}>
                               {row.type}

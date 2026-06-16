@@ -994,10 +994,14 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                                   <p className="text-[11px] font-black text-white uppercase tracking-tight leading-none group-hover:text-blue-400 transition-colors">
                                     {isPurchase ? `Compra: ${stall}` : tx.description}
                                   </p>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                     <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{dateStr}</span>
                                     <div className="h-0.5 w-0.5 bg-slate-800 rounded-full" />
                                     <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{timeStr}</span>
+                                    <div className="h-0.5 w-0.5 bg-slate-800 rounded-full" />
+                                    <span className="text-[9px] text-blue-400 font-bold font-mono uppercase tracking-widest">
+                                      Cartão: {tx.cardNumber || tx.qrCode || displayedProfile.qrCode || displayedProfile.uid}
+                                    </span>
                                   </div>
                                 </div>
                               </div>

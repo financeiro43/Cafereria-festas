@@ -429,7 +429,7 @@ export default function VendorDashboard({
         return;
       }
 
-      let userData = { ...userDoc.data(), uid: userDoc.id } as UserProfile;
+      let userData = { ...userDoc.data(), uid: userDoc.id, scannedCardCode: cleanText } as UserProfile & { scannedCardCode?: string };
 
       // Se o usuário possuir saldo compartilhado com um parente/responsável (parentUid)
       if ((!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid) {
@@ -450,7 +450,7 @@ export default function VendorDashboard({
         show: true,
         type: 'success',
         title: 'Cliente Identificado',
-        message: `Cliente: ${userData.name}\nSaldo: R$ ${userData.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+        message: `Cliente: ${userData.name}\nCartão: ${cleanText}\nSaldo: R$ ${userData.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
       });
     } catch (error) {
       console.error(error);
@@ -541,9 +541,13 @@ export default function VendorDashboard({
         });
       }
 
+      const activeCardNumber = (scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid || '';
+
       const writeTransactionPromise = addDoc(collection(db, 'transactions'), {
         userId: scannedUser.uid,
         userName: scannedUser.name,
+        clientName: scannedUser.name,
+        cardNumber: activeCardNumber,
         amount: -cartTotal,
         type: 'debit',
         description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
@@ -558,6 +562,9 @@ export default function VendorDashboard({
 
       const writeConsumptionPromise = addDoc(collection(db, 'consumption'), {
         studentId: scannedUser.uid,
+        studentName: scannedUser.name,
+        clientName: scannedUser.name,
+        cardNumber: activeCardNumber,
         vendorId: profile.uid,
         stallId: activeStallId,
         amount: cartTotal,
@@ -582,7 +589,7 @@ export default function VendorDashboard({
         show: true,
         type: 'success',
         title: 'Venda Concluída!',
-        message: `O pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso para ${scannedUser.name}.\n\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+        message: `Cliente: ${scannedUser.name}\nCartão: ${activeCardNumber}\n\nO pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso.\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
         items: completedItems
       });
 
@@ -998,7 +1005,8 @@ export default function VendorDashboard({
                                   {scannedUser.name.charAt(0).toUpperCase()}
                                 </div>
                                 <div>
-                                  <p className="font-black text-xs uppercase truncate text-white leading-none mb-1.5">{scannedUser.name}</p>
+                                  <p className="font-black text-xs uppercase truncate text-white leading-none mb-1">{scannedUser.name}</p>
+                                  <p className="text-[10px] font-bold text-slate-400 font-mono tracking-wide mb-1.5">Cartão: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}</p>
                                   <div className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
                                     scannedUser.balance < cartTotal ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-400'
                                   }`}>
@@ -1395,6 +1403,18 @@ export default function VendorDashboard({
       {/* Mobile Control Bar - Premium Refinement */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/80 backdrop-blur-3xl border-t border-white/10 px-6 py-4 lg:hidden safe-area-bottom shadow-[0_-30px_60px_rgba(0,0,0,0.8)]">
         <div className="max-w-md mx-auto space-y-4">
+          {scannedUser && (
+            <div className="bg-white/5 border border-white/5 p-3 rounded-2xl flex items-center justify-between text-xs mb-1">
+              <div className="min-w-0">
+                <p className="font-extrabold text-white truncate max-w-[180px] uppercase text-[10px] tracking-wide leading-none mb-1">{scannedUser.name}</p>
+                <p className="text-[9px] font-bold text-slate-400 font-mono tracking-tight">Cartão: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[9px] font-black uppercase text-slate-500 leading-none">Saldo</p>
+                <p className="text-sm font-extrabold text-emerald-400 tracking-tight leading-none mt-1">R$ {scannedUser.balance.toFixed(2)}</p>
+              </div>
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] leading-none">Total Agora</span>

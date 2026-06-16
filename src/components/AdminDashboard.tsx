@@ -337,9 +337,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         await updateDoc(userRef, {
           balance: increment(rechargeValue)
         });
+        const uProfile = users.find(u => u.uid === uid);
+        const cardNum = uProfile?.qrCode || uid;
+        const uName = uProfile?.name || '';
         // Log transaction for audit
         await addDoc(collection(db, 'transactions'), {
           userId: uid,
+          userName: uName,
+          clientName: uName,
+          cardNumber: cardNum,
           amount: rechargeValue,
           type: 'credit',
           paymentMethod: 'Saldo Admin',
@@ -736,8 +742,13 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
             balance: 0
           });
 
+          const cardNum = userToReset.qrCode || userId;
+          const uName = userToReset.name;
           await addDoc(collection(db, 'transactions'), {
             userId,
+            userName: uName,
+            clientName: uName,
+            cardNumber: cardNum,
             amount: currentBalance,
             type: 'debit',
             description: 'Saldo zerado pelo Administrador',
@@ -875,9 +886,16 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         balance: increment(amount)
       });
 
+      const uProfile = users.find(u => u.uid === userId);
+      const cardNum = uProfile?.qrCode || userId;
+      const uName = uProfile?.name || '';
+
       // Record transaction
       await addDoc(collection(db, 'transactions'), {
         userId,
+        userName: uName,
+        clientName: uName,
+        cardNumber: cardNum,
         amount,
         type: 'credit',
         description: `Recarga manual (${paymentMethod})`,
@@ -949,9 +967,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
           return;
         }
         const promises = selectedUsers.map(async (uid) => {
+          const uProfile = users.find(u => u.uid === uid);
+          const cardNum = uProfile?.qrCode || uid;
+          const uName = uProfile?.name || '';
           await updateDoc(doc(db, 'users', uid), { balance: increment(amount) });
           await addDoc(collection(db, 'transactions'), {
             userId: uid,
+            userName: uName,
+            clientName: uName,
+            cardNumber: cardNum,
             amount: amount,
             type: 'credit',
             description: `Recarga manual em lote (${bulkEditPaymentMethod})`,
@@ -2127,7 +2151,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   <TableHeader className="bg-slate-50">
                     <TableRow>
                       <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest pl-8">Início / Data</TableHead>
-                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest">ID do Usuário</TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest">Cliente / ID</TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest">Cartão / Código</TableHead>
                       <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-right">Valor</TableHead>
                       <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-center">Tipo</TableHead>
                       <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest">Descrição</TableHead>
@@ -2137,7 +2162,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   <TableBody>
                     {transactions.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-12 text-slate-400 italic">
+                        <TableCell colSpan={7} className="text-center py-12 text-slate-400 italic">
                           Nenhuma transação encontrada.
                         </TableCell>
                       </TableRow>
@@ -2157,10 +2182,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                           <TableCell className="py-4">
                             <div className="flex flex-col">
                               <span className="font-bold text-slate-700 text-xs truncate max-w-[150px]">
-                                {users.find(u => u.uid === tx.userId)?.name || tx.userId}
+                                {users.find(u => u.uid === tx.userId)?.name || tx.userName || tx.userId}
                               </span>
                               <span className="text-[9px] text-slate-400 font-medium">#{tx.id.slice(0, 8)}</span>
                             </div>
+                          </TableCell>
+                          <TableCell className="py-4">
+                            <span className="font-mono text-xs font-bold text-slate-500">
+                              {(tx as any).cardNumber || users.find(u => u.uid === tx.userId)?.qrCode || tx.userId}
+                            </span>
                           </TableCell>
                           <TableCell className="py-4 text-right">
                             <span className={`font-black tracking-tight ${tx.type === 'credit' ? 'text-emerald-500' : 'text-rose-500'}`}>
@@ -3593,13 +3623,14 @@ function RechargePortal({
       );
 
       if (foundLocal) {
-        setScannedUser(foundLocal);
+        const resolvedLocal = { ...foundLocal, scannedCardCode: cleanText };
+        setScannedUser(resolvedLocal);
         setIsScanning(false);
         setStatusModal({
           show: true,
           type: 'success',
           title: 'Cliente Identificado',
-          message: `O cartão de ${foundLocal.name} foi validado com sucesso.\nSaldo Atual: R$ ${foundLocal.balance.toFixed(2)}`
+          message: `Cliente: ${foundLocal.name}\nCartão: ${cleanText}\n\nO cartão foi validado com sucesso.\nSaldo Atual: R$ ${foundLocal.balance.toFixed(2)}`
         });
         return;
       }
@@ -3632,17 +3663,17 @@ function RechargePortal({
       }
       
       const snap = (snapMain && !snapMain.empty) ? snapMain : (snapCards || { empty: true });
-
+ 
       if (!snap.empty) {
         const userData = snap.docs[0].data() as UserProfile;
-        const resolvedUser = { ...userData, uid: snap.docs[0].id };
+        const resolvedUser = { ...userData, uid: snap.docs[0].id, scannedCardCode: cleanText };
         setScannedUser(resolvedUser);
         setIsScanning(false);
         setStatusModal({
           show: true,
           type: 'success',
           title: 'Cliente Identificado',
-          message: `O cartão de ${userData.name} foi validado com sucesso.\nSaldo Atual: R$ ${userData.balance.toFixed(2)}`
+          message: `Cliente: ${userData.name}\nCartão: ${cleanText}\n\nO cartão foi validado com sucesso.\nSaldo Atual: R$ ${userData.balance.toFixed(2)}`
         });
       } else {
         setStatusModal({
@@ -3670,6 +3701,8 @@ function RechargePortal({
     try {
       setProcessing(true);
       
+      const rCardNum = (scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid || '';
+
       // Execute the database updates concurrently in parallel to cut processing time in half!
       const updateBalancePromise = updateDoc(doc(db, 'users', scannedUser.uid), {
         balance: increment(val)
@@ -3678,6 +3711,8 @@ function RechargePortal({
       const writeTransactionPromise = addDoc(collection(db, 'transactions'), {
         userId: scannedUser.uid,
         userName: scannedUser.name,
+        clientName: scannedUser.name,
+        cardNumber: rCardNum,
         amount: val,
         type: 'credit',
         description: `Recarga Ponto de Venda (${paymentMethod})`,
@@ -3696,7 +3731,7 @@ function RechargePortal({
         show: true,
         type: 'success',
         title: 'Recarga Concluída',
-        message: `A carga de R$ ${val.toFixed(2)} (${paymentMethod}) foi adicionada ao saldo de ${scannedUser.name}.\nNovo Saldo: R$ ${(scannedUser.balance + val).toFixed(2)}`
+        message: `Cliente: ${scannedUser.name}\nCartão: ${rCardNum}\n\nA carga de R$ ${val.toFixed(2)} (${paymentMethod}) foi adicionada ao saldo.\nNovo Saldo: R$ ${(scannedUser.balance + val).toFixed(2)}`
       });
     } catch (error) {
       console.error('Erro no processamento da carga:', error);
@@ -3766,7 +3801,10 @@ function RechargePortal({
                 <div className="flex justify-between items-start">
                   <div className="space-y-1">
                      <p className="text-[10px] font-black uppercase text-blue-400 tracking-[0.2em]">Cliente Confirmado</p>
-                     <h3 className="text-3xl font-black tracking-tight">{scannedUser.name}</h3>
+                     <h3 className="text-2xl font-black tracking-tight">{scannedUser.name}</h3>
+                     <p className="text-[11px] font-black uppercase text-blue-400 font-mono tracking-wider">
+                       Cartão: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}
+                     </p>
                      <p className="text-slate-500 text-sm font-medium italic">{scannedUser.email}</p>
                   </div>
                   <button onClick={() => setScannedUser(null)} className="h-12 w-12 flex items-center justify-center rounded-2xl bg-white/5 hover:bg-white/10 text-slate-500 hover:text-white transition-colors">
