@@ -706,7 +706,10 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                     <div className="flex justify-between items-end mt-12">
                       <div className="space-y-1">
                          <p className="text-[9px] font-bold uppercase tracking-widest text-blue-100/60 leading-none">Acesso VIP Eventos</p>
-                         <p className="text-sm font-black text-white/90 uppercase truncate max-w-[150px]">{displayedProfile.name}</p>
+                         <p className="text-sm font-black text-white/90 uppercase truncate max-w-[150px] mb-1.5">{displayedProfile.name}</p>
+                         <p className="text-[10px] font-black tracking-[0.1em] font-mono text-white/80 leading-none">
+                           {formatCardNumber(displayedProfile.qrCode || displayedProfile.uid)}
+                         </p>
                       </div>
                       <div className="bg-white/10 p-2 rounded-xl backdrop-blur-md border border-white/20">
                         <Ticket className="h-6 w-6 text-white" />
@@ -1000,7 +1003,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                                     <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">{timeStr}</span>
                                     <div className="h-0.5 w-0.5 bg-slate-800 rounded-full" />
                                     <span className="text-[9px] text-blue-400 font-bold font-mono uppercase tracking-widest">
-                                      Cartão: {tx.cardNumber || tx.qrCode || displayedProfile.qrCode || displayedProfile.uid}
+                                      Cartão: {formatCardNumber(tx.cardNumber || tx.qrCode || displayedProfile.qrCode || displayedProfile.uid)}
                                     </span>
                                   </div>
                                 </div>
@@ -1374,7 +1377,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                     <div className="space-y-1">
                       <p className="text-[9px] text-slate-400 font-bold uppercase tracking-[0.3em] font-mono">Número do Cartão</p>
                       <p className="text-lg font-black text-slate-800 tracking-[0.1em] font-mono">
-                        {formatCardNumber(displayedProfile.uid)}
+                        {formatCardNumber(displayedProfile.qrCode || displayedProfile.uid)}
                       </p>
                     </div>
 

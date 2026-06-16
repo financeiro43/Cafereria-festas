@@ -63,6 +63,17 @@ export default function ReportsPortal({
     return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
+  // Formatter matching online card (16 numbers with spaces every 4 digits)
+  const formatCardNumber = (str: string) => {
+    if (!str) return '';
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const numeric = Math.abs(hash).toString().padEnd(16, '0').substring(0, 16);
+    return numeric.replace(/(.{4})/g, '$1 ').trim();
+  };
+
   // 1. Filtered Sales (Consumption) records
   const filteredSales = useMemo(() => {
     return consumption.filter(s => {
@@ -516,7 +527,7 @@ export default function ReportsPortal({
         return {
           date: formatDate(t.timestamp),
           user: user?.name || t.userName || 'Sistema',
-          cardNumber: t.cardNumber || user?.qrCode || t.userId || '',
+          cardNumber: formatCardNumber(t.cardNumber || user?.qrCode || t.userId || ''),
           type: t.type === 'credit' ? 'CARGA' : 'COMPRA',
           status: t.status || 'completed',
           amount: t.amount || 0,
@@ -784,7 +795,8 @@ export default function ReportsPortal({
         data = cardsReport.map(row => ({
           'Nome': row.name,
           'Email': row.email,
-          'QR Code': row.qrCode,
+          'Número do Cartão': formatCardNumber(row.qrCode || row.uid),
+          'QR Code / ID': row.qrCode,
           'Origem': row.origin,
           'Status de Uso': row.hasRecharge ? `Utilizado (${row.rechargeCount} recargas)` : 'Apenas Ativado',
           'Total Recarregado (R$)': typeof row.totalRecharged === 'number' ? row.totalRecharged : Number(row.totalRecharged || 0),
@@ -909,10 +921,11 @@ export default function ReportsPortal({
           row.stall
         ]);
       } else if (reportType === 'cards_report') {
-        head = [['Nome', 'Email', 'QR Code', 'Uso', 'Total Recarregado', 'Origem', 'Saldo (R$)', 'Cadastro']];
+        head = [['Nome', 'Email', 'Nº Cartão', 'QR Code', 'Uso', 'Total Recarregado', 'Origem', 'Saldo (R$)', 'Cadastro']];
         body = cardsReport.map(row => [
           row.name, 
           row.email, 
+          formatCardNumber(row.qrCode || row.uid),
           row.qrCode, 
           row.hasRecharge ? `Utilizado (${row.rechargeCount}x)` : 'Apenas Ativado',
           formatCurrency(row.totalRecharged),
@@ -1429,7 +1442,12 @@ export default function ReportsPortal({
                           )}
                         </td>
                         <td className="px-6 py-4 text-xs font-semibold text-slate-500">{row.email}</td>
-                        <td className="px-6 py-4 font-mono text-[10px] text-slate-400 select-all">{row.qrCode}</td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-0.5 select-all">
+                            <span className="font-mono text-[11px] font-black text-slate-700 leading-tight">{formatCardNumber(row.qrCode || row.uid)}</span>
+                            <span className="font-mono text-[9px] text-slate-400">ID: {row.qrCode}</span>
+                          </div>
+                        </td>
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
                             row.isPhysical 

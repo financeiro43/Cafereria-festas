@@ -1996,20 +1996,25 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                             </TableCell>
                             
                             <TableCell className="px-4 py-4 whitespace-nowrap" onDoubleClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center gap-1.5 font-mono text-xs text-slate-600 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg w-max [&_button]:hover:opacity-100 select-all" onClick={(e) => e.stopPropagation()}>
-                                <span className="truncate max-w-[120px]">{user.qrCode || 'Sem cartão'}</span>
+                              <div className="flex flex-col gap-1 select-all" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center gap-1.5 font-mono text-[11px] font-black text-slate-900 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-lg w-max [&_button]:hover:opacity-100">
+                                  <span>{user.qrCode ? formatCardNumber(user.qrCode || user.uid || '') : 'Sem cartão'}</span>
+                                  {user.qrCode && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(formatCardNumber(user.qrCode || user.uid || ''));
+                                        toast.success('Número de 16 dígitos copiado!');
+                                      }}
+                                      className="text-slate-400 hover:text-slate-800 p-0.5 transition-colors"
+                                      title="Copiar Número"
+                                    >
+                                      <Copy className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
                                 {user.qrCode && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(user.qrCode);
-                                      toast.success('Código do cartão copiado!');
-                                    }}
-                                    className="text-slate-400 hover:text-slate-800 p-0.5 transition-colors"
-                                    title="Copiar código"
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </button>
+                                  <span className="text-[9px] text-slate-400 font-bold font-mono pl-1">ID: {user.qrCode}</span>
                                 )}
                               </div>
                             </TableCell>
@@ -2188,8 +2193,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                             </div>
                           </TableCell>
                           <TableCell className="py-4">
-                            <span className="font-mono text-xs font-bold text-slate-500">
-                              {(tx as any).cardNumber || users.find(u => u.uid === tx.userId)?.qrCode || tx.userId}
+                            <span className="font-mono text-[11px] font-bold text-slate-700">
+                              {formatCardNumber((tx as any).cardNumber || users.find(u => u.uid === tx.userId)?.qrCode || tx.userId || '')}
                             </span>
                           </TableCell>
                           <TableCell className="py-4 text-right">
