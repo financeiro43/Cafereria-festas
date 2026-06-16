@@ -360,30 +360,62 @@ export default function VendorDashboard({
       
       let userDoc: any = null;
 
-      try {
-        // Ejecutar las tres búsquedas en paralelo con control de errores individual para
-        // evitar que cualquier problema de permisos, de índice o de ID inválido bloquee el proceso.
-        const promises = [
-          // 1. Buscar directamente por Document ID
-          getDoc(doc(db, 'users', cleanText))
-            .then(snap => (snap.exists() ? snap : null))
-            .catch(() => null),
+      // 1. Validar e preparar a referência direta de documento de forma segura contra exceções de rotas com "/"
+      let userRef: any = null;
+      if (cleanText && !cleanText.includes('/') && cleanText.length < 100) {
+        try {
+          userRef = doc(db, 'users', cleanText);
+        } catch (e) {
+          console.warn("[LOOKUP] ID de documento inválido:", cleanText, e);
+        }
+      }
 
-          // 2. Buscar por campo qrCode
-          getDocs(query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1)))
+      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
+      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
+
+      // 2. PRIMEIRA TENTATIVA: Cache Local (Tempo de resposta instantâneo, ~2ms)
+      try {
+        const cachePromises = [
+          userRef ? getDocFromCache(userRef).catch(() => null) : Promise.resolve(null),
+          getDocsFromCache(qMain)
             .then(snap => (!snap.empty ? snap.docs[0] : null))
             .catch(() => null),
-
-          // 3. Buscar en el array linkedCards
-          getDocs(query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1)))
+          getDocsFromCache(qCards)
             .then(snap => (!snap.empty ? snap.docs[0] : null))
             .catch(() => null)
         ];
+        
+        const cacheResults = await Promise.all(cachePromises);
+        userDoc = cacheResults.find(r => r && typeof r.exists === 'function' && r.exists());
+      } catch (cacheErr) {
+        console.warn("[CACHE] Erro ou ausência de cache local:", cacheErr);
+      }
 
-        const results = await Promise.all(promises);
-        userDoc = results.find(docRef => docRef !== null);
-      } catch (err) {
-        console.warn("Erro ao buscar usuário em paralelo:", err);
+      // 3. SEGUNDA TENTATIVA: Servidor em Paralelo com Limite de Tempo de 4 segundos (Evita esperas longas de rede)
+      if (!userDoc) {
+        try {
+          const serverPromises = [
+            userRef ? getDoc(userRef).catch(() => null) : Promise.resolve(null),
+            getDocs(qMain)
+              .then(snap => (!snap.empty ? snap.docs[0] : null))
+              .catch(() => null),
+            getDocs(qCards)
+              .then(snap => (!snap.empty ? snap.docs[0] : null))
+              .catch(() => null)
+          ];
+          
+          // Corrida de promessas: busca no servidor ou timeout de 4s
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
+          
+          const serverResult = await Promise.race([
+            Promise.all(serverPromises).then(results => results.find(r => r && typeof r.exists === 'function' && r.exists()) || null),
+            timeoutPromise
+          ]);
+          
+          userDoc = serverResult;
+        } catch (serverErr) {
+          console.error("[SERVER] Erro na consulta ao servidor:", serverErr);
+        }
       }
 
       toast.dismiss(toastId);
@@ -392,7 +424,7 @@ export default function VendorDashboard({
           show: true,
           type: 'error',
           title: 'Erro de Identificação',
-          message: 'QR Code ou Cartão não reconhecido. Verifique se o cliente está cadastrado e tente novamente.'
+          message: 'QR Code ou Cartão não reconhecido ou instabilidade na rede. Verifique o cadastro do cliente e tente novamente.'
         });
         return;
       }

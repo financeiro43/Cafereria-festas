@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole, CartItem } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette, Download } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette, Download, Calculator } from 'lucide-react';
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -2921,6 +2921,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 setExternalScannedUser={setSharedScannedUser}
                 onSuccess={() => setSharedCart([])}
                 users={users}
+                products={products}
+                stalls={stalls}
               />
             </div>
           )}
@@ -3492,12 +3494,16 @@ function RechargePortal({
   externalScannedUser, 
   setExternalScannedUser,
   onSuccess,
-  users = []
+  users = [],
+  products = [],
+  stalls = []
 }: { 
   externalScannedUser?: UserProfile | null, 
   setExternalScannedUser?: React.Dispatch<React.SetStateAction<UserProfile | null>>,
   onSuccess?: () => void,
-  users?: UserProfile[]
+  users?: UserProfile[],
+  products?: Product[],
+  stalls?: Stall[]
 }) {
   const [internalScannedUser, setInternalScannedUser] = useState<UserProfile | null>(null);
   const baseScannedUser = externalScannedUser !== undefined ? externalScannedUser : internalScannedUser;
@@ -3513,6 +3519,56 @@ function RechargePortal({
   const [amount, setAmount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('Dinheiro');
   const [processing, setProcessing] = useState(false);
+  
+  // Custom calculator states
+  const [showCalcModal, setShowCalcModal] = useState(false);
+  const [calcSearch, setCalcSearch] = useState('');
+  const [calcQuantities, setCalcQuantities] = useState<{[productId: string]: number}>({});
+
+  const calcTotal = useMemo(() => {
+    let sum = 0;
+    Object.entries(calcQuantities).forEach(([prodId, qty]) => {
+      const p = products.find(prod => prod.id === prodId);
+      const qtyNum = qty as number;
+      if (p && qtyNum > 0) {
+        sum += p.price * qtyNum;
+      }
+    });
+    return sum;
+  }, [calcQuantities, products]);
+
+  const groupedProducts = useMemo(() => {
+    const activeProducts = products.filter(p => p.active !== false);
+    const searchLower = calcSearch.toLowerCase().trim();
+    const filtered = searchLower
+      ? activeProducts.filter(p => p.name.toLowerCase().includes(searchLower) || (p.category && p.category.toLowerCase().includes(searchLower)))
+      : activeProducts;
+
+    const groups: { [stallId: string]: { stallName: string; items: Product[] } } = {};
+
+    filtered.forEach(p => {
+      const stallId = p.vendorId || 'other';
+      if (!groups[stallId]) {
+        const stallObj = stalls.find(s => s.id === stallId);
+        groups[stallId] = {
+          stallName: stallObj ? stallObj.name : 'Outros',
+          items: []
+        };
+      }
+      groups[stallId].items.push(p);
+    });
+
+    return groups;
+  }, [products, stalls, calcSearch]);
+
+  const handleApplyCalc = () => {
+    setAmount(calcTotal.toFixed(2));
+    setShowCalcModal(false);
+  };
+
+  const handleClearCalc = () => {
+    setCalcQuantities({});
+  };
   const [statusModal, setStatusModal] = useState<{
     show: boolean;
     type: 'success' | 'error' | 'info';
@@ -3773,7 +3829,18 @@ function RechargePortal({
             </div>
             
             <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] px-2 block">Valor Personalizado</label>
+              <div className="flex items-center justify-between px-2">
+                <label className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] block">Valor da Recarga</label>
+                <button
+                  type="button"
+                  disabled={!scannedUser}
+                  onClick={() => setShowCalcModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-30 active:scale-95 cursor-pointer"
+                >
+                  <Calculator className="h-4 w-4" />
+                  Calcular por Itens
+                </button>
+              </div>
               <div className="relative group">
                 <span className="absolute left-6 top-1/2 -translate-y-1/2 font-black text-2xl text-slate-600 group-focus-within:text-blue-500 transition-colors">R$</span>
                 <input 
@@ -3881,6 +3948,191 @@ function RechargePortal({
                 >
                   Confirmar
                 </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showCalcModal && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCalcModal(false)}
+              className="absolute inset-0 bg-slate-950/85 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-xl bg-slate-900 border border-white/10 rounded-[32px] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] text-white"
+            >
+              <div className="p-6 border-b border-white/10 text-left">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-500/10 rounded-xl text-blue-400">
+                      <Calculator className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-black text-white uppercase tracking-tight">Calculadora de Recarga</h3>
+                      <p className="text-slate-400 text-xs font-semibold">Selecione os produtos para calcular automaticamente o valor total</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowCalcModal(false)}
+                    className="h-10 w-10 flex items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-all active:scale-95 cursor-pointer"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+
+                <div className="relative mt-4">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <input
+                    type="text"
+                    placeholder="Buscar produto por nome ou categoria..."
+                    value={calcSearch}
+                    onChange={(e) => setCalcSearch(e.target.value)}
+                    className="w-full bg-slate-950/55 border border-white/10 rounded-xl h-11 pl-10 pr-4 text-xs font-semibold text-white placeholder:text-slate-500 focus:outline-none focus:border-blue-500 transition-all"
+                  />
+                  {calcSearch && (
+                    <button 
+                      onClick={() => setCalcSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Products Grid / Group Container */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {Object.keys(groupedProducts).length === 0 ? (
+                  <div className="h-40 flex flex-col items-center justify-center text-center space-y-2">
+                    <p className="text-slate-500 font-black text-xs uppercase tracking-wider">Nenhum produto cadastrado / encontrado</p>
+                    <p className="text-slate-600 text-xs">Ajuste o filtro ou cadastre produtos na aba de produtos.</p>
+                  </div>
+                ) : (
+                  (Object.entries(groupedProducts) as [string, { stallName: string; items: Product[] }][]).map(([stallId, group]) => (
+                    <div key={stallId} className="space-y-3">
+                      <div className="flex items-center gap-1.5 px-1 border-b border-white/5 pb-2">
+                        <Store className="h-3.5 w-3.5 text-blue-400" />
+                        <h4 className="text-[10px] font-black uppercase text-blue-400 tracking-wider">
+                          {group.stallName}
+                        </h4>
+                        <span className="text-[9px] font-bold text-slate-500 font-mono">({group.items.length})</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 gap-2.5">
+                        {group.items.map(p => {
+                          const qty = calcQuantities[p.id] || 0;
+                          return (
+                            <div 
+                              key={p.id} 
+                              className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${
+                                qty > 0 
+                                  ? 'bg-blue-600/15 border-blue-500/40 text-white' 
+                                  : 'bg-white/[0.02] border-white/5 hover:border-white/10 text-slate-300'
+                              }`}
+                            >
+                              <div className="space-y-1 pr-4">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-extrabold text-sm tracking-tight text-white">{p.name}</span>
+                                  {p.category && (
+                                    <span className="text-[8px] font-black uppercase tracking-widest bg-white/5 text-slate-400 px-1.5 py-0.5 rounded">
+                                      {p.category}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="font-mono text-sm font-black text-emerald-400">
+                                  R$ {p.price.toFixed(2)}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2.5 bg-slate-950/60 p-1.5 rounded-xl border border-white/5 select-none">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCalcQuantities(prev => {
+                                      const current = prev[p.id] || 0;
+                                      if (current <= 1) {
+                                        const copy = { ...prev };
+                                        delete copy[p.id];
+                                        return copy;
+                                      }
+                                      return { ...prev, [p.id]: current - 1 };
+                                    });
+                                  }}
+                                  className={`h-8 w-8 rounded-lg flex items-center justify-center font-black transition-all ${
+                                    qty > 0 
+                                      ? 'bg-slate-800 text-white hover:bg-slate-700 cursor-pointer' 
+                                      : 'opacity-20 cursor-not-allowed'
+                                  }`}
+                                  disabled={qty === 0}
+                                >
+                                  -
+                                </button>
+                                <span className="font-mono font-black text-sm w-7 text-center text-white">
+                                  {qty}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCalcQuantities(prev => ({
+                                      ...prev,
+                                      [p.id]: (prev[p.id] || 0) + 1
+                                    }));
+                                  }}
+                                  className="h-8 w-8 bg-blue-600 hover:bg-blue-500 rounded-lg flex items-center justify-center font-black text-white transition-all cursor-pointer"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Calculator Footer */}
+              <div className="p-6 border-t border-white/10 bg-slate-950/45 text-left space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Valor total projetado</p>
+                    <p className="text-3xl font-black text-green-400 tracking-tight">R$ {calcTotal.toFixed(2)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Produtos marcados</p>
+                    <p className="text-sm font-extrabold text-slate-300">
+                      {(Object.values(calcQuantities) as number[]).reduce((a, b) => a + b, 0)} unidade(s)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 pt-1">
+                  <Button 
+                    variant="outline"
+                    onClick={handleClearCalc}
+                    disabled={Object.keys(calcQuantities).length === 0}
+                    className="h-12 bg-white/5 border-white/10 hover:bg-white/10 text-slate-300 hover:text-white rounded-xl text-xs font-black uppercase tracking-wider disabled:opacity-20"
+                  >
+                    Visual Limpar
+                  </Button>
+                  <Button 
+                    onClick={handleApplyCalc}
+                    disabled={calcTotal <= 0}
+                    className="col-span-2 h-12 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-extrabold rounded-xl text-xs uppercase tracking-wider shadow-lg shadow-emerald-950/50"
+                  >
+                    Inserir R$ {calcTotal.toFixed(2)}
+                  </Button>
+                </div>
               </div>
             </motion.div>
           </div>
