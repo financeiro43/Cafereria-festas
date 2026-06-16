@@ -122,6 +122,7 @@ export default function VendorDashboard({
     type: 'success' | 'error' | 'info';
     title: string;
     message: string;
+    items?: CartItem[];
   }>({
     show: false,
     type: 'info',
@@ -360,30 +361,14 @@ export default function VendorDashboard({
       const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
       const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
       
-      let snapMain: any = null;
-      let snapCards: any = null;
+      // Consult in parallel directly for maximal Speed. 
+      // Firestore getDocs handles local vs server automatically.
+      const [snapMain, snapCards] = await Promise.all([
+        getDocs(qMain),
+        getDocs(qCards)
+      ]);
       
-      try {
-        // Try local offline cache first (extremely fast, ~0ms latency!)
-        [snapMain, snapCards] = await Promise.all([
-          getDocsFromCache(qMain),
-          getDocsFromCache(qCards)
-        ]);
-      } catch (cacheErr) {
-        console.warn("[CACHE] Cache lookup failed, searching server...", cacheErr);
-      }
-      
-      // Fallback to fetch from server if cache was empty or failed
-      if (!snapMain || (snapMain.empty && (!snapCards || snapCards.empty))) {
-        const [serverMain, serverCards] = await Promise.all([
-          getDocs(qMain),
-          getDocs(qCards)
-        ]);
-        snapMain = serverMain;
-        snapCards = serverCards;
-      }
-      
-      const querySnapshot = (snapMain && !snapMain.empty) ? snapMain : (snapCards || { empty: true });
+      const querySnapshot = (!snapMain.empty) ? snapMain : snapCards;
       
       toast.dismiss(toastId);
       if (querySnapshot.empty) {
@@ -402,17 +387,7 @@ export default function VendorDashboard({
       // Se o usuário possuir saldo compartilhado com um parente/responsável (parentUid)
       if ((!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid) {
         try {
-          let parentDoc: any = null;
-          try {
-            parentDoc = await getDocFromCache(doc(db, 'users', userData.parentUid));
-          } catch (cacheErr) {
-            console.warn("[CACHE] Parent lookup from cache failed, trying server...", cacheErr);
-          }
-
-          if (!parentDoc) {
-            parentDoc = await getDoc(doc(db, 'users', userData.parentUid));
-          }
-
+          const parentDoc = await getDoc(doc(db, 'users', userData.parentUid));
           if (parentDoc && parentDoc.exists()) {
             const parentData = parentDoc.data() as UserProfile;
             userData.balance = parentData.balance || 0;
@@ -554,11 +529,14 @@ export default function VendorDashboard({
 
       await Promise.all([updateBalancePromise, writeTransactionPromise, writeConsumptionPromise]);
 
+      const completedItems = [...cart];
+
       setStatusModal({
         show: true,
         type: 'success',
         title: 'Venda Concluída!',
-        message: `O pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso para ${scannedUser.name}.\n\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+        message: `O pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso para ${scannedUser.name}.\n\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+        items: completedItems
       });
 
       // Guardar detalhes para conferência na aba Pedidos
@@ -1667,7 +1645,7 @@ export default function VendorDashboard({
                    <QrCode className="h-12 w-12" />}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 w-full">
                   <h3 className="text-2xl font-black text-white uppercase tracking-tighter">
                     {statusModal.title}
                   </h3>
@@ -1675,6 +1653,37 @@ export default function VendorDashboard({
                     {statusModal.message}
                   </p>
                 </div>
+
+                {statusModal.type === 'success' && statusModal.items && statusModal.items.length > 0 && (
+                  <div className="w-full bg-slate-950/60 rounded-3xl border border-white/5 p-4 text-left space-y-3.5 max-h-56 overflow-y-auto">
+                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider border-b border-white/5 pb-2">
+                      Resumo da Venda
+                    </p>
+                    <div className="space-y-2.5">
+                      {statusModal.items.map((item, idx) => (
+                        <div key={idx} className="flex justify-between items-start gap-2 text-xs">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-emerald-400 font-extrabold font-mono text-xs">
+                              {item.quantity}x
+                            </span>
+                            <span className="text-slate-300 font-bold truncate">
+                              {item.name}
+                            </span>
+                          </div>
+                          <span className="text-slate-400 font-mono text-xs shrink-0">
+                            R$ {(item.price * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="pt-2.5 border-t border-white/5 flex justify-between items-center text-xs font-black">
+                      <span className="text-slate-400 uppercase tracking-widest text-[9px]">Total Geral</span>
+                      <span className="text-emerald-400 font-mono text-sm font-black">
+                        R$ {statusModal.items.reduce((sum, item) => sum + (item.price * item.quantity), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <Button 
                   onClick={() => setStatusModal(prev => ({ ...prev, show: false }))}
