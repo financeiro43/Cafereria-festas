@@ -361,14 +361,37 @@ export default function VendorDashboard({
       const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
       const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
       
-      // Consult in parallel directly for maximal Speed. 
-      // Firestore getDocs handles local vs server automatically.
-      const [snapMain, snapCards] = await Promise.all([
-        getDocs(qMain),
-        getDocs(qCards)
-      ]);
+      let snapMain: any = null;
+      let snapCards: any = null;
       
-      const querySnapshot = (!snapMain.empty) ? snapMain : snapCards;
+      try {
+        // Try local offline cache first (instantly, ~0ms!)
+        const [cachedMain, cachedCards] = await Promise.all([
+          getDocsFromCache(qMain).catch(() => null),
+          getDocsFromCache(qCards).catch(() => null)
+        ]);
+        
+        if (cachedMain && !cachedMain.empty) {
+          snapMain = cachedMain;
+        }
+        if (cachedCards && !cachedCards.empty) {
+          snapCards = cachedCards;
+        }
+      } catch (cacheErr) {
+        console.warn("[CACHE] Cache lookup error:", cacheErr);
+      }
+
+      // If both are empty or weren't found in cache, fallback to server fetch immediately
+      if (!snapMain && !snapCards) {
+        const [serverMain, serverCards] = await Promise.all([
+          getDocs(qMain),
+          getDocs(qCards)
+        ]);
+        snapMain = serverMain;
+        snapCards = serverCards;
+      }
+      
+      const querySnapshot = (snapMain && !snapMain.empty) ? snapMain : (snapCards || { empty: true });
       
       toast.dismiss(toastId);
       if (querySnapshot.empty) {
@@ -387,7 +410,12 @@ export default function VendorDashboard({
       // Se o usuário possuir saldo compartilhado com um parente/responsável (parentUid)
       if ((!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid) {
         try {
-          const parentDoc = await getDoc(doc(db, 'users', userData.parentUid));
+          let parentDoc: any = null;
+          try {
+            parentDoc = await getDocFromCache(doc(db, 'users', userData.parentUid));
+          } catch (cacheErr) {
+            parentDoc = await getDoc(doc(db, 'users', userData.parentUid));
+          }
           if (parentDoc && parentDoc.exists()) {
             const parentData = parentDoc.data() as UserProfile;
             userData.balance = parentData.balance || 0;
