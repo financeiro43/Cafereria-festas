@@ -110,7 +110,19 @@ export default function VendorDashboard({
     return liveScannedUser;
   }, [liveScannedUser, liveParentUser]);
 
+  // Formatter matching online card (16 numbers with spaces every 4 digits)
+  const formatCardNumber = (str: string) => {
+    if (!str) return '';
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const numeric = Math.abs(hash).toString().padEnd(16, '0').substring(0, 16);
+    return numeric.replace(/(.{4})/g, '$1 ').trim();
+  };
+
   const [showMobileCart, setShowMobileCart] = useState(false);
+  const [isSearchingClient, setIsSearchingClient] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -356,6 +368,7 @@ export default function VendorDashboard({
       if (!cleanText) return;
 
       setIsScanning(false);
+      setIsSearchingClient(true);
       const toastId = toast.loading('Identificando cliente...', { id: 'v-scan' });
       
       let userDoc: any = null;
@@ -419,6 +432,8 @@ export default function VendorDashboard({
       }
 
       toast.dismiss(toastId);
+      setIsSearchingClient(false);
+
       if (!userDoc) {
         setStatusModal({
           show: true,
@@ -445,15 +460,10 @@ export default function VendorDashboard({
       }
 
       setScannedUser(userData);
-      
-      setStatusModal({
-        show: true,
-        type: 'success',
-        title: 'Cliente Identificado',
-        message: `Cliente: ${userData.name}\nCartão: ${cleanText}\nSaldo: R$ ${userData.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-      });
+      toast.success(`Cliente ${userData.name} identificado com sucesso!`);
     } catch (error) {
       console.error(error);
+      setIsSearchingClient(false);
       toast.dismiss('v-scan');
       handleFirestoreError(error, OperationType.LIST, 'users');
     }
@@ -589,7 +599,7 @@ export default function VendorDashboard({
         show: true,
         type: 'success',
         title: 'Venda Concluída!',
-        message: `Cliente: ${scannedUser.name}\nCartão: ${activeCardNumber}\n\nO pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso.\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+        message: `Cliente: ${scannedUser.name}\nCartão: ${formatCardNumber(activeCardNumber)}\n\nO pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso.\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
         items: completedItems
       });
 
@@ -1006,7 +1016,12 @@ export default function VendorDashboard({
                                 </div>
                                 <div>
                                   <p className="font-black text-xs uppercase truncate text-white leading-none mb-1">{scannedUser.name}</p>
-                                  <p className="text-[10px] font-bold text-slate-400 font-mono tracking-wide mb-1.5">Cartão: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}</p>
+                                  <p className="text-[11px] font-black text-blue-400 font-mono tracking-wide leading-none mt-1">
+                                    {formatCardNumber((scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid || '')}
+                                  </p>
+                                  <p className="text-[8px] font-bold text-slate-500 font-mono tracking-tight mb-1.5 mt-0.5">
+                                    ID: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}
+                                  </p>
                                   <div className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
                                     scannedUser.balance < cartTotal ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-400'
                                   }`}>
@@ -1407,7 +1422,12 @@ export default function VendorDashboard({
             <div className="bg-white/5 border border-white/5 p-3 rounded-2xl flex items-center justify-between text-xs mb-1">
               <div className="min-w-0">
                 <p className="font-extrabold text-white truncate max-w-[180px] uppercase text-[10px] tracking-wide leading-none mb-1">{scannedUser.name}</p>
-                <p className="text-[9px] font-bold text-slate-400 font-mono tracking-tight">Cartão: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}</p>
+                <p className="text-[10px] font-black font-mono text-blue-400 tracking-wide leading-tight mt-0.5">
+                  Cartão: {formatCardNumber((scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid || '')}
+                </p>
+                <p className="text-[8px] font-bold text-slate-500 font-mono leading-none tracking-tight">
+                  ID: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-[9px] font-black uppercase text-slate-500 leading-none">Saldo</p>
@@ -1581,6 +1601,64 @@ export default function VendorDashboard({
                     ADICIONAR MAIS
                   </Button>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Searching Client Loading Overlay */}
+      <AnimatePresence>
+        {isSearchingClient && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-xl"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-slate-900/90 border border-white/10 rounded-[40px] p-8 text-center space-y-6 shadow-2xl overflow-hidden"
+            >
+              {/* Animated glowing decorative circle */}
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-40 bg-blue-500/10 blur-3xl pointer-events-none rounded-full" />
+              
+              <div className="relative flex justify-center items-center h-32 w-32 mx-auto">
+                {/* Double pulse circles */}
+                <span className="absolute inline-flex h-24 w-24 rounded-full bg-blue-500/15 animate-ping" />
+                <span className="absolute inline-flex h-16 w-16 rounded-full bg-blue-400/20 animate-pulse" />
+                
+                {/* Rotating ring */}
+                <div className="absolute h-28 w-28 rounded-full border-2 border-dashed border-blue-500/45 animate-spin" />
+                
+                {/* Center search/RFID card icon with floating animation */}
+                <motion.div 
+                  className="bg-blue-600 h-16 w-16 rounded-2xl flex items-center justify-center text-white shadow-[0_15px_30px_rgba(37,99,235,0.4)] border border-blue-400/30"
+                  animate={{ 
+                    y: [0, -6, 0],
+                    rotate: [0, 5, -5, 0]
+                  }}
+                  transition={{ 
+                    repeat: Infinity, 
+                    duration: 2.5,
+                    ease: "easeInOut"
+                  }}
+                >
+                  <Search className="h-7 w-7 text-white" />
+                </motion.div>
+              </div>
+
+              <div className="space-y-2 relative z-10">
+                <h3 className="text-lg font-black text-white uppercase tracking-wider">Aguardando Cliente</h3>
+                <p className="text-slate-400 text-xs font-semibold">Consultando banco de dados...</p>
+              </div>
+
+              <div className="flex items-center justify-center gap-1.5 py-1 px-4 bg-white/5 border border-white/5 rounded-2xl w-fit mx-auto text-[10px] text-slate-500 font-mono">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+                <span>AGUARDANDO RETORNO</span>
               </div>
             </motion.div>
           </div>
