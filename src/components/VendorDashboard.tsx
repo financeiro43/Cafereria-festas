@@ -551,7 +551,7 @@ export default function VendorDashboard({
         });
       }
 
-      const activeCardNumber = (scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid || '';
+      const activeCardNumber = scannedUser.uid || (scannedUser as any).scannedCardCode || scannedUser.qrCode || '';
 
       const writeTransactionPromise = addDoc(collection(db, 'transactions'), {
         userId: scannedUser.uid,
@@ -1017,7 +1017,7 @@ export default function VendorDashboard({
                                 <div>
                                   <p className="font-black text-xs uppercase truncate text-white leading-none mb-1">{scannedUser.name}</p>
                                   <p className="text-[11px] font-black text-blue-400 font-mono tracking-wide leading-none mt-1">
-                                    {formatCardNumber((scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid || '')}
+                                    {formatCardNumber(scannedUser.uid || (scannedUser as any).scannedCardCode || scannedUser.qrCode || '')}
                                   </p>
                                   <p className="text-[8px] font-bold text-slate-500 font-mono tracking-tight mb-1.5 mt-0.5">
                                     ID: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}
@@ -1423,7 +1423,7 @@ export default function VendorDashboard({
               <div className="min-w-0">
                 <p className="font-extrabold text-white truncate max-w-[180px] uppercase text-[10px] tracking-wide leading-none mb-1">{scannedUser.name}</p>
                 <p className="text-[10px] font-black font-mono text-blue-400 tracking-wide leading-tight mt-0.5">
-                  Cartão: {formatCardNumber((scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid || '')}
+                  Cartão: {formatCardNumber(scannedUser.uid || (scannedUser as any).scannedCardCode || scannedUser.qrCode || '')}
                 </p>
                 <p className="text-[8px] font-bold text-slate-500 font-mono leading-none tracking-tight">
                   ID: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}

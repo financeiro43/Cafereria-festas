@@ -795,7 +795,7 @@ export default function ReportsPortal({
         data = cardsReport.map(row => ({
           'Nome': row.name,
           'Email': row.email,
-          'Número do Cartão': formatCardNumber(row.qrCode || row.uid),
+          'Número do Cartão': formatCardNumber(row.uid || row.qrCode),
           'QR Code / ID': row.qrCode,
           'Origem': row.origin,
           'Status de Uso': row.hasRecharge ? `Utilizado (${row.rechargeCount} recargas)` : 'Apenas Ativado',
@@ -925,7 +925,7 @@ export default function ReportsPortal({
         body = cardsReport.map(row => [
           row.name, 
           row.email, 
-          formatCardNumber(row.qrCode || row.uid),
+          formatCardNumber(row.uid || row.qrCode),
           row.qrCode, 
           row.hasRecharge ? `Utilizado (${row.rechargeCount}x)` : 'Apenas Ativado',
           formatCurrency(row.totalRecharged),
@@ -1444,7 +1444,7 @@ export default function ReportsPortal({
                         <td className="px-6 py-4 text-xs font-semibold text-slate-500">{row.email}</td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col gap-0.5 select-all">
-                            <span className="font-mono text-[11px] font-black text-slate-700 leading-tight">{formatCardNumber(row.qrCode || row.uid)}</span>
+                            <span className="font-mono text-[11px] font-black text-slate-700 leading-tight">{formatCardNumber(row.uid || row.qrCode)}</span>
                             <span className="font-mono text-[9px] text-slate-400">ID: {row.qrCode}</span>
                           </div>
                         </td>

@@ -402,7 +402,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       let tableRows = "";
       
       physicalCards.forEach(card => {
-        const formattedNum = formatCardNumber(card.qrCode || card.uid || '');
+        const formattedNum = formatCardNumber(card.uid || card.qrCode || '');
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(card.qrCode || '')}`;
         const balanceFormatted = card.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
         // Safe timestamp retrieval
@@ -501,7 +501,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     return users.filter(u => {
       if (!u.isPhysicalCard) return false;
       
-      const formattedNum = formatCardNumber(u.qrCode || u.uid || '');
+      const formattedNum = formatCardNumber(u.uid || u.qrCode || '');
       const matchesSearch = 
         u.name.toLowerCase().includes(physicalSearchQuery.toLowerCase()) ||
         u.qrCode?.toLowerCase().includes(physicalSearchQuery.toLowerCase()) ||
@@ -528,7 +528,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       const dataUrl = canvas.toDataURL("image/png");
       const link = document.createElement("a");
       const safeName = (card.name || "sem_nome").replace(/[^a-z0-9_]/gi, "_").toLowerCase();
-      const formattedNum = (card.qrCode || card.uid || '').replace(/\s+/g, '');
+      const formattedNum = (card.uid || card.qrCode || '').replace(/\s+/g, '');
       link.href = dataUrl;
       link.download = `qrcode_${safeName}_${formattedNum}.png`;
       document.body.appendChild(link);
@@ -569,7 +569,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
             const base64Data = dataUrl.split(',')[1];
             if (base64Data) {
               const safeName = (card.name || "sem_nome").replace(/[^a-z0-9_]/gi, "_").toLowerCase();
-              const formattedNum = (card.qrCode || card.uid || '').replace(/\s+/g, '');
+              const formattedNum = (card.uid || card.qrCode || '').replace(/\s+/g, '');
               const filename = `qrcode_${safeName}_${formattedNum}.png`;
               
               zip.file(filename, base64Data, { base64: true });
@@ -2616,7 +2616,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                       {filteredPhysicalCards.sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, 100).map(card => {
-                        const formattedNum = formatCardNumber(card.qrCode || card.uid || '');
+                        const formattedNum = formatCardNumber(card.uid || card.qrCode || '');
                         const isSelected = selectedPhysicalCards.includes(card.uid);
                         const bgStyle = cardGradient === 'custom-image' ? '' : getCardBgStyle(cardGradient);
                         
@@ -2752,7 +2752,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 <div id="printable-cards" className="print:block">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-y-8 gap-x-8 justify-center items-center print:grid-cols-3 print:gap-x-4 print:gap-y-4">
                     {users.filter(u => u.isPhysicalCard).sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0)).slice(0, batchSize).map(card => {
-                      const formattedNum = formatCardNumber(card.qrCode || card.uid || '');
+                      const formattedNum = formatCardNumber(card.uid || card.qrCode || '');
                       const bgStyle = cardGradient === 'custom-image' ? '' : getCardBgStyle(cardGradient);
                       
                       return (
