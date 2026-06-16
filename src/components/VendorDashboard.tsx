@@ -358,43 +358,60 @@ export default function VendorDashboard({
       setIsScanning(false);
       const toastId = toast.loading('Identificando cliente...', { id: 'v-scan' });
       
-      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
-      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
-      
-      let snapMain: any = null;
-      let snapCards: any = null;
-      
+      let userDoc: any = null;
+
+      // Tier 1: Try reading as absolute direct Document Uid from local cache first, then server
       try {
-        // Try local offline cache first (instantly, ~0ms!)
-        const [cachedMain, cachedCards] = await Promise.all([
-          getDocsFromCache(qMain).catch(() => null),
-          getDocsFromCache(qCards).catch(() => null)
-        ]);
-        
-        if (cachedMain && !cachedMain.empty) {
-          snapMain = cachedMain;
+        const userRef = doc(db, 'users', cleanText);
+        userDoc = await getDocFromCache(userRef).catch(() => null);
+        if (!userDoc || !userDoc.exists()) {
+          const directServer = await getDoc(userRef);
+          if (directServer.exists()) {
+            userDoc = directServer;
+          }
         }
-        if (cachedCards && !cachedCards.empty) {
-          snapCards = cachedCards;
-        }
-      } catch (cacheErr) {
-        console.warn("[CACHE] Cache lookup error:", cacheErr);
+      } catch (directQueryErr) {
+        console.warn("[DIRECT LOOKUP/CACHE] SKipped or failed:", directQueryErr);
       }
 
-      // If both are empty or weren't found in cache, fallback to server fetch immediately
-      if (!snapMain && !snapCards) {
-        const [serverMain, serverCards] = await Promise.all([
-          getDocs(qMain),
-          getDocs(qCards)
-        ]);
-        snapMain = serverMain;
-        snapCards = serverCards;
+      // Tier 2: Search by 'qrCode' property (indexed single field) from local cache, then server
+      if (!userDoc) {
+        const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
+        try {
+          const cachedMain = await getDocsFromCache(qMain).catch(() => null);
+          if (cachedMain && !cachedMain.empty) {
+            userDoc = cachedMain.docs[0];
+          } else {
+            const serverMain = await getDocs(qMain);
+            if (!serverMain.empty) {
+              userDoc = serverMain.docs[0];
+            }
+          }
+        } catch (qrFieldErr) {
+          console.warn("[QRCODE PROP LOOKUP] Skipped or failed:", qrFieldErr);
+        }
       }
-      
-      const querySnapshot = (snapMain && !snapMain.empty) ? snapMain : (snapCards || { empty: true });
-      
+
+      // Tier 3: Search by 'linkedCards' array (array search can be slower, so we isolate it last)
+      if (!userDoc) {
+        const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
+        try {
+          const cachedCards = await getDocsFromCache(qCards).catch(() => null);
+          if (cachedCards && !cachedCards.empty) {
+            userDoc = cachedCards.docs[0];
+          } else {
+            const serverCards = await getDocs(qCards);
+            if (!serverCards.empty) {
+              userDoc = serverCards.docs[0];
+            }
+          }
+        } catch (cardsErr) {
+          console.warn("[LINKED CARDS LOOKUP] Skipped or failed:", cardsErr);
+        }
+      }
+
       toast.dismiss(toastId);
-      if (querySnapshot.empty) {
+      if (!userDoc) {
         setStatusModal({
           show: true,
           type: 'error',
@@ -404,7 +421,6 @@ export default function VendorDashboard({
         return;
       }
 
-      const userDoc = querySnapshot.docs[0];
       let userData = { ...userDoc.data(), uid: userDoc.id } as UserProfile;
 
       // Se o usuário possuir saldo compartilhado com um parente/responsável (parentUid)
