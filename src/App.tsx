@@ -228,48 +228,35 @@ function MainApp() {
 
     console.log("[AUTH] Google Login info:", { isStandalone, isMobile, isInAppBrowser });
 
-    // For standard mobile browsers (not installed PWA), popups are blocked 100% of the time.
-    // Use standard redirect to ensure it works beautifully without popup blockages!
-    if ((isMobile || isInAppBrowser) && !isStandalone) {
-      console.log("[AUTH] Standard mobile or in-app browser. Directing to signInWithRedirect...");
-      try {
-        await signInWithRedirect(auth, provider);
-      } catch (error: any) {
-        console.error("[AUTH] Error during signInWithRedirect on mobile:", error);
-        toast.error('Erro no login Google', { 
-          description: 'Não foi possível iniciar o login neste navegador. Por favor, tente pelo Chrome/Safari normal ou use seu e-mail.' 
-        });
-        setAuthLoading(false);
-      }
-      return;
-    }
-
-    // For Desktop or Standalone PWA (which uses ASWebAuthenticationSession sheet on iOS where popup is supported):
-    console.log("[AUTH] Desktop or PWA mode. Attempting signInWithPopup first.");
+    // Always attempt signInWithPopup first even on mobile, because:
+    // 1. Standard mobile browsers (iOS Safari, Android Chrome) allow user-initiated popup triggers perfectly.
+    // 2. It avoids Safari's Intelligent Tracking Prevention (ITP) or Chrome's third-party cookie blocking which often breaks signInWithRedirect state transmission.
+    // 3. If popups are genuinely blocked (e.g. inside an in-app social media webview), we catch it and fallback to redirect.
+    console.log("[AUTH] Attempting Google Auth via signInWithPopup first...");
     try {
       await signInWithPopup(auth, provider);
       setIsLoginOpen(false);
     } catch (error: any) {
-      console.warn("[AUTH] Popup authorization failed, testing fallback or cancellation...", error);
+      console.warn("[AUTH] signInWithPopup failed or was blocked:", error);
       
       const isCancelled = error.code === 'auth/cancelled-popup-request' || 
                           error.code === 'auth/popup-closed-by-user' ||
                           error.code === 'auth/redirect-cancelled-by-user';
                           
       if (isCancelled) {
-        console.log("[AUTH] Google login popup/sheet cancelled or closed by user.");
+        console.log("[AUTH] Google login cancelled by user.");
         setAuthLoading(false);
         return;
       }
 
-      // If popup was blocked or unsupported, fallback smoothly to redirect
-      console.log("[AUTH] Popup blocked or unplayable. Falling back to signInWithRedirect...");
+      // If popup was blocked or unsupported (frequent inside webviews or strict settings), fallback smoothly to redirect
+      console.log("[AUTH] Falling back to signInWithRedirect...");
       try {
         await signInWithRedirect(auth, provider);
       } catch (redirectError: any) {
-        console.error("[AUTH] Redirect fallback failed too:", redirectError);
+        console.error("[AUTH] Google Auth signInWithRedirect failed:", redirectError);
         toast.error('Erro no login Google', { 
-          description: 'O navegador impediu o fluxo de login automático. Por favor, tente pelo e-mail/senha.' 
+          description: 'O navegador impediu o login automático. Por favor, tente pelo Chrome/Safari convencional ou use seu e-mail.' 
         });
         setAuthLoading(false);
       }
