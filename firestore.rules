@@ -41,22 +41,22 @@ service cloud.firestore {
     // Role-based access helpers
     function isAdmin() {
       return isSignedIn() && (
-        request.auth.token.email.lower() == 'financeiro@modeloalpha.com.br' ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        ('email' in request.auth.token && request.auth.token.email.lowerCase() == 'financeiro@modeloalpha.com.br') ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
     }
 
     function isVendor() {
       return isSignedIn() && (
         isAdmin() ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor'
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'vendor')
       );
     }
 
     function isRecharge() {
       return isSignedIn() && (
         isAdmin() ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'recharge'
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'recharge')
       );
     }
 
