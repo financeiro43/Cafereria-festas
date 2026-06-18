@@ -41,7 +41,7 @@ service cloud.firestore {
     // Role-based access helpers
     function isAdmin() {
       return isSignedIn() && (
-        ('email' in request.auth.token && request.auth.token.email.lowerCase() == 'financeiro@modeloalpha.com.br') ||
+        ('email' in request.auth.token && request.auth.token.email.lower() == 'financeiro@modeloalpha.com.br') ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
     }

@@ -53,6 +53,7 @@ export interface Withdrawal {
 export interface Order {
   id: string;
   studentId: string;
+  studentName: string;
   stallId: string;
   items: string[];
   total: number;

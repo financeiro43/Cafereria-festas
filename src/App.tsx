@@ -149,6 +149,10 @@ function MainApp() {
                 navigate(target);
               }
             } else {
+              if ((window as any).isRegisteringInProgress) {
+                console.log("[AUTH] Registration in progress, skipping auto profile creation in listener.");
+                return;
+              }
               console.log("[AUTH] Profile missing, starting migration/creation...");
               // Check for migration
               const q = query(
@@ -254,7 +258,7 @@ function MainApp() {
       try {
         await signInWithRedirect(auth, provider);
       } catch (redirectError: any) {
-        console.error("[AUTH] Google Auth signInWithRedirect failed:", redirectError);
+        console.warn("[AUTH] Google Auth signInWithRedirect failed:", redirectError);
         toast.error('Erro no login Google', { 
           description: 'O navegador impediu o login automático. Por favor, tente pelo Chrome/Safari convencional ou use seu e-mail.' 
         });
@@ -285,6 +289,9 @@ function MainApp() {
     }
 
     setAuthLoading(true);
+    if (isRegistering) {
+      (window as any).isRegisteringInProgress = true;
+    }
     try {
       if (isRegistering) {
         await authService.registerUser(registerName, cleanEmail, cleanPassword, lgpdConsent);
@@ -324,6 +331,7 @@ function MainApp() {
         description: friendlyMessage 
       });
     } finally {
+      (window as any).isRegisteringInProgress = false;
       setAuthLoading(false);
     }
   };
