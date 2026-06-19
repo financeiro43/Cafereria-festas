@@ -179,13 +179,29 @@ export default function ReportsPortal({
     return new Date(year, month, day, hour, minute, second, ms);
   };
 
+  // Helper to parse multiple timestamp formats (Firestore/ISO/Milliseconds) to Date safely
+  const getParsedDate = (timestampField: any): Date | null => {
+    if (!timestampField) return null;
+    if (typeof timestampField.toDate === 'function') {
+      return timestampField.toDate();
+    }
+    if (typeof timestampField.toMillis === 'function') {
+      return new Date(timestampField.toMillis());
+    }
+    if (timestampField.seconds !== undefined) {
+      return new Date(timestampField.seconds * 1000);
+    }
+    const parsed = new Date(timestampField);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  };
+
   // 1. Filtered Sales (Consumption) records
   const filteredSales = useMemo(() => {
     return consumption.filter(s => {
       let isDateMatch = true;
       try {
-        const sDate = s.timestamp?.toDate ? s.timestamp.toDate() : new Date(s.timestamp);
-        if (isNaN(sDate.getTime())) return true;
+        const sDate = getParsedDate(s.timestamp);
+        if (!sDate || isNaN(sDate.getTime())) return false; // Exclude with invalid timestamp unless all-time
         
         if (startDate) {
           const start = parseLocalDate(startDate, 0, 0, 0, 0);
@@ -206,8 +222,8 @@ export default function ReportsPortal({
   const formatDate = (timestamp: any) => {
     try {
       if (!timestamp) return 'N/A';
-      const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-      if (isNaN(date.getTime())) return 'Data Inválida';
+      const date = getParsedDate(timestamp);
+      if (!date || isNaN(date.getTime())) return 'Data Inválida';
       return format(date, 'dd/MM/yyyy HH:mm', { locale: ptBR });
     } catch (e) {
       return 'Erro na Data';
@@ -217,7 +233,8 @@ export default function ReportsPortal({
   // 1. Transactions filtered by state criteria
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
-      const date = t.timestamp?.toDate ? t.timestamp.toDate() : new Date(t.timestamp);
+      const date = getParsedDate(t.timestamp);
+      if (!date || isNaN(date.getTime())) return false; // Exclude with invalid timestamp unless all-time
       
       const isStatusMatch = statusFilter === 'all' || t.status === statusFilter;
       
@@ -286,7 +303,8 @@ export default function ReportsPortal({
     
     const totalWithdrawals = withdrawals
       .filter(w => {
-        const date = w.timestamp?.toDate ? w.timestamp.toDate() : new Date(w.timestamp);
+        const date = getParsedDate(w.timestamp);
+        if (!date || isNaN(date.getTime())) return false;
         let isDateMatch = true;
         if (startDate) {
           const start = parseLocalDate(startDate, 0, 0, 0, 0);
