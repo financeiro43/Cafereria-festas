@@ -53,6 +53,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   
   const [withdrawalAmount, setWithdrawalAmount] = useState('');
   const [withdrawalStallId, setWithdrawalStallId] = useState('');
+  const [withdrawalNote, setWithdrawalNote] = useState('');
 
   useEffect(() => {
     const unsubStalls = onSnapshot(collection(db, 'stalls'), (snap) => {
@@ -168,18 +169,94 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         }
       });
 
-      const stallWithdrawals = withdrawals.filter(w => w.stallId === stall.id);
-      const totalWithdrawn = stallWithdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
-      
       return {
         ...stall,
         totalSales,
-        totalWithdrawn,
-        productsSold,
-        balance: totalSales - totalWithdrawn
+        productsSold
       };
     });
-  }, [stalls, transactions, withdrawals, recentSales]);
+  }, [stalls, transactions, recentSales]);
+
+  const statsByCaixa = useMemo(() => {
+    const operatorsMap = new Map<string, { uid: string; name: string; role: string; email: string }>();
+    
+    // Add known recharge/admin users
+    users.forEach(u => {
+      if (u.role === 'recharge' || u.role === 'admin') {
+        operatorsMap.set(u.uid, {
+          uid: u.uid,
+          name: u.name || u.email?.split('@')[0] || 'Operador',
+          role: u.role,
+          email: u.email || ''
+        });
+      }
+    });
+
+    // Fallback: If there are transactions with an operatorId that isn't in users:
+    transactions.forEach(t => {
+      if (t.type === 'credit' && t.status === 'completed' && t.operatorId && !operatorsMap.has(t.operatorId)) {
+        operatorsMap.set(t.operatorId, {
+          uid: t.operatorId,
+          name: t.operatorName || 'Operador Externo',
+          role: 'recharge',
+          email: ''
+        });
+      }
+    });
+
+    // If there is no operator on some old credit transactions, assign them to a virtual "Caixa Geral (Legado)"
+    const hasLegacyCredit = transactions.some(t => t.type === 'credit' && t.status === 'completed' && !t.operatorId);
+    if (hasLegacyCredit && !operatorsMap.has('legacy_general')) {
+      operatorsMap.set('legacy_general', {
+        uid: 'legacy_general',
+        name: 'Caixa Administrativo (Legado)',
+        role: 'admin',
+        email: ''
+      });
+    }
+
+    const oList = Array.from(operatorsMap.values());
+
+    return oList.map(op => {
+      const opTransactions = transactions.filter(t => {
+        if (t.type !== 'credit' || t.status !== 'completed') return false;
+        if (t.operatorId) {
+          return t.operatorId === op.uid;
+        } else {
+          return op.uid === 'legacy_general' || (op.role === 'admin' && !operatorsMap.has('legacy_general'));
+        }
+      });
+
+      const totalRecharged = opTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
+      const totalCash = opTransactions.filter(t => t.paymentMethod?.toLowerCase().includes('dinheiro')).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+      const totalPix = opTransactions.filter(t => t.paymentMethod?.toLowerCase().includes('pix')).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+      const totalCard = opTransactions.filter(t => t.paymentMethod?.toLowerCase().includes('cart') || t.paymentMethod?.toLowerCase().includes('deb') || t.paymentMethod?.toLowerCase().includes('cred')).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
+      const opWithdrawals = withdrawals.filter(w => w.stallId === op.uid);
+      const totalWithdrawn = opWithdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
+      return {
+        ...op,
+        totalRecharged,
+        totalWithdrawn,
+        totalCash,
+        totalPix,
+        totalCard,
+        balance: totalRecharged - totalWithdrawn
+      };
+    }).filter(c => c.totalRecharged > 0 || c.totalWithdrawn > 0 || c.role === 'recharge' || c.role === 'admin');
+  }, [users, transactions, withdrawals]);
+
+  const paymentMethodStats = useMemo(() => {
+    const credits = transactions.filter(t => t.type === 'credit' && t.status === 'completed');
+    const cash = credits.filter(t => t.paymentMethod?.toLowerCase().includes('dinheiro')).reduce((acc, t) => acc + (t.amount || 0), 0);
+    const pix = credits.filter(t => t.paymentMethod?.toLowerCase().includes('pix')).reduce((acc, t) => acc + (t.amount || 0), 0);
+    const card = credits.filter(t => t.paymentMethod?.toLowerCase().includes('cart') || t.paymentMethod?.toLowerCase().includes('deb') || t.paymentMethod?.toLowerCase().includes('cred')).reduce((acc, t) => acc + (t.amount || 0), 0);
+    const other = credits.reduce((acc, t) => acc + (t.amount || 0), 0) - (cash + pix + card);
+
+    return { cash, pix, card, other };
+  }, [transactions]);
 
   const handleWithdraw = async () => {
     if (!withdrawalStallId || !withdrawalAmount) return;
@@ -188,12 +265,24 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         stallId: withdrawalStallId,
         amount: parseFloat(withdrawalAmount),
         adminId: auth.currentUser?.uid,
+        note: withdrawalNote || '',
         timestamp: new Date().toISOString()
       });
       setWithdrawalAmount('');
+      setWithdrawalNote('');
       toast.success('Retirada registrada com sucesso!');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'withdrawals');
+    }
+  };
+
+  const handleDeleteWithdrawal = async (id: string) => {
+    if (!window.confirm('Tem certeza que deseja cancelar esta retirada? O saldo correspondente retornará ao caixa de recarga.')) return;
+    try {
+      await deleteDoc(doc(db, 'withdrawals', id));
+      toast.success('Retirada cancelada com sucesso!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'withdrawals');
     }
   };
 
@@ -351,7 +440,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
           paymentMethod: 'Saldo Admin',
           status: 'completed',
           description: 'Recarga administrativa em lote',
-          timestamp: serverTimestamp()
+          timestamp: serverTimestamp(),
+          operatorId: auth.currentUser?.uid || '',
+          operatorName: profile.name || profile.email || 'Operador'
         });
       });
       await Promise.all(promises);
@@ -901,7 +992,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         description: `Recarga manual (${paymentMethod})`,
         paymentMethod,
         status: 'completed',
-        timestamp: serverTimestamp()
+        timestamp: serverTimestamp(),
+        operatorId: auth.currentUser?.uid || '',
+        operatorName: profile.name || profile.email || 'Operador'
       });
 
       setRechargeAmounts(prev => ({ ...prev, [userId]: '' }));
@@ -981,7 +1074,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
             description: `Recarga manual em lote (${bulkEditPaymentMethod})`,
             paymentMethod: bulkEditPaymentMethod,
             status: 'completed',
-            timestamp: serverTimestamp()
+            timestamp: serverTimestamp(),
+            operatorId: auth.currentUser?.uid || '',
+            operatorName: profile.name || profile.email || 'Operador'
           });
         });
         await Promise.all(promises);
@@ -1247,148 +1342,384 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         <div className={`max-w-6xl mx-auto ${forcedTab ? 'p-2' : 'p-8 pt-24 md:pt-8'}`}>
           {activeTab === 'overview' && (
             <div className="space-y-8 animate-in fade-in duration-500">
-              <header className="px-2 md:px-0">
-                <h2 className="text-2xl md:text-3xl font-black text-slate-900 uppercase tracking-tight leading-none">Gestão Financeira</h2>
-                <p className="text-slate-500 text-sm mt-2">Dashboard consolidado do evento</p>
+              <header className="px-2 md:px-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h2 className="text-2xl md:text-3xl font-black text-slate-900 uppercase tracking-tight leading-none">Gestão Financeira</h2>
+                  <p className="text-slate-500 text-sm mt-2">Painel unificado e auditoria de fluxo de caixa físico e faturamento virtual</p>
+                </div>
+                <div className="bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 flex items-center gap-2.5">
+                  <div className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
+                  <p className="text-xs font-black uppercase text-blue-800 tracking-wider">Modo Auditoria Ativo</p>
+                </div>
               </header>
 
+              {/* Main Financial Indicators */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 px-2 md:px-0">
-                <Card className="shadow-2xl shadow-blue-500/10 border-none bg-blue-600 text-white rounded-[32px] overflow-hidden relative group">
+                <Card className="shadow-2xl shadow-blue-500/5 border-none bg-blue-600 text-white rounded-[32px] overflow-hidden relative group">
                   <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/10 blur-3xl rounded-full group-hover:scale-150 transition-transform duration-700" />
                   <CardContent className="p-6 md:p-8 space-y-2">
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-100 flex items-center gap-2">
-                      <DollarSign className="h-3 w-3" /> Faturamento
+                      <Store className="h-3 w-3" /> Faturamento das Barracas
                     </p>
                     <h4 className="text-3xl font-black tabular-nums tracking-tighter">R$ {stats.totalRevenue.toFixed(2)}</h4>
-                    <p className="text-[9px] text-blue-200 font-bold uppercase tracking-widest">{stats.totalSalesCount} Vendas Realizadas</p>
+                    <p className="text-[9px] text-blue-200 font-bold uppercase tracking-widest">{stats.totalSalesCount} transações de consumo</p>
                   </CardContent>
                 </Card>
 
-                <Card className="shadow-sm border-none bg-white rounded-[32px] overflow-hidden group">
+                <Card className="shadow-2xl shadow-emerald-500/5 border-none bg-emerald-600 text-white rounded-[32px] overflow-hidden relative group">
+                  <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/10 blur-3xl rounded-full group-hover:scale-150 transition-transform duration-700" />
                   <CardContent className="p-6 md:p-8 space-y-2">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
-                      <History className="h-3 w-3 text-orange-500" /> Em Aberto
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-100 flex items-center gap-2">
+                      <CreditCard className="h-3 w-3" /> Total Recarregado (Carga)
                     </p>
-                    <h4 className="text-3xl font-black text-slate-900 tabular-nums tracking-tighter">R$ {stats.balance.toFixed(2)}</h4>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Pendente de Retirada</p>
+                    <h4 className="text-3xl font-black tabular-nums tracking-tighter">R$ {stats.credited.toFixed(2)}</h4>
+                    <p className="text-[9px] text-emerald-100/80 font-bold uppercase tracking-widest">Aporte financeiro nos caixas</p>
                   </CardContent>
                 </Card>
 
-                <Card className="shadow-sm border-none bg-white rounded-[32px] overflow-hidden">
+                <Card className="shadow-sm border-none bg-white rounded-[32px] overflow-hidden relative group">
                   <CardContent className="p-6 md:p-8 space-y-2">
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
-                      <FileText className="h-3 w-3 text-green-500" /> Retiradas
+                      <FileText className="h-3 w-3 text-red-500" /> Total Recolhido (Saídas)
                     </p>
                     <h4 className="text-3xl font-black text-slate-900 tabular-nums tracking-tighter">R$ {stats.totalWithdrawn.toFixed(2)}</h4>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Total já recolhido</p>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{withdrawals.length} malotes fisicamente coletados</p>
                   </CardContent>
                 </Card>
 
                 <Card className="shadow-sm border-none bg-indigo-950 text-white rounded-[32px] overflow-hidden relative group h-full">
-                   <div className="absolute -right-4 -top-4 w-24 h-24 bg-indigo-500/10 blur-3xl rounded-full group-hover:scale-150 transition-transform duration-700" />
-                   <CardContent className="p-6 md:p-8 space-y-4">
+                  <div className="absolute -right-4 -top-4 w-24 h-24 bg-indigo-500/10 blur-3xl rounded-full group-hover:scale-150 transition-transform duration-700" />
+                  <CardContent className="p-6 md:p-8 space-y-2">
                     <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-300 flex items-center gap-2">
-                      <QrCode className="h-3 w-3" /> Cartões Ativos
+                      <DollarSign className="h-3 w-3 text-amber-400" /> Saldo Físico nos Caixas
                     </p>
-                    <div className="flex items-end justify-between">
-                      <h4 className="text-4xl font-black tabular-nums tracking-tighter">
-                        {stats.activePhysicalCards + stats.activeVirtualCards}
-                      </h4>
-                      <div className="text-right pb-1">
-                        <div className="flex items-center gap-2 justify-end">
-                          <div className="h-1.5 w-1.5 rounded-full bg-blue-400" />
-                          <p className="text-[9px] text-indigo-200 font-bold uppercase tracking-widest">{stats.activePhysicalCards} Físicos</p>
-                        </div>
-                        <div className="flex items-center gap-2 justify-end">
-                          <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                          <p className="text-[9px] text-indigo-200 font-bold uppercase tracking-widest">{stats.activeVirtualCards} Virtuais</p>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-[8px] text-indigo-400/60 font-black uppercase tracking-[0.2em] border-t border-white/5 pt-3">Apenas com carga efetuada</p>
+                    <h4 className="text-3xl font-black text-amber-400 tabular-nums tracking-tighter">R$ {(stats.credited - stats.totalWithdrawn).toFixed(2)}</h4>
+                    <p className="text-[9px] text-indigo-200/80 font-bold uppercase tracking-widest">Dinheiro físico em gavetas de recarga</p>
                   </CardContent>
                 </Card>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 px-2 md:px-0 pb-24 md:pb-0">
-                <Card className="shadow-sm border-none rounded-[32px] overflow-hidden h-fit">
-                  <CardHeader className="bg-slate-50 border-b border-slate-100 p-6 md:p-8">
-                    <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
-                      <ArrowLeftRight className="h-4 w-4 text-blue-600" /> Retirada de Valores
-                    </CardTitle>
-                    <CardDescription className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-1">Registre o recolhimento físico das barracas</CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-6 md:p-8 space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Ponto de Venda</label>
-                        <select 
-                          className="flex h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                          value={withdrawalStallId}
-                          onChange={(e) => setWithdrawalStallId(e.target.value)}
-                        >
-                          <option value="">Selecionar Barraca</option>
-                          {stalls.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
+              {/* Payment Method Breakdown */}
+              <div className="px-2 md:px-0">
+                <div className="bg-white border border-slate-100 rounded-[32px] p-6 md:p-8 shadow-sm space-y-6">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                      <Calculator className="h-4 w-4 text-emerald-500" /> Divisão Física de Entradas por Meio de Pagamento
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1 uppercase font-bold tracking-widest">Consolidado de todas as cargas e recargas efetuadas</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 flex items-center justify-between">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black uppercase text-emerald-600 tracking-wider">Espécie / Dinheiro</p>
+                        <p className="text-2xl font-black text-slate-900 tabular-nums tracking-tight">R$ {paymentMethodStats.cash.toFixed(2)}</p>
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Valor do Malote (R$)</label>
-                        <Input 
-                          type="number"
-                          placeholder="0.00" 
-                          value={withdrawalAmount}
-                          onChange={(e) => setWithdrawalAmount(e.target.value)}
-                          className="h-14 rounded-2xl bg-slate-50 border-slate-200 focus-visible:ring-blue-500 font-black text-lg"
-                        />
+                      <div className="h-10 w-10 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-600">
+                        <DollarSign className="h-5 w-5" />
                       </div>
                     </div>
-                    <Button onClick={handleWithdraw} className="w-full h-14 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] shadow-xl active:scale-95 transition-all">
-                      Confirmar Entrega de Valores
-                    </Button>
-                  </CardContent>
-                </Card>
 
+                    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 flex items-center justify-between">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black uppercase text-blue-600 tracking-wider">PIX Instantâneo</p>
+                        <p className="text-2xl font-black text-slate-900 tabular-nums tracking-tight">R$ {paymentMethodStats.pix.toFixed(2)}</p>
+                      </div>
+                      <div className="h-10 w-10 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
+                        <QrCode className="h-5 w-5" />
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-5 flex items-center justify-between">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black uppercase text-indigo-600 tracking-wider">Cartão Débito / Crédito</p>
+                        <p className="text-2xl font-black text-slate-900 tabular-nums tracking-tight">R$ {paymentMethodStats.card.toFixed(2)}</p>
+                      </div>
+                      <div className="h-10 w-10 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+                        <CreditCard className="h-5 w-5" />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Subtle graphical bar chart indicator */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">
+                      <span>Proporção de Arrecadação</span>
+                      <span className="text-slate-500">100% Auditável</span>
+                    </div>
+                    <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden flex">
+                      {stats.credited > 0 ? (
+                        <>
+                          <div 
+                            style={{ width: `${(paymentMethodStats.cash / stats.credited) * 100}%` }}
+                            className="bg-emerald-500 h-full transition-all duration-500" 
+                            title={`Dinheiro: ${((paymentMethodStats.cash / stats.credited) * 100).toFixed(1)}%`}
+                          />
+                          <div 
+                            style={{ width: `${(paymentMethodStats.pix / stats.credited) * 100}%` }}
+                            className="bg-blue-500 h-full transition-all duration-500"
+                            title={`PIX: ${((paymentMethodStats.pix / stats.credited) * 100).toFixed(1)}%`}
+                          />
+                          <div 
+                            style={{ width: `${(paymentMethodStats.card / stats.credited) * 100}%` }}
+                            className="bg-indigo-500 h-full transition-all duration-500"
+                            title={`Cartão: ${((paymentMethodStats.card / stats.credited) * 100).toFixed(1)}%`}
+                          />
+                          <div 
+                            style={{ width: `${(paymentMethodStats.other / stats.credited) * 100}%` }}
+                            className="bg-slate-400 h-full transition-all duration-500"
+                            title={`Outros: ${((paymentMethodStats.other / stats.credited) * 100).toFixed(1)}%`}
+                          />
+                        </>
+                      ) : (
+                        <div className="w-full bg-slate-200 h-full" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Operations row: Withdrawals Register Form */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8 px-2 md:px-0">
+                <div className="lg:col-span-5">
+                  <Card className="shadow-sm border-none rounded-[32px] overflow-hidden h-full">
+                    <CardHeader className="bg-slate-50 border-b border-slate-100 p-6 md:p-8">
+                      <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+                        <ArrowLeftRight className="h-4 w-4 text-blue-600" /> Recolhimento de Valores (Retirada)
+                      </CardTitle>
+                      <CardDescription className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-1">
+                        Registre a retirada do dinheiro físico do caixa de recargas para o cofre geral
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-6 md:p-8 space-y-6">
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Caixa de Recarga / Operador Origem</label>
+                          <select 
+                            className="flex h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            value={withdrawalStallId}
+                            onChange={(e) => setWithdrawalStallId(e.target.value)}
+                          >
+                            <option value="">Selecionar Caixa de Recarga</option>
+                            {users.filter(u => u.role === 'recharge' || u.role === 'admin').map(u => (
+                              <option key={u.uid} value={u.uid}>
+                                {u.name || u.email?.split('@')[0] || 'Operador'} ({u.role === 'admin' ? 'Admin' : 'Operador'})
+                              </option>
+                            ))}
+                            {statsByCaixa.some(c => c.uid === 'legacy_general') && (
+                              <option value="legacy_general">Caixa Administrativo (Legado)</option>
+                            )}
+                          </select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Valor do Malote (R$)</label>
+                          <Input 
+                            type="number"
+                            placeholder="0.00" 
+                            value={withdrawalAmount}
+                            onChange={(e) => setWithdrawalAmount(e.target.value)}
+                            className="h-14 rounded-2xl bg-slate-50 border-slate-200 focus-visible:ring-blue-500 font-black text-lg"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest ml-1">Observação / Identificação (Opcional)</label>
+                          <Input 
+                            type="text"
+                            placeholder="Ex: Turno Tarde, Malote #002, Fechamento..." 
+                            value={withdrawalNote}
+                            onChange={(e) => setWithdrawalNote(e.target.value)}
+                            className="h-14 rounded-2xl bg-slate-50 border-slate-200 focus-visible:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+
+                      <Button 
+                        onClick={handleWithdraw} 
+                        disabled={!withdrawalStallId || !withdrawalAmount}
+                        className="w-full h-14 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] shadow-xl active:scale-95 transition-all"
+                      >
+                        Confirmar Coleta de Malote
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Cashier Status List (Withdrawal limits per Cashier) */}
+                <div className="lg:col-span-7">
+                  <Card className="shadow-sm border-none rounded-[32px] overflow-hidden h-full">
+                    <CardHeader className="bg-slate-50 border-b border-slate-100 p-6 md:p-8 flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-900">Gavetas e Status dos Caixas de Recarga</CardTitle>
+                        <CardDescription className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-1">Balanço físico individualizado por operador</CardDescription>
+                      </div>
+                      <Users className="h-5 w-5 text-slate-300" />
+                    </CardHeader>
+                    <CardContent className="p-6 md:p-8">
+                      <div className="space-y-4 max-h-[360px] overflow-y-auto pr-2 custom-scrollbar">
+                        {statsByCaixa.length === 0 ? (
+                          <div className="py-20 text-center space-y-4">
+                             <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-300">
+                               <Package className="h-6 w-6" />
+                             </div>
+                             <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Nenhum operador de recarga identificado</p>
+                          </div>
+                        ) : (
+                          statsByCaixa.map(caixa => (
+                            <div key={caixa.uid} className="flex flex-col p-5 bg-slate-50 hover:bg-white hover:shadow-md hover:border-blue-100 rounded-3xl border border-slate-100 transition-all gap-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="h-10 w-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center text-slate-400">
+                                    <Users className="h-4 w-4" />
+                                  </div>
+                                  <div>
+                                    <p className="font-black text-slate-900 uppercase tracking-tight text-xs">{caixa.name}</p>
+                                    <p className="text-[9px] text-slate-400 font-medium tracking-normal lowercase">{caixa.email || 'Autenticação de terminal'}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-lg font-black text-emerald-600 tabular-nums tracking-tighter">R$ {caixa.balance.toFixed(2)}</p>
+                                  <p className="text-[8px] text-slate-400 font-black uppercase tracking-widest">Disponível em Caixa</p>
+                                </div>
+                              </div>
+                              
+                              <div className="border-t border-slate-100 pt-3 grid grid-cols-3 gap-2 text-[9px] text-slate-500 font-medium">
+                                <div>
+                                  <span className="block text-slate-400 font-black text-[8px] uppercase tracking-wider">Cargas Efetuadas</span>
+                                  <strong className="text-slate-800 tracking-tight text-[11px]">R$ {caixa.totalRecharged.toFixed(2)}</strong>
+                                </div>
+                                <div>
+                                  <span className="block text-slate-400 font-black text-[8px] uppercase tracking-wider">Já Recolhido</span>
+                                  <strong className="text-red-500 tracking-tight text-[11px]">R$ {caixa.totalWithdrawn.toFixed(2)}</strong>
+                                </div>
+                                <div className="text-right">
+                                  <span className="block text-slate-400 font-black text-[8px] uppercase tracking-wider">Espécie / PIX / Card</span>
+                                  <strong className="text-[9px] text-slate-400">R${caixa.totalCash.toFixed(0)}/R${caixa.totalPix.toFixed(0)}/R${caixa.totalCard.toFixed(0)}</strong>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+
+              {/* Stall Revenue Performance Panel */}
+              <div className="px-2 md:px-0">
                 <Card className="shadow-sm border-none rounded-[32px] overflow-hidden">
                   <CardHeader className="bg-slate-50 border-b border-slate-100 p-6 md:p-8 flex flex-row items-center justify-between">
                     <div>
-                      <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-900">Status por Barraca</CardTitle>
-                      <CardDescription className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-1">Balanço individualizado</CardDescription>
+                      <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-900">Performance Digital de Vendas (Barracas)</CardTitle>
+                      <CardDescription className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-1">faturamento acumulado eletronicamente em cartões sem entrada de dinheiro físico no balcão</CardDescription>
                     </div>
                     <Store className="h-5 w-5 text-slate-300" />
                   </CardHeader>
                   <CardContent className="p-6 md:p-8">
-                    <div className="space-y-4 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {statsByStall.length === 0 ? (
-                        <div className="py-20 text-center space-y-4">
-                           <div className="h-12 w-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-300">
-                             <Package className="h-6 w-6" />
-                           </div>
-                           <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Nenhum dado disponível</p>
-                        </div>
+                        <div className="col-span-full py-12 text-center text-slate-400 text-xs font-bold uppercase tracking-wider">Nenhuma barraca cadastrada</div>
                       ) : (
                         statsByStall.map(stall => (
-                          <div key={stall.id} className="flex items-center justify-between p-5 bg-slate-50 hover:bg-white hover:shadow-md hover:border-blue-100 rounded-3xl border border-slate-100 transition-all group">
-                            <div className="flex items-center gap-4">
-                              <div className="h-12 w-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition-colors">
+                          <div key={stall.id} className="p-5 border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-blue-100 rounded-2xl hover:shadow-md transition-all flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="h-11 w-11 bg-white border border-slate-100 rounded-xl flex items-center justify-center text-slate-400">
                                 <Store className="h-5 w-5" />
                               </div>
                               <div className="space-y-0.5">
                                 <p className="font-black text-slate-900 uppercase tracking-tight text-xs">{stall.name}</p>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">Retirado: R$ {stall.totalWithdrawn.toFixed(2)}</p>
-                                <div className="flex items-center gap-1.5">
-                                  <div className="h-1 w-1 rounded-full bg-blue-500" />
-                                  <p className="text-[9px] text-blue-600 font-black uppercase tracking-widest">{stall.productsSold || 0} Prod. Vendidos</p>
-                                </div>
+                                <p className="text-[9px] text-blue-600 font-bold uppercase tracking-widest flex items-center gap-1">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                                  {stall.productsSold || 0} Itens Vendidos
+                                </p>
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className="text-lg font-black text-blue-600 tabular-nums tracking-tighter">R$ {stall.balance.toFixed(2)}</p>
-                              <p className="text-[9px] text-slate-400 font-black uppercase tracking-widest">Saldo Disp.</p>
+                              <p className="text-base font-black text-slate-900 tracking-tight tabular-nums">R$ {stall.totalSales.toFixed(2)}</p>
+                              <p className="text-[8px] text-slate-400 font-black uppercase tracking-widest">Faturamento</p>
                             </div>
                           </div>
                         ))
                       )}
                     </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Timeline of registered withdrawals with Cancellation support */}
+              <div className="px-2 md:px-0">
+                <Card className="shadow-sm border-none rounded-[32px] overflow-hidden">
+                  <CardHeader className="bg-slate-50 border-b border-slate-100 p-6 md:p-8">
+                    <CardTitle className="text-xs font-black uppercase tracking-[0.2em] text-slate-900 flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-emerald-600" /> Registro Auditável de Coletas (Timeline)
+                    </CardTitle>
+                    <CardDescription className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-1">Visualização cronológica de malotes recolhidos e repassados</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-6 md:p-8">
+                    {withdrawals.length === 0 ? (
+                      <div className="py-16 text-center space-y-3">
+                        <div className="h-10 w-10 rounded-full bg-slate-100 text-slate-300 flex items-center justify-center mx-auto">
+                          <History className="h-5 w-5" />
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Nenhum malote recolhido até o momento</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="border-slate-100 hover:bg-transparent">
+                              <TableHead className="text-[9px] uppercase font-black text-slate-400 h-10 tracking-wider">Data / Horário</TableHead>
+                              <TableHead className="text-[9px] uppercase font-black text-slate-400 h-10 tracking-wider">Origem (Caixa de Recarga)</TableHead>
+                              <TableHead className="text-[9px] uppercase font-black text-slate-400 h-10 tracking-wider">Identificação / Observação</TableHead>
+                              <TableHead className="text-[9px] uppercase font-black text-slate-400 h-10 tracking-wider">Registrado por (Admin)</TableHead>
+                              <TableHead className="text-[9px] uppercase font-black text-slate-400 h-10 tracking-wider text-right">Valor Recolhido</TableHead>
+                              <TableHead className="text-[9px] uppercase font-black text-slate-400 h-10 tracking-wider text-right w-16">Ações</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {[...withdrawals].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(w => {
+                              const targetCaixa = users.find(u => u.uid === w.stallId);
+                              const targetCaixaName = targetCaixa ? (targetCaixa.name || targetCaixa.email) : (w.stallId === 'legacy_general' ? 'Caixa Administrativo (Legado)' : 'Operador Desconhecido');
+                              const authorAdmin = users.find(u => u.uid === w.adminId);
+                              const authorAdminName = authorAdmin ? (authorAdmin.name || authorAdmin.email?.split('@')[0]) : 'Admin';
+                              
+                              return (
+                                <TableRow key={w.id} className="border-slate-100 hover:bg-slate-50/50">
+                                  <TableCell className="text-xs text-slate-500 font-medium">
+                                    {new Date(w.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-slate-900 font-black uppercase tracking-tight">
+                                    {targetCaixaName}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-slate-500 font-medium italic">
+                                    {w.note || 'Sem observações'}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+                                    {authorAdminName}
+                                  </TableCell>
+                                  <TableCell className="text-sm text-red-600 font-black text-right tabular-nums">
+                                    R$ {w.amount.toFixed(2)}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Button 
+                                      variant="ghost" 
+                                      size="icon" 
+                                      onClick={() => handleDeleteWithdrawal(w.id)}
+                                      className="h-8 w-8 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl"
+                                      title="Cancelar recolhimento"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -3723,7 +4054,9 @@ function RechargePortal({
         description: `Recarga Ponto de Venda (${paymentMethod})`,
         paymentMethod,
         status: 'completed',
-        timestamp: serverTimestamp()
+        timestamp: serverTimestamp(),
+        operatorId: auth.currentUser?.uid || '',
+        operatorName: (users?.find(u => u.uid === auth.currentUser?.uid)?.name) || auth.currentUser?.displayName || auth.currentUser?.email || 'Operador'
       });
 
       await Promise.all([updateBalancePromise, writeTransactionPromise]);
