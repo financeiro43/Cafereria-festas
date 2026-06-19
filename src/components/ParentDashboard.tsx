@@ -597,13 +597,15 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       
       // Se estava como personalizado, ele leva o saldo que já era dedicado a ele.
       // Se estava como compartilhado, ele sai com 0.
-      await updateDoc(parentRef, {
-        associatedUids: newAssociatedUids
-      });
-      
+      // FIRST update childRef while association still exists on parent profile so that security rules allow write access
       await updateDoc(childRef, {
         parentUid: null,
         balanceType: 'custom' // Retorna a ser uma carteira pré-paga isolada
+      });
+      
+      // THEN update parentRef to remove child UID from parent's association list
+      await updateDoc(parentRef, {
+        associatedUids: newAssociatedUids
       });
       
       setDisplayedUid(profile.uid);
