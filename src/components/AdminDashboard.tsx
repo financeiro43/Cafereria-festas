@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole, CartItem } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette, Download, Calculator } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette, Download, Calculator, Calendar, AlertTriangle } from 'lucide-react';
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -54,6 +54,94 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [withdrawalAmount, setWithdrawalAmount] = useState('');
   const [withdrawalStallId, setWithdrawalStallId] = useState('');
   const [withdrawalNote, setWithdrawalNote] = useState('');
+
+  // Dashboard Period/Date Filters
+  const [dashboardFilterPreset, setDashboardFilterPreset] = useState<'all' | 'today' | 'this_month' | 'custom'>('all');
+  const [dashboardStartDate, setDashboardStartDate] = useState('');
+  const [dashboardEndDate, setDashboardEndDate] = useState('');
+
+  // Helper to parse multiple timestamp formats (Firestore/ISO/Milliseconds) to Date
+  const getParsedDate = (timestampField: any): Date | null => {
+    if (!timestampField) return null;
+    if (typeof timestampField.toDate === 'function') {
+      return timestampField.toDate();
+    }
+    if (typeof timestampField.toMillis === 'function') {
+      return new Date(timestampField.toMillis());
+    }
+    if (timestampField.seconds) {
+      return new Date(timestampField.seconds * 1000);
+    }
+    const parsed = new Date(timestampField);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  // Helper to evaluate if a Date fits inside the active dashboard filters
+  const filterByDateRange = (itemDate: Date | null): boolean => {
+    if (!itemDate) return true;
+    const itemTime = itemDate.getTime();
+
+    if (dashboardFilterPreset === 'all') return true;
+
+    // Local start & end of today
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    if (dashboardFilterPreset === 'today') {
+      return itemTime >= todayStart.getTime() && itemTime <= todayEnd.getTime();
+    }
+
+    if (dashboardFilterPreset === 'this_month') {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0, 23, 59, 59, 999);
+      return itemTime >= monthStart.getTime() && itemTime <= monthEnd.getTime();
+    }
+
+    if (dashboardFilterPreset === 'custom') {
+      let matches = true;
+      if (dashboardStartDate) {
+        const start = new Date(dashboardStartDate + 'T00:00:00');
+        if (!isNaN(start.getTime())) {
+          matches = matches && itemTime >= start.getTime();
+        }
+      }
+      if (dashboardEndDate) {
+        const end = new Date(dashboardEndDate + 'T23:59:59');
+        if (!isNaN(end.getTime())) {
+          matches = matches && itemTime <= end.getTime();
+        }
+      }
+      return matches;
+    }
+
+    return true;
+  };
+
+  // Memos of filtered lists that will feed the financial metrics
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      const d = getParsedDate(t.timestamp);
+      return filterByDateRange(d);
+    });
+  }, [transactions, dashboardFilterPreset, dashboardStartDate, dashboardEndDate]);
+
+  const filteredWithdrawals = useMemo(() => {
+    return withdrawals.filter(w => {
+      const d = getParsedDate(w.timestamp);
+      return filterByDateRange(d);
+    });
+  }, [withdrawals, dashboardFilterPreset, dashboardStartDate, dashboardEndDate]);
+
+  const filteredRecentSales = useMemo(() => {
+    return recentSales.filter(s => {
+      const d = getParsedDate(s.timestamp);
+      return filterByDateRange(d);
+    });
+  }, [recentSales, dashboardFilterPreset, dashboardStartDate, dashboardEndDate]);
 
   useEffect(() => {
     const unsubStalls = onSnapshot(collection(db, 'stalls'), (snap) => {
@@ -121,20 +209,20 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   }, [profile.role]);
 
   const stats = useMemo(() => {
-    const totalTransactions = transactions.filter(t => t.type === 'debit');
+    const totalTransactions = filteredTransactions.filter(t => t.type === 'debit');
     const totalRevenue = totalTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
     
     // Identificar usuários que já colocaram valores (pelo menos um crédito)
-    const rechargedUserIds = new Set(transactions.filter(t => t.type === 'credit' && t.status === 'completed').map(t => t.userId));
+    const rechargedUserIds = new Set(filteredTransactions.filter(t => t.type === 'credit' && t.status === 'completed').map(t => t.userId));
     
     const activePhysicalCards = users.filter(u => u.isPhysicalCard && rechargedUserIds.has(u.uid)).length;
     const activeVirtualCards = users.filter(u => !u.isPhysicalCard && rechargedUserIds.has(u.uid)).length;
     
     const totalUsers = users.length;
     
-    const credited = transactions.filter(t => t.type === 'credit' && t.status === 'completed').reduce((acc, t) => acc + (t.amount || 0), 0);
+    const credited = filteredTransactions.filter(t => t.type === 'credit' && t.status === 'completed').reduce((acc, t) => acc + (t.amount || 0), 0);
     const debited = totalRevenue;
-    const totalWithdrawn = withdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    const totalWithdrawn = filteredWithdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
     
     return {
       totalRevenue,
@@ -147,15 +235,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       totalWithdrawn,
       balance: debited - totalWithdrawn
     };
-  }, [transactions, users, withdrawals]);
+  }, [filteredTransactions, users, filteredWithdrawals]);
 
   const statsByStall = useMemo(() => {
     return stalls.map(stall => {
-      const stallTransactions = transactions.filter(t => t.type === 'debit' && t.description?.includes(stall.name));
+      const stallTransactions = filteredTransactions.filter(t => t.type === 'debit' && t.description?.includes(stall.name));
       const totalSales = stallTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0);
       
       // Contagem de produtos vendidos usando a collection consumption
-      const stallConsumption = recentSales.filter(s => s.stallId === stall.id);
+      const stallConsumption = filteredRecentSales.filter(s => s.stallId === stall.id);
       let productsSold = 0;
       stallConsumption.forEach(sale => {
         if (sale.detailedItems && Array.isArray(sale.detailedItems)) {
@@ -175,7 +263,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         productsSold
       };
     });
-  }, [stalls, transactions, recentSales]);
+  }, [stalls, filteredTransactions, filteredRecentSales]);
 
   const statsByCaixa = useMemo(() => {
     const operatorsMap = new Map<string, { uid: string; name: string; role: string; email: string }>();
@@ -193,7 +281,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     });
 
     // Fallback: If there are transactions with an operatorId that isn't in users:
-    transactions.forEach(t => {
+    filteredTransactions.forEach(t => {
       if (t.type === 'credit' && t.status === 'completed' && t.operatorId && !operatorsMap.has(t.operatorId)) {
         operatorsMap.set(t.operatorId, {
           uid: t.operatorId,
@@ -205,7 +293,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     });
 
     // If there is no operator on some old credit transactions, assign them to a virtual "Caixa Geral (Legado)"
-    const hasLegacyCredit = transactions.some(t => t.type === 'credit' && t.status === 'completed' && !t.operatorId);
+    const hasLegacyCredit = filteredTransactions.some(t => t.type === 'credit' && t.status === 'completed' && !t.operatorId);
     if (hasLegacyCredit && !operatorsMap.has('legacy_general')) {
       operatorsMap.set('legacy_general', {
         uid: 'legacy_general',
@@ -218,7 +306,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     const oList = Array.from(operatorsMap.values());
 
     return oList.map(op => {
-      const opTransactions = transactions.filter(t => {
+      const opTransactions = filteredTransactions.filter(t => {
         if (t.type !== 'credit' || t.status !== 'completed') return false;
         if (t.operatorId) {
           return t.operatorId === op.uid;
@@ -233,7 +321,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       const totalPix = opTransactions.filter(t => t.paymentMethod?.toLowerCase().includes('pix')).reduce((acc, curr) => acc + (curr.amount || 0), 0);
       const totalCard = opTransactions.filter(t => t.paymentMethod?.toLowerCase().includes('cart') || t.paymentMethod?.toLowerCase().includes('deb') || t.paymentMethod?.toLowerCase().includes('cred')).reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
-      const opWithdrawals = withdrawals.filter(w => w.stallId === op.uid);
+      const opWithdrawals = filteredWithdrawals.filter(w => w.stallId === op.uid);
       const totalWithdrawn = opWithdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
       return {
@@ -246,17 +334,17 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         balance: totalRecharged - totalWithdrawn
       };
     }).filter(c => c.totalRecharged > 0 || c.totalWithdrawn > 0 || c.role === 'recharge' || c.role === 'admin');
-  }, [users, transactions, withdrawals]);
+  }, [users, filteredTransactions, filteredWithdrawals]);
 
   const paymentMethodStats = useMemo(() => {
-    const credits = transactions.filter(t => t.type === 'credit' && t.status === 'completed');
+    const credits = filteredTransactions.filter(t => t.type === 'credit' && t.status === 'completed');
     const cash = credits.filter(t => t.paymentMethod?.toLowerCase().includes('dinheiro')).reduce((acc, t) => acc + (t.amount || 0), 0);
     const pix = credits.filter(t => t.paymentMethod?.toLowerCase().includes('pix')).reduce((acc, t) => acc + (t.amount || 0), 0);
     const card = credits.filter(t => t.paymentMethod?.toLowerCase().includes('cart') || t.paymentMethod?.toLowerCase().includes('deb') || t.paymentMethod?.toLowerCase().includes('cred')).reduce((acc, t) => acc + (t.amount || 0), 0);
     const other = credits.reduce((acc, t) => acc + (t.amount || 0), 0) - (cash + pix + card);
 
     return { cash, pix, card, other };
-  }, [transactions]);
+  }, [filteredTransactions]);
 
   const handleWithdraw = async () => {
     if (!withdrawalStallId || !withdrawalAmount) return;
@@ -1353,6 +1441,63 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 </div>
               </header>
 
+              {/* Period Filter Section */}
+              <div className="bg-slate-50 border border-slate-100/80 rounded-[32px] p-5 md:p-6 flex flex-col lg:flex-row gap-5 items-stretch lg:items-center justify-between px-6 md:px-8 shadow-sm">
+                {/* Filter Controls */}
+                <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4 flex-1">
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-slate-500 shrink-0" />
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-500 whitespace-nowrap">Filtrar Período:</span>
+                  </div>
+                  
+                  <div className="bg-slate-200/60 p-1 rounded-2xl flex flex-wrap gap-1">
+                    {(['all', 'today', 'this_month', 'custom'] as const).map((preset) => {
+                      const labels: Record<string, string> = {
+                        all: 'Todo o Tempo',
+                        today: 'Hoje',
+                        this_month: 'Este Mês',
+                        custom: 'Personalizado'
+                      };
+                      const isActive = dashboardFilterPreset === preset;
+                      return (
+                        <Button
+                          key={preset}
+                          onClick={() => setDashboardFilterPreset(preset)}
+                          variant="ghost"
+                          className={`h-10 px-4 rounded-xl text-xs font-bold uppercase transition-all ${
+                            isActive 
+                              ? 'bg-white text-slate-900 shadow-md shadow-slate-900/5' 
+                              : 'text-slate-500 hover:text-slate-900 hover:bg-white/40'
+                          }`}
+                        >
+                          {labels[preset]}
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  {dashboardFilterPreset === 'custom' && (
+                    <div className="flex flex-wrap items-center gap-2 animate-in slide-in-from-left duration-300">
+                      <Input
+                        type="date"
+                        value={dashboardStartDate}
+                        onChange={(e) => setDashboardStartDate(e.target.value)}
+                        className="h-11 rounded-xl bg-white border-slate-200 text-xs font-semibold text-slate-700 w-36 px-3"
+                        title="Data Inicial"
+                      />
+                      <span className="text-slate-400 text-xs font-medium">até</span>
+                      <Input
+                        type="date"
+                        value={dashboardEndDate}
+                        onChange={(e) => setDashboardEndDate(e.target.value)}
+                        className="h-11 rounded-xl bg-white border-slate-200 text-xs font-semibold text-slate-700 w-36 px-3"
+                        title="Data Final"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Main Financial Indicators */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 px-2 md:px-0">
                 <Card className="shadow-2xl shadow-blue-500/5 border-none bg-blue-600 text-white rounded-[32px] overflow-hidden relative group">
@@ -1658,7 +1803,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                     <CardDescription className="text-[10px] uppercase font-bold text-slate-400 tracking-widest mt-1">Visualização cronológica de malotes recolhidos e repassados</CardDescription>
                   </CardHeader>
                   <CardContent className="p-6 md:p-8">
-                    {withdrawals.length === 0 ? (
+                    {filteredWithdrawals.length === 0 ? (
                       <div className="py-16 text-center space-y-3">
                         <div className="h-10 w-10 rounded-full bg-slate-100 text-slate-300 flex items-center justify-center mx-auto">
                           <History className="h-5 w-5" />
@@ -1679,7 +1824,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {[...withdrawals].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(w => {
+                            {[...filteredWithdrawals].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(w => {
                               const targetCaixa = users.find(u => u.uid === w.stallId);
                               const targetCaixaName = targetCaixa ? (targetCaixa.name || targetCaixa.email) : (w.stallId === 'legacy_general' ? 'Caixa Administrativo (Legado)' : 'Operador Desconhecido');
                               const authorAdmin = users.find(u => u.uid === w.adminId);
