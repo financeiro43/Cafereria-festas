@@ -132,7 +132,17 @@ service cloud.firestore {
     // TRANSACTIONS
     match /transactions/{transactionId} {
       allow get: if true;
-      allow list: if isSignedIn() && (isAdmin() || isVendor() || isRecharge() || resource.data.userId == request.auth.uid);
+      allow list: if isSignedIn() && (
+        isAdmin() || 
+        isVendor() || 
+        isRecharge() || 
+        resource.data.userId == request.auth.uid ||
+        (
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          ('associatedUids' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) &&
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.associatedUids.hasAny([resource.data.userId]))
+        )
+      );
       
       allow create: if (isVerified() && isValidTransaction(incoming()) && (
         incoming().userId == request.auth.uid || isVendor() || isAdmin() || isRecharge()
