@@ -1030,12 +1030,12 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const handleAddClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newClientName) {
-      toast.error('Insira o nome completo do cliente');
+      toast.error('Insira o nome completo do funcionário');
       return;
     }
 
     try {
-      const emailLower = newClientEmail.trim() ? newClientEmail.trim().toLowerCase() : `cliente-${Date.now()}@modeloalpha.com.br`;
+      const emailLower = newClientEmail.trim() ? newClientEmail.trim().toLowerCase() : `funcionario-${Date.now()}@modeloalpha.com.br`;
       const qrCodeVal = newClientQrCode.trim() ? newClientQrCode.trim() : `PENDING-${Date.now()}-${Math.floor(Math.random()*1000)}`;
       const balanceVal = parseFloat(newClientBalance) || 0;
 
@@ -2981,7 +2981,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
               <div className="relative z-10 flex flex-col gap-8">
                 <div>
                   <h3 className="font-black text-slate-900 text-xl uppercase tracking-tighter">Cadastro Manual de Funcionários</h3>
-                  <p className="text-slate-500 text-sm mt-1 max-w-md">Instira um novo funcionário para vinculação posterior de saldo ou cartão.</p>
+                  <p className="text-slate-500 text-sm mt-1 max-w-md">Insira um novo funcionário para vinculação posterior de saldo ou cartão.</p>
                 </div>
 
                 <form onSubmit={handleAddClient} className="space-y-6">
@@ -3007,7 +3007,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Código do Cartão / QR (Opcional)</label>
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Código do Cartão / QR (Deixe Vazio p/ Vincular Depois)</label>
                       <Input 
                         value={newClientQrCode}
                         onChange={(e) => setNewClientQrCode(e.target.value)}
