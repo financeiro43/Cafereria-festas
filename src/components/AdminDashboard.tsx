@@ -4646,6 +4646,42 @@ function RechargePortal({
   const [amount, setAmount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('');
   const [processing, setProcessing] = useState(false);
+
+  // States for extra products checkout integrated into recharge
+  const [extraQuantities, setExtraQuantities] = useState<{[productId: string]: number}>({});
+
+  const extrasStallObj = useMemo(() => {
+    return stalls.find(s => s.name?.toLowerCase().includes('extra'));
+  }, [stalls]);
+
+  const extrasProducts = useMemo(() => {
+    if (!products) return [];
+    if (extrasStallObj) {
+      return products.filter(p => p.active !== false && p.vendorId === extrasStallObj.id);
+    }
+    // Fallback: list products with "extra", "cartão", "pulseira" keywords
+    return products.filter(p => 
+      p.active !== false && 
+      (p.category?.toLowerCase().includes('extra') || 
+       p.name?.toLowerCase().includes('cartão') || 
+       p.name?.toLowerCase().includes('pulseira') ||
+       p.name?.toLowerCase().includes('crachá'))
+    );
+  }, [products, extrasStallObj]);
+
+  const extraItemsTotal = useMemo(() => {
+    let sum = 0;
+    Object.keys(extraQuantities).forEach(prodId => {
+      const qty = extraQuantities[prodId];
+      if (qty && qty > 0) {
+        const p = products.find(prod => prod.id === prodId);
+        if (p) {
+          sum += p.price * qty;
+        }
+      }
+    });
+    return sum;
+  }, [extraQuantities, products]);
   
   // Custom calculator states
   const [rechargeSearchQuery, setRechargeSearchQuery] = useState('');
@@ -4813,17 +4849,26 @@ function RechargePortal({
       return;
     }
 
+    if (val < extraItemsTotal) {
+      toast.error('O valor da recarga deve ser maior ou igual ao total dos itens extras adicionais!');
+      return;
+    }
+
     try {
       setProcessing(true);
       
       const rCardNum = (scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid || '';
+      
+      const netAddition = val - extraItemsTotal;
+      const dbPromises: Promise<any>[] = [];
 
-      // Execute the database updates concurrently in parallel to cut processing time in half!
-      const updateBalancePromise = updateDoc(doc(db, 'users', scannedUser.uid), {
-        balance: increment(val)
-      });
+      // 1. Update user balance with the net addition
+      dbPromises.push(updateDoc(doc(db, 'users', scannedUser.uid), {
+        balance: increment(netAddition)
+      }));
 
-      const writeTransactionPromise = addDoc(collection(db, 'transactions'), {
+      // 2. Record full recharge credit transaction
+      dbPromises.push(addDoc(collection(db, 'transactions'), {
         userId: scannedUser.uid,
         userName: scannedUser.name,
         clientName: scannedUser.name,
@@ -4836,19 +4881,95 @@ function RechargePortal({
         timestamp: serverTimestamp(),
         operatorId: auth.currentUser?.uid || '',
         operatorName: (users?.find(u => u.uid === auth.currentUser?.uid)?.name) || auth.currentUser?.displayName || auth.currentUser?.email || 'Operador'
+      }));
+
+      // 3. Group selected extra items by vendor
+      const itemsByVendor: { [vendorId: string]: { product: Product, qty: number }[] } = {};
+      Object.keys(extraQuantities).forEach(prodId => {
+        const qty = extraQuantities[prodId];
+        if (qty && qty > 0) {
+          const p = products.find(prod => prod.id === prodId);
+          if (p) {
+            const vId = p.vendorId || 'extras';
+            if (!itemsByVendor[vId]) {
+              itemsByVendor[vId] = [];
+            }
+            itemsByVendor[vId].push({ product: p, qty });
+          }
+        }
       });
 
-      await Promise.all([updateBalancePromise, writeTransactionPromise]);
+      // 4. Record transactions and consumption logs for extra products grouped by stall
+      Object.entries(itemsByVendor).forEach(([vId, itemsList]) => {
+        const stallObj = stalls.find(s => s.id === vId);
+        const stallName = stallObj ? stallObj.name : 'Extras';
+        const subTotal = itemsList.reduce((acc, item) => acc + item.product.price * item.qty, 0);
+        const itemNamesString = itemsList.map(item => `${item.qty}x ${item.product.name}`).join(', ');
+
+        // Write debit transaction
+        dbPromises.push(addDoc(collection(db, 'transactions'), {
+          userId: scannedUser.uid,
+          userName: scannedUser.name,
+          clientName: scannedUser.name,
+          cardNumber: rCardNum,
+          amount: -subTotal,
+          type: 'debit',
+          description: `Compra de Extras na recarga (${stallName}): ${itemNamesString}`,
+          stallName,
+          items: itemsList.map(item => `${item.qty}x ${item.product.name}`),
+          vendorId: vId,
+          status: 'completed',
+          timestamp: serverTimestamp()
+        }));
+
+        // Write consumption log
+        dbPromises.push(addDoc(collection(db, 'consumption'), {
+          studentId: scannedUser.uid,
+          studentName: scannedUser.name,
+          clientName: scannedUser.name,
+          cardNumber: rCardNum,
+          vendorId: vId,
+          stallId: vId,
+          amount: subTotal,
+          items: itemsList.map(item => `${item.qty}x ${item.product.name}`),
+          detailedItems: itemsList.map(item => ({
+            productId: item.product.id,
+            name: item.product.name,
+            quantity: item.qty,
+            price: item.product.price,
+            subtotal: item.product.price * item.qty
+          })),
+          timestamp: serverTimestamp()
+        }));
+      });
+
+      await Promise.all(dbPromises);
 
       setScannedUser(null);
       setAmount('');
+      setExtraQuantities({});
       if (onSuccess) onSuccess();
       
+      const itemsSummary = Object.keys(extraQuantities)
+        .filter(pId => (extraQuantities[pId] || 0) > 0)
+        .map(pId => {
+          const qty = extraQuantities[pId] || 0;
+          const p = products.find(prod => prod.id === pId);
+          return `${qty}x ${p?.name || 'Item'}`;
+        }).join(', ');
+
+      let successMsg = `Cliente: ${scannedUser.name}\nCartão: ${rCardNum}\n\n`;
+      successMsg += `A recarga de R$ ${val.toFixed(2)} (${paymentMethod}) foi adicionada ao saldo.\n`;
+      if (extraItemsTotal > 0) {
+        successMsg += `Descontado compra de extras: R$ ${extraItemsTotal.toFixed(2)} (${itemsSummary})\n`;
+      }
+      successMsg += `Novo Saldo Líquido do Cartão: R$ ${(scannedUser.balance + netAddition).toFixed(2)}`;
+
       setStatusModal({
         show: true,
         type: 'success',
-        title: 'Recarga Concluída',
-        message: `Cliente: ${scannedUser.name}\nCartão: ${rCardNum}\n\nA carga de R$ ${val.toFixed(2)} (${paymentMethod}) foi adicionada ao saldo.\nNovo Saldo: R$ ${(scannedUser.balance + val).toFixed(2)}`
+        title: 'Operação Concluída',
+        message: successMsg
       });
     } catch (error) {
       console.error('Erro no processamento da carga:', error);
@@ -4856,7 +4977,7 @@ function RechargePortal({
         show: true,
         type: 'error',
         title: 'Falha na Recarga',
-        message: 'Não foi possível processar o crédito. Verifique sua conexão e tente novamente.'
+        message: 'Não foi possível processar o crédito e descontar extras. Verifique sua conexão e tente novamente.'
       });
     } finally {
       setProcessing(false);
@@ -5004,6 +5125,99 @@ function RechargePortal({
             ) : null}
           </CardContent>
         </Card>
+
+        {scannedUser && (
+          <Card className="bg-slate-800/20 backdrop-blur-md border border-white/5 text-white rounded-[32px] overflow-hidden shadow-2xl">
+            <CardHeader className="p-8 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-500/20 rounded-xl">
+                  <Sparkles className="h-5 w-5 text-indigo-400" />
+                </div>
+                <div>
+                  <CardTitle className="text-lg font-black uppercase tracking-tight">Venda de Extras</CardTitle>
+                  <CardDescription className="text-slate-400 text-xs">Selecione cartões ou pulseiras para deduzir diretamente da recarga física e registrá-los como venda</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-8 pt-2 space-y-4">
+              {extrasProducts.length === 0 ? (
+                <div className="p-6 text-center bg-white/[0.02] border border-dashed border-white/5 rounded-2xl">
+                  <p className="text-xs text-slate-500 italic">Nenhum produto extra ou da barraca "Extras" encontrado.</p>
+                  <p className="text-[10px] text-slate-600 mt-1">Crie produtos vinculados à barraca de extras para listá-los aqui.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-1.5 opacity-75">
+                    <Store className="h-3.5 w-3.5 text-indigo-400" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-indigo-400">Itens Disponíveis</span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2.5 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+                    {extrasProducts.map(p => {
+                      const qty = extraQuantities[p.id] || 0;
+                      return (
+                        <div 
+                          key={p.id} 
+                          className={`p-4 rounded-2xl border transition-all flex items-center justify-between ${
+                            qty > 0 
+                              ? 'bg-indigo-600/15 border-indigo-500/40 text-white' 
+                              : 'bg-white/[0.02] border-white/5 hover:border-white/10 text-slate-300'
+                          }`}
+                        >
+                          <div className="space-y-0.5">
+                            <span className="font-extrabold text-sm tracking-tight text-white">{p.name}</span>
+                            <div className="font-mono text-xs font-black text-emerald-400">
+                              R$ {p.price.toFixed(2)}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 bg-slate-950/60 p-1 rounded-xl border border-white/5 select-none">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExtraQuantities(prev => {
+                                  const current = prev[p.id] || 0;
+                                  if (current <= 1) {
+                                    const copy = { ...prev };
+                                    delete copy[p.id];
+                                    return copy;
+                                  }
+                                  return { ...prev, [p.id]: current - 1 };
+                                });
+                              }}
+                              className={`h-7 w-7 rounded-lg flex items-center justify-center font-black transition-all ${
+                                qty > 0 
+                                  ? 'bg-slate-800 text-white hover:bg-slate-700 cursor-pointer' 
+                                  : 'opacity-20 cursor-not-allowed'
+                              }`}
+                              disabled={qty === 0}
+                            >
+                              -
+                            </button>
+                            <span className="font-mono font-black text-xs w-6 text-center text-white">
+                              {qty}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setExtraQuantities(prev => ({
+                                  ...prev,
+                                  [p.id]: (prev[p.id] || 0) + 1
+                                }));
+                              }}
+                              className="h-7 w-7 bg-indigo-600 hover:bg-indigo-500 rounded-lg flex items-center justify-center font-black text-white transition-all cursor-pointer"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <div className="space-y-6">
@@ -5079,6 +5293,47 @@ function RechargePortal({
                 ))}
               </div>
             </div>
+
+            {scannedUser && amount && parseFloat(amount) > 0 && (
+              <div className="p-5 bg-slate-900 border border-white/10 rounded-2xl space-y-3 animate-in fade-in duration-300">
+                <p className="text-[10px] font-black uppercase text-indigo-400 tracking-wider">Resumo da Operação</p>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between text-slate-400">
+                    <span>Recarga Recebida:</span>
+                    <span className="font-mono font-bold text-white">R$ {parseFloat(amount).toFixed(2)}</span>
+                  </div>
+                  {extraItemsTotal > 0 && (
+                    <>
+                      <div className="flex justify-between text-indigo-400 font-semibold items-center">
+                        <span className="flex items-center gap-1">Compra de Extras:</span>
+                        <span className="font-mono font-black">- R$ {extraItemsTotal.toFixed(2)}</span>
+                      </div>
+                      <div className="pl-3 py-1 space-y-1 text-[10px] text-slate-450 border-l border-indigo-500/20 bg-indigo-500/[0.02] rounded-r-md">
+                        {Object.keys(extraQuantities).map(pId => {
+                          const qty = extraQuantities[pId] || 0;
+                          if (qty <= 0) return null;
+                          const p = products.find(prod => prod.id === pId);
+                          return (
+                            <div key={pId} className="flex justify-between font-mono">
+                              <span>{qty}x {p?.name}:</span>
+                              <span>R$ {((p?.price || 0) * qty).toFixed(2)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                  <div className="border-t border-white/5 pt-2 flex justify-between font-bold text-sm">
+                    <span className="text-slate-300">Crédito Líquido no Cartão:</span>
+                    <span className="font-mono text-green-400">R$ {(parseFloat(amount) - extraItemsTotal).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-500 font-semibold">
+                    <span>Saldo Final Estimado:</span>
+                    <span className="font-mono">R$ {(scannedUser.balance + parseFloat(amount) - extraItemsTotal).toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="pt-4">
               {processing ? (
