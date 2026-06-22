@@ -21,7 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import QRScanner from './QRScanner';
 import ReportsPortal from './ReportsPortal';
 
-type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'recharge_pos' | 'transactions' | 'card_printer' | 'reports';
+type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'recharge_pos' | 'transactions' | 'card_printer' | 'reports' | 'clients';
 
 export default function AdminDashboard({ profile, forcedTab }: { profile: UserProfile, forcedTab?: AdminTab }) {
   const [activeTab, setActiveTab] = useState<AdminTab>(forcedTab || 'overview');
@@ -223,6 +223,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     const credited = filteredTransactions.filter(t => t.type === 'credit' && t.status === 'completed').reduce((acc, t) => acc + (t.amount || 0), 0);
     const debited = totalRevenue;
     const totalWithdrawn = filteredWithdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+    const totalPending = filteredTransactions.filter(t => t.type === 'credit' && t.status === 'pending').reduce((acc, t) => acc + (t.amount || 0), 0);
     
     return {
       totalRevenue,
@@ -233,7 +234,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       credited,
       debited,
       totalWithdrawn,
-      balance: debited - totalWithdrawn
+      balance: debited - totalWithdrawn,
+      totalPending
     };
   }, [filteredTransactions, users, filteredWithdrawals]);
 
@@ -415,6 +417,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState<UserRole>('student');
   const [newUserVendorIds, setNewUserVendorIds] = useState<string[]>([]);
+  
+  // Clients (Funcionários / Clientes) State variables
+  const [newClientName, setNewClientName] = useState('');
+  const [newClientEmail, setNewClientEmail] = useState('');
+  const [newClientQrCode, setNewClientQrCode] = useState('');
+  const [newClientBalance, setNewClientBalance] = useState('');
+  const [clientSearchQuery, setClientSearchQuery] = useState('');
+  const [linkingUser, setLinkingUser] = useState<UserProfile | null>(null);
+  const [physicalCardInput, setPhysicalCardInput] = useState('');
   const [settings, setSettings] = useState({
     siteName: 'Festa Pass',
     contactEmail: 'financeiro@modeloalpha.com.br'
@@ -1016,6 +1027,187 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     }
   };
 
+  const handleAddClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClientName) {
+      toast.error('Insira o nome completo do cliente');
+      return;
+    }
+
+    try {
+      const emailLower = newClientEmail.trim() ? newClientEmail.trim().toLowerCase() : `cliente-${Date.now()}@modeloalpha.com.br`;
+      const qrCodeVal = newClientQrCode.trim() ? newClientQrCode.trim() : `PENDING-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+      const balanceVal = parseFloat(newClientBalance) || 0;
+
+      // Check if email already exists
+      const q = query(collection(db, 'users'), where('email', '==', emailLower));
+      const snap = await getDocs(q);
+
+      if (!snap.empty) {
+        toast.error('Este e-mail já está cadastrado');
+        return;
+      }
+
+      await addDoc(collection(db, 'users'), {
+        name: newClientName,
+        email: emailLower,
+        role: 'student',
+        balance: balanceVal,
+        qrCode: qrCodeVal,
+        isEmployee: true,
+        timestamp: serverTimestamp()
+      });
+
+      setNewClientName('');
+      setNewClientEmail('');
+      setNewClientQrCode('');
+      setNewClientBalance('');
+      toast.success('Funcionário cadastrado com sucesso!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'users');
+    }
+  };
+
+  const handleExportClientsSpreadsheet = () => {
+    try {
+      const clientsOnly = users.filter(u => u.role === 'student');
+      const excelData = clientsOnly.map(u => ({
+        'Nome Completo': u.name,
+        'E-mail': u.email || '',
+        'Código do Cartão': u.qrCode || '',
+        'Saldo (R$)': u.balance || 0
+      }));
+
+      // if empty, add a placeholder row with instructions
+      if (excelData.length === 0) {
+        excelData.push({
+          'Nome Completo': 'Exemplo Silva (Apague esta linha)',
+          'E-mail': 'exemplo@gmail.com',
+          'Código do Cartão': '12345678',
+          'Saldo (R$)': 0
+        });
+      }
+
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+      // Apply Excel currency style
+      if (worksheet['!ref']) {
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+        for (let row = range.s.r + 1; row <= range.e.r; row++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: row, c: 3 }); // col index 3 (Saldo (R$))
+          const cell = worksheet[cellAddress];
+          if (cell && typeof cell.v === 'number') {
+            cell.t = 'n';
+            cell.z = '"R$ " #,##0.00';
+          }
+        }
+      }
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Clientes');
+
+      worksheet['!cols'] = [
+        { wch: 30 }, // Nome Completo
+        { wch: 30 }, // E-mail
+        { wch: 25 }, // Código do Cartão
+        { wch: 15 }, // Saldo
+      ];
+
+      XLSX.writeFile(workbook, `clientes_funcionarios_${new Date().toISOString().split('T')[0]}.xlsx`);
+      toast.success('Lista de clientes baixada com sucesso!');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao gerar planilha excel.');
+    }
+  };
+
+  const handleImportClientsSpreadsheet = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const workbook = XLSX.read(bstr, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+        if (jsonData.length === 0) {
+          toast.error('A planilha está vazia ou no formato incorreto.');
+          return;
+        }
+
+        toast.loading('Processando importação de clientes...', { id: 'import-clients-loading' });
+
+        let importedCount = 0;
+        let updatedCount = 0;
+
+        for (const row of jsonData) {
+          // Normalize column names dynamically to ignore spacing and casing
+          const name = row['Nome Completo'] || row['Nome'] || row['nome'] || row['Name'] || row['Cliente'] || row['cliente'];
+          if (!name) continue; // Must have name
+
+          let email = row['E-mail'] || row['Email'] || row['email'] || row['Google E-mail'] || row['E-mail do Google'];
+          if (!email) {
+            email = `cliente-${Date.now()}-${Math.floor(Math.random() * 10000)}@modeloalpha.com.br`;
+          } else {
+            email = email.toString().trim().toLowerCase();
+          }
+
+          const qrCode = row['Código do Cartão'] || row['Código'] || row['Codigo'] || row['Cartão'] || row['Cartao'] || row['QR Code'] || row['qrCode'] || row['qr'] || row['QR'] || '';
+          
+          let balanceVal = 0;
+          const balanceRaw = row['Saldo (R$)'] || row['Saldo'] || row['saldo'] || row['Balance'] || row['Valor'] || row['valor'];
+          if (balanceRaw !== undefined) {
+            balanceVal = parseFloat(balanceRaw.toString().replace('R$', '').replace(',', '.').trim()) || 0;
+          }
+
+          // Check if employee/client with this email already exists
+          const q = query(collection(db, 'users'), where('email', '==', email));
+          const snap = await getDocs(q);
+
+          if (!snap.empty) {
+            // Update existing user balance/name/qrCode
+            const existingId = snap.docs[0].id;
+            const existingUser = snap.docs[0].data();
+            await updateDoc(doc(db, 'users', existingId), {
+              name: name.toString().trim(),
+              qrCode: qrCode ? qrCode.toString().trim() : existingUser.qrCode || `PENDING-${Date.now()}`,
+              balance: balanceVal, // override with sheet balance
+              isEmployee: true
+            });
+            updatedCount++;
+          } else {
+            // Create new record
+            await addDoc(collection(db, 'users'), {
+              name: name.toString().trim(),
+              email,
+              role: 'student',
+              balance: balanceVal,
+              qrCode: qrCode ? qrCode.toString().trim() : `PENDING-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+              isEmployee: true,
+              timestamp: serverTimestamp()
+            });
+            importedCount++;
+          }
+        }
+
+        toast.dismiss('import-clients-loading');
+        toast.success(`Importação realizada com sucesso! ${importedCount} novos, ${updatedCount} atualizados.`);
+      } catch (error) {
+        console.error('Erro na importação:', error);
+        toast.dismiss('import-clients-loading');
+        toast.error('Falha ao processar arquivo. Verifique o formato das colunas.');
+      }
+    };
+
+    reader.readAsBinaryString(file);
+    // Reset file input value so same file can be selected again
+    e.target.value = '';
+  };
+
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserEmail || !newUserName) return;
@@ -1050,9 +1242,107 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     }
   };
 
+  const handleSavePhysicalCard = async () => {
+    if (!linkingUser) return;
+    const cardCode = physicalCardInput.trim();
+    if (!cardCode) {
+      toast.error('O código do cartão não pode ser vazio');
+      return;
+    }
+
+    try {
+      // Check if this card code is already linked to anyone else
+      const q = query(collection(db, 'users'), where('qrCode', '==', cardCode));
+      const snap = await getDocs(q);
+      
+      if (!snap.empty) {
+        toast.error('Este número de cartão já está vinculado a outro usuário!');
+        return;
+      }
+
+      await updateDoc(doc(db, 'users', linkingUser.uid), {
+        qrCode: cardCode
+      });
+
+      toast.success('Cartão físico vinculado com sucesso!');
+      setLinkingUser(null);
+      setPhysicalCardInput('');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao vincular cartão');
+    }
+  };
+
+  const handleLinkVirtualCard = async (user: UserProfile) => {
+    try {
+      toast.loading('Gerando cartão virtual...', { id: 'gen-virtual' });
+      
+      let isUnique = false;
+      let virtualCode = '';
+      
+      while (!isUnique) {
+        const rand = Math.floor(100000 + Math.random() * 900000);
+        virtualCode = `FV-${rand}`;
+        
+        const q = query(collection(db, 'users'), where('qrCode', '==', virtualCode));
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          isUnique = true;
+        }
+      }
+
+      await updateDoc(doc(db, 'users', user.uid), {
+        qrCode: virtualCode
+      });
+
+      toast.dismiss('gen-virtual');
+      toast.success(`Cartão virtual ${virtualCode} gerado e vinculado!`);
+    } catch (e) {
+      console.error(e);
+      toast.dismiss('gen-virtual');
+      toast.error('Erro ao gerar cartão virtual');
+    }
+  };
+
+  const handleUnlinkCard = async (user: UserProfile) => {
+    if (!confirm(`Deseja realmente desvincular o cartão ${user.qrCode} de ${user.name}?`)) {
+      return;
+    }
+    try {
+      const pendingCode = `PENDING-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+      await updateDoc(doc(db, 'users', user.uid), {
+        qrCode: pendingCode
+      });
+      toast.success('Cartão desvinculado com sucesso!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao desvincular cartão');
+    }
+  };
+
+  const handleCompletePendingTransaction = async (txId: string) => {
+    if (!confirm('Deseja realmente confirmar o pagamento/recebimento desta recarga pendente?')) {
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'transactions', txId), {
+        status: 'completed'
+      });
+      toast.success('Pagamento recebido e baixado com sucesso!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao confirmar pagamento.');
+    }
+  };
+
   const handleManualRecharge = async (userId: string) => {
     const amount = parseFloat(rechargeAmounts[userId] || '0');
-    const paymentMethod = rechargePaymentMethods[userId] || 'Dinheiro';
+    const paymentMethod = rechargePaymentMethods[userId] || '';
+    
+    if (!paymentMethod) {
+      toast.error('Selecione a forma de pagamento');
+      return;
+    }
     
     if (isNaN(amount) || amount <= 0) {
       toast.error('Insira um valor válido para recarga');
@@ -1079,7 +1369,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         type: 'credit',
         description: `Recarga manual (${paymentMethod})`,
         paymentMethod,
-        status: 'completed',
+        status: paymentMethod === 'Conta' ? 'pending' : 'completed',
         timestamp: serverTimestamp(),
         operatorId: auth.currentUser?.uid || '',
         operatorName: profile.name || profile.email || 'Operador'
@@ -1295,6 +1585,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     { id: 'stalls', icon: Store, label: 'Barracas', category: 'Administração' },
     { id: 'products', icon: Package, label: 'Catálogo Geral', category: 'Administração' },
     { id: 'users', icon: Users, label: 'Gestão de Usuários', category: 'Administração' },
+    { id: 'clients', icon: Users, label: 'Planilha de Funcionários', category: 'Administração' },
     { id: 'transactions', icon: History, label: 'Histórico de Vendas', category: 'Administração' },
     { id: 'reports', icon: FileText, label: 'Relatórios do Evento', category: 'Administração' },
     { id: 'card_printer', icon: Printer, label: 'Impressor de Cartões', category: 'Administração' },
@@ -1497,6 +1788,25 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                   )}
                 </div>
               </div>
+
+              {/* Accounts Receivable Banner */}
+              {stats.totalPending > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-[28px] p-5 px-6 flex flex-col sm:flex-row items-center justify-between gap-4 mx-2 md:mx-0 animate-pulse mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                      <AlertTriangle className="h-5 w-5" />
+                    </div>
+                    <div className="text-center sm:text-left">
+                      <p className="text-[10px] font-black uppercase text-amber-800 tracking-wider">Atenção: Cobranças "Em Conta" Pendentes</p>
+                      <p className="text-sm font-semibold text-amber-700">Há recargas na modalidade pós-paga ("Em Conta") pendentes para recebimento / liquidação.</p>
+                    </div>
+                  </div>
+                  <div className="text-center sm:text-right shrink-0">
+                    <p className="text-[10px] font-black uppercase text-amber-600 tracking-widest">A Receber</p>
+                    <p className="text-2xl font-black text-amber-800 tracking-tighter">R$ {stats.totalPending.toFixed(2)}</p>
+                  </div>
+                </div>
+              )}
 
               {/* Main Financial Indicators */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 px-2 md:px-0">
@@ -2543,9 +2853,10 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                 </div>
                                 <select
                                   className="text-[9px] font-black uppercase tracking-tight rounded-lg border border-slate-200 bg-white py-1.5 pl-1.5 pr-6 focus:border-blue-500 outline-none hover:bg-slate-50 transition-all shrink-0 cursor-pointer"
-                                  value={rechargePaymentMethods[user.uid] || 'Dinheiro'}
+                                  value={rechargePaymentMethods[user.uid] || ''}
                                   onChange={(e) => setRechargePaymentMethods(prev => ({ ...prev, [user.uid]: e.target.value }))}
                                 >
+                                  <option value="">Selecionar...</option>
                                   <option value="Dinheiro">Dinheiro</option>
                                   <option value="Pix">PIX</option>
                                   <option value="Débito">Débito</option>
@@ -2608,6 +2919,243 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                           </TableRow>
                         );
                       })
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'clients' && (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <header className="flex flex-col md:flex-row md:items-end justify-between gap-8 pb-10 border-b border-slate-100">
+              <div className="space-y-4">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100 text-blue-600">
+                  <Users className="h-3 w-3" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Base de Funcionários</span>
+                </div>
+                <h2 className="text-4xl font-black text-slate-900 tracking-tighter flex items-center gap-4">
+                  <div className="h-14 w-14 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-2xl rotate-3 shrink-0">
+                    <Users className="h-7 w-7" />
+                  </div>
+                  CADASTRO DE FUNCIONÁRIOS
+                </h2>
+                <p className="text-slate-500 text-lg font-medium max-w-xl leading-relaxed">
+                  Gerencie o cadastro de seus colaboradores e vincule cartões físicos ou virtuais para liberação de consumo nas barracas.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button 
+                  onClick={handleExportClientsSpreadsheet}
+                  className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 h-14 px-6 rounded-2xl font-black uppercase tracking-wider text-xs transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Download className="h-5 w-5 text-blue-600" />
+                  Baixar Planilha de Funcionários
+                </Button>
+                
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    onChange={handleImportClientsSpreadsheet}
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
+                    id="clients-xlsx-uploader"
+                  />
+                  <Button 
+                    className="bg-blue-600 hover:bg-blue-700 text-white h-14 px-6 rounded-2xl font-black uppercase tracking-wider text-xs transition-all flex items-center gap-2"
+                  >
+                    <Plus className="h-5 w-5" />
+                    Importar Funcionários em Colunas
+                  </Button>
+                </div>
+              </div>
+            </header>
+
+            {/* Cadastro Manual Card */}
+            <section className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-8 opacity-5">
+                <Users className="h-24 w-24 text-slate-900" />
+              </div>
+              <div className="relative z-10 flex flex-col gap-8">
+                <div>
+                  <h3 className="font-black text-slate-900 text-xl uppercase tracking-tighter">Cadastro Manual de Funcionários</h3>
+                  <p className="text-slate-500 text-sm mt-1 max-w-md">Instira um novo funcionário para vinculação posterior de saldo ou cartão.</p>
+                </div>
+
+                <form onSubmit={handleAddClient} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Nome Completo</label>
+                      <Input 
+                        value={newClientName}
+                        onChange={(e) => setNewClientName(e.target.value)}
+                        placeholder="Ex: João Souza"
+                        required
+                        className="bg-slate-50 border-slate-200 h-14 focus-visible:ring-blue-500 rounded-2xl text-base font-medium px-4"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">E-mail do Google (Opcional)</label>
+                      <Input 
+                        type="email"
+                        value={newClientEmail}
+                        onChange={(e) => setNewClientEmail(e.target.value)}
+                        placeholder="joao@gmail.com"
+                        className="bg-slate-50 border-slate-200 h-14 focus-visible:ring-blue-500 rounded-2xl text-base font-medium px-4"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Código do Cartão / QR (Opcional)</label>
+                      <Input 
+                        value={newClientQrCode}
+                        onChange={(e) => setNewClientQrCode(e.target.value)}
+                        placeholder="Ex: 87654321"
+                        className="bg-slate-50 border-slate-200 h-14 focus-visible:ring-blue-500 rounded-2xl text-base font-medium px-4"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Saldo Inicial (R$)</label>
+                      <Input 
+                        type="number"
+                        step="0.01"
+                        value={newClientBalance}
+                        onChange={(e) => setNewClientBalance(e.target.value)}
+                        placeholder="0.00"
+                        className="bg-slate-50 border-slate-200 h-14 focus-visible:ring-blue-500 rounded-2xl text-base font-medium px-4"
+                      />
+                    </div>
+                  </div>
+
+                  <Button type="submit" className="w-full md:w-auto bg-slate-950 hover:bg-blue-600 text-white h-14 px-8 rounded-2xl font-black uppercase tracking-[0.2em] text-xs transition-all shadow-xl group/submit">
+                    <Plus className="h-5 w-5 mr-2 group-hover/submit:rotate-90 transition-transform" /> 
+                    Finalizar Cadastro
+                  </Button>
+                </form>
+              </div>
+            </section>
+
+            {/* Lista de Clientes Card */}
+            <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm space-y-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-black text-slate-900 text-xl uppercase tracking-tighter">Funcionários Cadastrados</h3>
+                  <p className="text-slate-500 text-sm">Lista de colaboradores ativos aptos para vinculação de cartões.</p>
+                </div>
+                <div className="relative max-w-md w-full">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 h-5 w-5" />
+                  <Input 
+                    placeholder="Pesquisar funcionário..."
+                    value={clientSearchQuery}
+                    onChange={(e) => setClientSearchQuery(e.target.value)}
+                    className="bg-slate-50 border-slate-200 h-12 pl-12 rounded-xl text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-2xl border border-slate-100">
+                <Table>
+                  <TableHeader className="bg-slate-50">
+                    <TableRow>
+                      <TableHead className="font-black text-[10px] uppercase text-slate-600 tracking-wider">Nome do Funcionário</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase text-slate-600 tracking-wider">E-mail</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase text-slate-600 tracking-wider">Cartão Vinculado</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase text-slate-600 tracking-wider">Saldo em Conta</TableHead>
+                      <TableHead className="font-black text-[10px] uppercase text-slate-600 tracking-wider text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.filter(u => u.role === 'student' && 
+                      (u.isEmployee === true || u.email?.includes('modeloalpha.com.br')) &&
+                      (!clientSearchQuery || 
+                       u.name.toLowerCase().includes(clientSearchQuery.toLowerCase()) || 
+                       (u.email && u.email.toLowerCase().includes(clientSearchQuery.toLowerCase())) || 
+                       (u.qrCode && u.qrCode.toLowerCase().includes(clientSearchQuery.toLowerCase())))
+                    ).length > 0 ? (
+                      users.filter(u => u.role === 'student' && 
+                        (u.isEmployee === true || u.email?.includes('modeloalpha.com.br')) &&
+                        (!clientSearchQuery || 
+                         u.name.toLowerCase().includes(clientSearchQuery.toLowerCase()) || 
+                         (u.email && u.email.toLowerCase().includes(clientSearchQuery.toLowerCase())) || 
+                         (u.qrCode && u.qrCode.toLowerCase().includes(clientSearchQuery.toLowerCase())))
+                      ).map((user) => (
+                        <TableRow key={user.uid} className="hover:bg-slate-50/55 transition-colors">
+                          <TableCell className="font-black text-sm text-slate-900 uppercase">{user.name}</TableCell>
+                          <TableCell className="text-xs text-slate-500 font-medium">{user.email || 'N/A'}</TableCell>
+                          <TableCell>
+                            {(!user.qrCode || user.qrCode.startsWith('PENDING-')) ? (
+                              <div className="flex flex-col gap-1.5 py-1">
+                                <span className="text-[10px] font-black text-amber-500 uppercase flex items-center gap-1">
+                                  <AlertTriangle className="h-3.5 w-3.5" /> Sem Cartão
+                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      setLinkingUser(user);
+                                      setPhysicalCardInput('');
+                                    }}
+                                    className="h-8 bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200/40 rounded-xl px-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-all shrink-0"
+                                  >
+                                    <CreditCard className="h-3.5 w-3.5" /> Físico
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleLinkVirtualCard(user)}
+                                    className="h-8 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200/40 rounded-xl px-2.5 text-[10px] font-black uppercase tracking-wider flex items-center gap-1 cursor-pointer transition-all shrink-0"
+                                  >
+                                    <Sparkles className="h-3.5 w-3.5" /> Virtual
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2 py-1">
+                                <div className="font-mono text-xs text-blue-600 font-bold bg-blue-55/85 px-3 py-1.5 rounded-xl border border-blue-100 flex items-center gap-2">
+                                  <CreditCard className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                                  <span>{user.qrCode}</span>
+                                  <button 
+                                    onClick={() => handleUnlinkCard(user)} 
+                                    title="Desvincular Cartão" 
+                                    className="text-red-500 hover:text-red-700 font-black ml-1.5 text-sm cursor-pointer focus:outline-none transition-all hover:scale-120"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-black text-sm text-green-600">R$ {(user.balance || 0).toFixed(2)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button 
+                              variant="ghost" 
+                              onClick={() => {
+                                setDeleteConfirm({
+                                  id: user.uid,
+                                  type: 'user',
+                                  action: async () => {
+                                    try {
+                                      await deleteDoc(doc(db, 'users', user.uid));
+                                      toast.success('Funcionário removido!');
+                                    } catch (error) {
+                                      handleFirestoreError(error, OperationType.DELETE, `users/${user.uid}`);
+                                    }
+                                  }
+                                });
+                              }}
+                              className="h-10 w-10 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl"
+                            >
+                              <Trash2 className="h-5 w-5" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-sm text-slate-400 italic">
+                          Nenhum funcionário cadastrado.
+                        </TableCell>
+                      </TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -2689,13 +3237,24 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                             <span className="text-sm text-slate-600">{tx.description}</span>
                           </TableCell>
                           <TableCell className="py-4 text-right pr-8">
-                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
-                              tx.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 
-                              tx.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
-                              'bg-rose-100 text-rose-700'
-                            }`}>
-                              {tx.status === 'completed' ? 'Pago' : tx.status === 'pending' ? 'Pendente' : 'Erro'}
-                            </span>
+                            <div className="flex items-center justify-end gap-2">
+                              <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
+                                tx.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 
+                                tx.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
+                                'bg-rose-100 text-rose-700'
+                              }`}>
+                                {tx.status === 'completed' ? 'Pago' : tx.status === 'pending' ? 'Pendente' : 'Erro'}
+                              </span>
+                              {tx.type === 'credit' && tx.status === 'pending' && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleCompletePendingTransaction(tx.id)}
+                                  className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2 text-[9px] font-black uppercase tracking-wider border-none scale-90"
+                                >
+                                  Baixar
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))
@@ -3733,6 +4292,63 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         </DialogContent>
       </Dialog>
 
+      {/* Linking Physical Card Dialog */}
+      <Dialog open={!!linkingUser} onOpenChange={(open) => {
+        if (!open) {
+          setLinkingUser(null);
+          setPhysicalCardInput('');
+        }
+      }}>
+        <DialogContent className="max-w-md bg-white p-8 rounded-3xl border border-slate-100 shadow-2xl">
+          <DialogHeader className="text-left space-y-2">
+            <div className="h-12 w-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mb-2">
+              <CreditCard className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-xl font-black text-slate-900 uppercase tracking-tight">Vincular Cartão Físico</DialogTitle>
+            <DialogDescription className="text-sm text-slate-500">
+              Aproxime o cartão do leitor ou digite o código/número para o funcionário <span className="font-extrabold text-slate-900 uppercase">{linkingUser?.name}</span>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest ml-1">Código do Cartão / QR Code</label>
+              <Input 
+                autoFocus
+                value={physicalCardInput}
+                onChange={(e) => setPhysicalCardInput(e.target.value)}
+                placeholder="Ex: 1048293 ou passe no leitor"
+                className="bg-slate-50 border-slate-200 h-14 focus-visible:ring-blue-500 rounded-2xl text-base font-semibold px-4"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleSavePhysicalCard();
+                  }
+                }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setLinkingUser(null);
+                setPhysicalCardInput('');
+              }}
+              className="rounded-xl h-12"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSavePhysicalCard}
+              className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-12 px-6 font-bold"
+            >
+              Confirmar Vínculo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Balance Reset Confirmation Dialog */}
       <Dialog open={!!resetConfirm} onOpenChange={(open) => !open && setResetConfirm(null)}>
         <DialogContent className="rounded-[40px] border-none shadow-2xl p-0 max-w-sm overflow-hidden bg-white">
@@ -4028,10 +4644,23 @@ function RechargePortal({
 
   const [isScanning, setIsScanning] = useState(false);
   const [amount, setAmount] = useState<string>('');
-  const [paymentMethod, setPaymentMethod] = useState<string>('Dinheiro');
+  const [paymentMethod, setPaymentMethod] = useState<string>('');
   const [processing, setProcessing] = useState(false);
   
   // Custom calculator states
+  const [rechargeSearchQuery, setRechargeSearchQuery] = useState('');
+  
+  const filteredRechargeUsers = useMemo(() => {
+    if (!rechargeSearchQuery.trim()) return [];
+    const qLower = rechargeSearchQuery.toLowerCase();
+    return users.filter(u => 
+      u.role === 'student' && 
+      (u.name.toLowerCase().includes(qLower) || 
+       (u.email && u.email.toLowerCase().includes(qLower)) || 
+       (u.qrCode && u.qrCode.toLowerCase().includes(qLower)))
+    );
+  }, [users, rechargeSearchQuery]);
+
   const [showCalcModal, setShowCalcModal] = useState(false);
   const [calcSearch, setCalcSearch] = useState('');
   const [calcQuantities, setCalcQuantities] = useState<{[productId: string]: number}>({});
@@ -4179,6 +4808,11 @@ function RechargePortal({
     const val = parseFloat(amount);
     if (!scannedUser || isNaN(val) || val <= 0) return;
 
+    if (!paymentMethod) {
+      toast.error('Selecione a forma de pagamento');
+      return;
+    }
+
     try {
       setProcessing(true);
       
@@ -4198,7 +4832,7 @@ function RechargePortal({
         type: 'credit',
         description: `Recarga Ponto de Venda (${paymentMethod})`,
         paymentMethod,
-        status: 'completed',
+        status: paymentMethod === 'Conta' ? 'pending' : 'completed',
         timestamp: serverTimestamp(),
         operatorId: auth.currentUser?.uid || '',
         operatorName: (users?.find(u => u.uid === auth.currentUser?.uid)?.name) || auth.currentUser?.displayName || auth.currentUser?.email || 'Operador'
@@ -4273,6 +4907,57 @@ function RechargePortal({
                   <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
                     <span className="text-[9px] font-black uppercase text-blue-400 animate-pulse bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">Leitor Ativo</span>
                   </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Search className="h-4 w-4 text-blue-400" />
+                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Buscar por Cliente / Funcionário</span>
+                  </div>
+                  
+                  <div className="relative">
+                    <Input
+                      placeholder="Pesquisar por nome, e-mail ou cartão..."
+                      value={rechargeSearchQuery}
+                      onChange={(e) => setRechargeSearchQuery(e.target.value)}
+                      className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 rounded-xl h-12 text-sm"
+                    />
+                    {rechargeSearchQuery && (
+                      <button 
+                        onClick={() => setRechargeSearchQuery('')} 
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-450 hover:text-white"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {rechargeSearchQuery.trim() && (
+                    <div className="bg-slate-900 border border-white/10 rounded-2xl max-h-48 overflow-y-auto divide-y divide-white/5">
+                      {filteredRechargeUsers.length > 0 ? (
+                        filteredRechargeUsers.map(u => (
+                          <button
+                            key={u.uid}
+                            type="button"
+                            onClick={() => {
+                              setScannedUser(u);
+                              setRechargeSearchQuery('');
+                            }}
+                            className="w-full text-left p-3 hover:bg-white/5 flex flex-col justify-between transition-colors cursor-pointer"
+                          >
+                            <span className="font-bold text-xs text-white uppercase">{u.name}</span>
+                            <span className="text-[10px] text-slate-400">{u.email}</span>
+                            <div className="flex justify-between items-center mt-1">
+                              <span className="text-[9px] font-mono font-bold text-blue-400">Cartão: {u.qrCode || 'N/A'}</span>
+                              <span className="text-[10px] font-bold text-green-400">R$ {u.balance.toFixed(2)}</span>
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="p-3 text-xs text-slate-500 italic text-center">Nenhum cliente encontrado.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : isScanning ? (
