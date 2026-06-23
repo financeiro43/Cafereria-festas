@@ -319,9 +319,25 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
       const totalRecharged = opTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
-      const totalCash = opTransactions.filter(t => t.paymentMethod?.toLowerCase().includes('dinheiro')).reduce((acc, curr) => acc + (curr.amount || 0), 0);
-      const totalPix = opTransactions.filter(t => t.paymentMethod?.toLowerCase().includes('pix')).reduce((acc, curr) => acc + (curr.amount || 0), 0);
-      const totalCard = opTransactions.filter(t => t.paymentMethod?.toLowerCase().includes('cart') || t.paymentMethod?.toLowerCase().includes('deb') || t.paymentMethod?.toLowerCase().includes('cred')).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+      const totalCash = opTransactions.filter(t => {
+        const m = (t.paymentMethod || '').toLowerCase();
+        const desc = (t.description || '').toLowerCase();
+        return m.includes('dinheiro') || desc.includes('dinheiro');
+      }).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
+      const totalPix = opTransactions.filter(t => {
+        const m = (t.paymentMethod || '').toLowerCase();
+        const desc = (t.description || '').toLowerCase();
+        return m.includes('pix') || desc.includes('pix');
+      }).reduce((acc, curr) => acc + (curr.amount || 0), 0);
+
+      const totalCard = opTransactions.filter(t => {
+        const m = (t.paymentMethod || '').toLowerCase();
+        const desc = (t.description || '').toLowerCase();
+        return m.includes('cart') || m.includes('deb') || m.includes('cred') ||
+               desc.includes('cart') || desc.includes('deb') || desc.includes('cred') ||
+               desc.includes('déb') || desc.includes('créd');
+      }).reduce((acc, curr) => acc + (curr.amount || 0), 0);
 
       const opWithdrawals = filteredWithdrawals.filter(w => w.stallId === op.uid);
       const totalWithdrawn = opWithdrawals.reduce((acc, curr) => acc + (curr.amount || 0), 0);
@@ -340,10 +356,32 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
   const paymentMethodStats = useMemo(() => {
     const credits = filteredTransactions.filter(t => t.type === 'credit' && t.status === 'completed');
-    const cash = credits.filter(t => t.paymentMethod?.toLowerCase().includes('dinheiro')).reduce((acc, t) => acc + (t.amount || 0), 0);
-    const pix = credits.filter(t => t.paymentMethod?.toLowerCase().includes('pix')).reduce((acc, t) => acc + (t.amount || 0), 0);
-    const card = credits.filter(t => t.paymentMethod?.toLowerCase().includes('cart') || t.paymentMethod?.toLowerCase().includes('deb') || t.paymentMethod?.toLowerCase().includes('cred')).reduce((acc, t) => acc + (t.amount || 0), 0);
-    const other = credits.reduce((acc, t) => acc + (t.amount || 0), 0) - (cash + pix + card);
+    
+    let cash = 0;
+    let pix = 0;
+    let card = 0;
+
+    credits.forEach(t => {
+      const amt = t.amount || 0;
+      const m = (t.paymentMethod || '').toLowerCase();
+      const desc = (t.description || '').toLowerCase();
+
+      if (m.includes('dinheiro') || desc.includes('dinheiro')) {
+        cash += amt;
+      } else if (m.includes('pix') || desc.includes('pix')) {
+        pix += amt;
+      } else if (
+        m.includes('cart') || m.includes('deb') || m.includes('cred') ||
+        desc.includes('cart') || desc.includes('deb') || desc.includes('cred') ||
+        desc.includes('déb') || desc.includes('créd')
+      ) {
+        card += amt;
+      }
+    });
+
+    const totalCalculated = cash + pix + card;
+    const totalCredits = credits.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const other = Math.max(0, totalCredits - totalCalculated);
 
     return { cash, pix, card, other };
   }, [filteredTransactions]);
@@ -1350,12 +1388,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     }
 
     try {
+      const uProfile = users.find(u => u.uid === userId);
+      const isShared = uProfile && (!uProfile.balanceType || uProfile.balanceType === 'shared') && uProfile.parentUid;
+      const targetUserId = isShared ? uProfile.parentUid! : userId;
+
       // Update balance
-      await updateDoc(doc(collection(db, 'users'), userId), {
+      await updateDoc(doc(collection(db, 'users'), targetUserId), {
         balance: increment(amount)
       });
 
-      const uProfile = users.find(u => u.uid === userId);
       const cardNum = uProfile?.qrCode || userId;
       const uName = uProfile?.name || '';
 
@@ -1439,9 +1480,12 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         }
         const promises = selectedUsers.map(async (uid) => {
           const uProfile = users.find(u => u.uid === uid);
+          const isShared = uProfile && (!uProfile.balanceType || uProfile.balanceType === 'shared') && uProfile.parentUid;
+          const targetUserId = isShared ? uProfile.parentUid! : uid;
+
           const cardNum = uProfile?.qrCode || uid;
           const uName = uProfile?.name || '';
-          await updateDoc(doc(db, 'users', uid), { balance: increment(amount) });
+          await updateDoc(doc(db, 'users', targetUserId), { balance: increment(amount) });
           await addDoc(collection(db, 'transactions'), {
             userId: uid,
             userName: uName,
@@ -4862,8 +4906,11 @@ function RechargePortal({
       const netAddition = val - extraItemsTotal;
       const dbPromises: Promise<any>[] = [];
 
+      const isShared = scannedUser && (!scannedUser.balanceType || scannedUser.balanceType === 'shared') && scannedUser.parentUid;
+      const targetUserId = isShared ? scannedUser.parentUid! : scannedUser.uid;
+
       // 1. Update user balance with the net addition
-      dbPromises.push(updateDoc(doc(db, 'users', scannedUser.uid), {
+      dbPromises.push(updateDoc(doc(db, 'users', targetUserId), {
         balance: increment(netAddition)
       }));
 
