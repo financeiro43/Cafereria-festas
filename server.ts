@@ -401,9 +401,13 @@ async function startServer() {
               const txnId = redeData.tid;
               const txnRef = doc(db, "transactions", txnId);
 
+              const userData = userDoc.data();
+              const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
+              const targetUserRef = isShared ? doc(db, "users", userData.parentUid) : userRef;
+
               if (paymentMethod !== 'pix') {
                 // For Credit/Debit, apply balance immediately and mark completed
-                await updateDoc(userRef, {
+                await updateDoc(targetUserRef, {
                   balance: increment(parsedAmount),
                   lastRecharge: serverTimestamp(),
                   _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
@@ -584,8 +588,14 @@ async function startServer() {
           await runTransaction(db, async (t) => {
             const uDoc = await t.get(userRef);
             if (uDoc.exists()) {
-              const currentBalance = uDoc.data()?.balance || 0;
-              t.update(userRef, { 
+              const userData = uDoc.data();
+              const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
+              const targetUserRef = isShared ? doc(db, "users", userData.parentUid) : userRef;
+              
+              const targetDoc = isShared ? await t.get(targetUserRef) : uDoc;
+              const currentBalance = targetDoc.data()?.balance || 0;
+
+              t.update(targetUserRef, { 
                 balance: currentBalance + amount,
                 lastRecharge: serverTimestamp(),
                 updatedAt: serverTimestamp(),
@@ -659,8 +669,14 @@ async function startServer() {
             const userRef = doc(db, "users", userId);
             const userDoc = await t.get(userRef);
             if (userDoc.exists()) {
-              const currentBalance = userDoc.data()?.balance || 0;
-              t.update(userRef, { 
+              const userData = userDoc.data();
+              const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
+              const targetUserRef = isShared ? doc(db, "users", userData.parentUid) : userRef;
+              
+              const targetDoc = isShared ? await t.get(targetUserRef) : userDoc;
+              const currentBalance = targetDoc.data()?.balance || 0;
+
+              t.update(targetUserRef, { 
                 balance: currentBalance + amount,
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
