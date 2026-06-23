@@ -452,6 +452,40 @@ export default function VendorDashboard({
       const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
       const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
 
+      // Função auxiliar para resolver com o primeiro documento válido encontrado
+      const getFirstExistingDoc = async (promises: Promise<any>[]) => {
+        return new Promise<any>((resolve) => {
+          let resolved = false;
+          let pending = promises.length;
+          
+          if (pending === 0) {
+            resolve(null);
+            return;
+          }
+
+          promises.forEach(p => {
+            p.then(doc => {
+              if (resolved) return;
+              if (doc && typeof doc.exists === 'function' && doc.exists()) {
+                resolved = true;
+                resolve(doc);
+              } else {
+                pending--;
+                if (pending === 0) {
+                  resolve(null);
+                }
+              }
+            }).catch(() => {
+              if (resolved) return;
+              pending--;
+              if (pending === 0) {
+                resolve(null);
+              }
+            });
+          });
+        });
+      };
+
       // 2. PRIMEIRA TENTATIVA: Cache Local (Tempo de resposta instantâneo, ~2ms)
       try {
         const cachePromises = [
@@ -464,8 +498,7 @@ export default function VendorDashboard({
             .catch(() => null)
         ];
         
-        const cacheResults = await Promise.all(cachePromises);
-        userDoc = cacheResults.find(r => r && typeof r.exists === 'function' && r.exists());
+        userDoc = await getFirstExistingDoc(cachePromises);
       } catch (cacheErr) {
         console.warn("[CACHE] Erro ou ausência de cache local:", cacheErr);
       }
@@ -483,15 +516,11 @@ export default function VendorDashboard({
               .catch(() => null)
           ];
           
-          // Corrida de promessas: busca no servidor ou timeout de 4s
+          // Corrida de promessas com resolução instantânea assim que o primeiro documento for encontrado
+          const serverResultPromise = getFirstExistingDoc(serverPromises);
           const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
           
-          const serverResult = await Promise.race([
-            Promise.all(serverPromises).then(results => results.find(r => r && typeof r.exists === 'function' && r.exists()) || null),
-            timeoutPromise
-          ]);
-          
-          userDoc = serverResult;
+          userDoc = await Promise.race([serverResultPromise, timeoutPromise]);
         } catch (serverErr) {
           console.error("[SERVER] Erro na consulta ao servidor:", serverErr);
         }
@@ -515,7 +544,11 @@ export default function VendorDashboard({
       // Se o usuário possuir saldo compartilhado com um parente/responsável (parentUid)
       if ((!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid) {
         try {
-          const parentDoc = await getDoc(doc(db, 'users', userData.parentUid)).catch(() => null);
+          const parentRef = doc(db, 'users', userData.parentUid);
+          let parentDoc = await getDocFromCache(parentRef).catch(() => null);
+          if (!parentDoc || !parentDoc.exists()) {
+            parentDoc = await getDoc(parentRef).catch(() => null);
+          }
           if (parentDoc && parentDoc.exists()) {
             const parentData = parentDoc.data() as UserProfile;
             userData.balance = parentData.balance || 0;
@@ -657,7 +690,13 @@ export default function VendorDashboard({
         handleFirestoreError(e, OperationType.CREATE, 'consumption');
       });
 
-      await Promise.all([updateBalancePromise, writeTransactionPromise, writeConsumptionPromise]);
+      // Aguarda apenas a atualização de saldo (crítica) para autorizar a venda instantaneamente.
+      // O registro das coleções de transações e consumo são salvos em segundo plano.
+      await updateBalancePromise;
+      
+      // Salva os logs em segundo plano sem travar a tela do operador
+      writeTransactionPromise.catch(e => console.error("Erro em background (transactions):", e));
+      writeConsumptionPromise.catch(e => console.error("Erro em background (consumption):", e));
 
       const completedItems = [...cart];
 
