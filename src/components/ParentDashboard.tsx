@@ -213,39 +213,48 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         }
 
         if (confirm(`Deseja vincular a conta de ${userData.name} como um dependente? Você poderá gerenciar o saldo e visualizar o histórico.`)) {
+          const loadingToast = toast.loading('Vinculando conta de dependente...');
           
-          const childBalance = userData.balance || 0;
-          
-          // Quando vinculamos um dependente com saldo compartilhado/unificado (padrão),
-          // para evitar perda de fundos, nós acrescentamos o saldo atual do dependente ao saldo do responsável/principal!
-          await updateDoc(userRef, {
-            associatedUids: Array.from(new Set([...(profile.associatedUids || []), userData.uid])),
-            balance: increment(childBalance)
-          });
-
-          // Link parentUid and default balanceType in child's profile
           try {
-            await updateDoc(doc(db, 'users', userData.uid), {
-              parentUid: profile.uid,
-              balanceType: 'shared',
-              balance: 0 // Como agora está compartilhado, o saldo individual é considerado 0 (busca o do responsável)
+            const response = await fetch('/api/rede/link-dependent', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                parentUid: profile.uid,
+                childUid: userData.uid
+              })
             });
-          } catch (childErr) {
-            console.error("Erro ao gravar parentUid no perfil do dependente:", childErr);
-          }
 
-          setShowSuccessAnimation(true);
-          toast.success(`Conta de ${userData.name} vinculada com sucesso!`, {
-            description: childBalance > 0 
-              ? `O saldo de R$ ${childBalance.toFixed(2)} do dependente foi unificado à sua carteira principal!` 
-              : 'Você já pode gerenciar este saldo.',
-            duration: 6000,
-          });
-          
-          setDisplayedUid(userData.uid);
-          
-          // Esconde animação após alguns segundos
-          setTimeout(() => setShowSuccessAnimation(false), 3000);
+            const data = await response.json();
+            toast.dismiss(loadingToast);
+
+            if (!response.ok || !data.success) {
+              throw new Error(data.error || 'Erro ao vincular conta no servidor.');
+            }
+
+            const childBalance = data.transferredBalance || 0;
+
+            setShowSuccessAnimation(true);
+            toast.success(`Conta de ${userData.name} vinculada com sucesso!`, {
+              description: childBalance > 0 
+                ? `O saldo de R$ ${childBalance.toFixed(2)} do dependente foi unificado à sua carteira principal!` 
+                : 'Você já pode gerenciar este saldo.',
+              duration: 6000,
+            });
+            
+            setDisplayedUid(userData.uid);
+            
+            // Esconde animação após alguns segundos
+            setTimeout(() => setShowSuccessAnimation(false), 3000);
+          } catch (linkErr: any) {
+            toast.dismiss(loadingToast);
+            console.error('Erro ao vincular dependente via API:', linkErr);
+            toast.error('Erro ao vincular dependente', {
+              description: linkErr.message || 'Erro inesperado na API.'
+            });
+          }
         }
       } else {
         toast.success('Este cartão já é o principal da sua conta.');
