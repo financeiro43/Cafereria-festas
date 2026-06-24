@@ -31,6 +31,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [sharedCart, setSharedCart] = useState<CartItem[]>([]);
   const [sharedScannedUser, setSharedScannedUser] = useState<UserProfile | null>(null);
 
+  const [stalls, setStalls] = useState<Stall[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [recentSales, setRecentSales] = useState<any[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isSyncingPix, setIsSyncingPix] = useState(false);
+  const checkedPixIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     if (profile.role !== 'admin') {
       if (profile.role === 'vendor') {
@@ -50,13 +59,34 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       setActiveTab(forcedTab);
     }
   }, [profile.role, forcedTab, activeTab]);
-  
-  const [stalls, setStalls] = useState<Stall[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [users, setUsers] = useState<UserProfile[]>([]);
-  const [recentSales, setRecentSales] = useState<any[]>([]);
-  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  useEffect(() => {
+    // Run the automated general Pix status verification on load & on transactions changes
+    if (transactions.length === 0) return;
+
+    const pendingPix = transactions.filter(t => 
+      t.status === 'pending' && 
+      !checkedPixIdsRef.current.has(t.id) &&
+      (t.description?.toLowerCase().includes('pix') || (t as any).paymentMethod === 'pix' || t.id.startsWith('pix_') || t.description?.toLowerCase().includes('recarga via pix'))
+    );
+
+    if (pendingPix.length > 0) {
+      console.log(`[AUTO-PIX-SYNC] Encontrados ${pendingPix.length} Pix pendentes. Sincronizando...`);
+      pendingPix.forEach(async (tx) => {
+        checkedPixIdsRef.current.add(tx.id);
+        try {
+          const response = await fetch(`/api/rede/verify-pix/${tx.id}`);
+          const data = await response.json();
+          if (data.success && data.status === 'completed') {
+            console.log(`[AUTO-PIX-SYNC] Pix ${tx.id} pago e creditado com sucesso!`);
+            toast.success(`Pix Sincronizado: R$ ${tx.amount.toFixed(2)} creditados com sucesso para ${tx.userName || 'Cliente'}!`);
+          }
+        } catch (err) {
+          console.error(`[AUTO-PIX-SYNC] Erro ao sincronizar Pix ${tx.id}:`, err);
+        }
+      });
+    }
+  }, [transactions]);
   
   const [newStallName, setNewStallName] = useState('');
   const [editingStall, setEditingStall] = useState<Stall | null>(null);
@@ -1377,13 +1407,158 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       return;
     }
     try {
-      await updateDoc(doc(db, 'transactions', txId), {
-        status: 'completed'
+      // 1. Fetch transaction details
+      const txDocRef = doc(db, 'transactions', txId);
+      const txSnap = await getDoc(txDocRef);
+      if (!txSnap.exists()) {
+        toast.error('Transação não encontrada.');
+        return;
+      }
+      const txData = txSnap.data();
+      const userId = txData.userId;
+      const amount = txData.amount;
+
+      if (!userId || isNaN(amount) || amount <= 0) {
+        toast.error('Dados da transação inválidos.');
+        return;
+      }
+
+      // 2. Fetch user to update balance (handling shared parent balance if applicable)
+      const userDocRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userDocRef);
+      if (!userSnap.exists()) {
+        toast.error('Usuário associado à transação não encontrado.');
+        return;
+      }
+      const userData = userSnap.data();
+      const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
+      const targetUserId = isShared ? userData.parentUid : userId;
+      const targetUserRef = doc(db, 'users', targetUserId);
+
+      // 3. Update both the transaction and the user's balance
+      await updateDoc(txDocRef, {
+        status: 'completed',
+        updatedAt: serverTimestamp()
       });
-      toast.success('Pagamento recebido e baixado com sucesso!');
+
+      await updateDoc(targetUserRef, {
+        balance: increment(amount),
+        lastRecharge: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      toast.success('Pagamento recebido, baixado e creditado com sucesso!');
     } catch (e) {
       console.error(e);
       toast.error('Erro ao confirmar pagamento.');
+    }
+  };
+
+  const handleRefundTransaction = async (tx: Transaction) => {
+    const isCredit = tx.type === 'credit';
+    const absAmount = Math.abs(tx.amount);
+    const directionWord = isCredit ? 'crédito (recarga)' : 'débito (gasto)';
+    const confirmMessage = `Deseja realmente estornar esta transação de ${directionWord} no valor de R$ ${absAmount.toFixed(2)}?\n` +
+      `O saldo do cliente será atualizado correspondendo ao estorno.`;
+
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      // 1. Fetch user to update balance (handling shared parent balance if applicable)
+      const userDocRef = doc(db, 'users', tx.userId);
+      const userSnap = await getDoc(userDocRef);
+      if (!userSnap.exists()) {
+        toast.error('Usuário associado à transação não encontrado.');
+        return;
+      }
+      
+      const userData = userSnap.data();
+      const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
+      const targetUserId = isShared ? userData.parentUid : tx.userId;
+      const targetUserRef = doc(db, 'users', targetUserId);
+      const targetUserSnap = await getDoc(targetUserRef);
+      
+      if (!targetUserSnap.exists()) {
+        toast.error('Conta de saldo do usuário não encontrada.');
+        return;
+      }
+
+      const currentBalance = targetUserSnap.data()?.balance || 0;
+      // Reversal adjustment calculation:
+      // If it was a credit of R$ 50, we want to subtract 50 (currentBalance - 50).
+      // If it was a debit of R$ -10, we want to add 10 (currentBalance + 10).
+      // So the reversal adjustment is always -tx.amount.
+      const refundAdjustment = -tx.amount;
+
+      if (isCredit && currentBalance < absAmount) {
+        if (!confirm(`Atenção: O saldo atual do cliente (R$ ${currentBalance.toFixed(2)}) é menor que o valor do estorno (R$ ${absAmount.toFixed(2)}). O saldo ficará negativo (R$ ${(currentBalance + refundAdjustment).toFixed(2)}). Deseja prosseguir mesmo assim?`)) {
+          return;
+        }
+      }
+
+      // Update both the transaction and the user's balance
+      const txDocRef = doc(db, 'transactions', tx.id);
+      await updateDoc(txDocRef, {
+        status: 'refunded',
+        updatedAt: serverTimestamp(),
+        refundedAt: serverTimestamp(),
+        refundedBy: auth.currentUser?.uid || ''
+      });
+
+      await updateDoc(targetUserRef, {
+        balance: increment(refundAdjustment),
+        updatedAt: serverTimestamp()
+      });
+
+      toast.success('Transação estornada com sucesso! O saldo foi atualizado.');
+    } catch (e) {
+      console.error('Erro ao estornar transação:', e);
+      toast.error('Erro ao estornar transação.');
+    }
+  };
+
+  const handleSyncPendingPix = async () => {
+    const pendingPix = transactions.filter(t => 
+      t.status === 'pending' && 
+      (t.description?.toLowerCase().includes('pix') || (t as any).paymentMethod === 'pix' || t.id.startsWith('pix_') || t.description?.toLowerCase().includes('recarga via pix'))
+    );
+
+    if (pendingPix.length === 0) {
+      toast.info('Nenhum Pix pendente para sincronizar no momento.');
+      return;
+    }
+
+    setIsSyncingPix(true);
+    const toastId = toast.loading(`Sincronizando ${pendingPix.length} Pix pendentes com a Rede...`);
+    let updatedCount = 0;
+
+    try {
+      for (const tx of pendingPix) {
+        try {
+          const response = await fetch(`/api/rede/verify-pix/${tx.id}`);
+          const data = await response.json();
+          if (data.success && data.status === 'completed') {
+            updatedCount++;
+          }
+        } catch (e) {
+          console.error(`Erro ao sincronizar Pix ${tx.id}:`, e);
+        }
+      }
+      
+      toast.dismiss(toastId);
+      if (updatedCount > 0) {
+        toast.success(`${updatedCount} transações Pix pendentes foram detectadas como pagas e creditadas automaticamente!`);
+      } else {
+        toast.info('Sincronização concluída. Nenhum dos Pix pendentes foi pago na Rede ainda.');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.dismiss(toastId);
+      toast.error('Erro ao sincronizar transações Pix.');
+    } finally {
+      setIsSyncingPix(false);
     }
   };
 
@@ -3237,12 +3412,31 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
         {activeTab === 'transactions' && (
           <div className="space-y-8 animate-in fade-in duration-500">
-            <header>
-              <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-3">
-                <FileText className="h-8 w-8 text-blue-600" />
-                Histórico de Vendas
-              </h2>
-              <p className="text-slate-500 mt-1">Lista completa de transações financeiras registradas no sistema.</p>
+            <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-3">
+                  <FileText className="h-8 w-8 text-blue-600" />
+                  Histórico de Vendas
+                </h2>
+                <p className="text-slate-500 mt-1">Lista completa de transações financeiras registradas no sistema.</p>
+              </div>
+              <Button
+                onClick={handleSyncPendingPix}
+                disabled={isSyncingPix}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl h-11 px-6 font-bold uppercase tracking-wider text-xs shadow-sm shadow-blue-100 border-none shrink-0"
+              >
+                {isSyncingPix ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Sincronizando...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4" />
+                    Sincronizar Pix
+                  </>
+                )}
+              </Button>
             </header>
 
             <Card className="shadow-sm border-none bg-white rounded-3xl overflow-hidden">
@@ -3312,9 +3506,10 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                               <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
                                 tx.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 
                                 tx.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
+                                tx.status === 'refunded' ? 'bg-slate-100 text-slate-600' :
                                 'bg-rose-100 text-rose-700'
                               }`}>
-                                {tx.status === 'completed' ? 'Pago' : tx.status === 'pending' ? 'Pendente' : 'Erro'}
+                                {tx.status === 'completed' ? 'Pago' : tx.status === 'pending' ? 'Pendente' : tx.status === 'refunded' ? 'Estornado' : 'Erro'}
                               </span>
                               {tx.type === 'credit' && tx.status === 'pending' && (
                                 <Button
@@ -3323,6 +3518,16 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                   className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2 text-[9px] font-black uppercase tracking-wider border-none scale-90"
                                 >
                                   Baixar
+                                </Button>
+                              )}
+                              {tx.status === 'completed' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleRefundTransaction(tx)}
+                                  className="h-7 bg-rose-50/50 hover:bg-rose-50 hover:text-rose-700 text-rose-600 border border-rose-200/60 rounded-lg px-2 text-[9px] font-black uppercase tracking-wider scale-90 flex items-center gap-1"
+                                >
+                                  Estornar
                                 </Button>
                               )}
                             </div>
