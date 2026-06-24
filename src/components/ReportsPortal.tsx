@@ -159,12 +159,32 @@ export default function ReportsPortal({
 
   // Formatter matching online card (16 numbers with spaces every 4 digits)
   const formatCardNumber = (str: string) => {
-    if (!str) return '';
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    if (!str) return '0000 0000 0000 0000';
+    
+    const cleanDigits = str.replace(/\D/g, '');
+    const isPurelyNumeric = /^\d+$/.test(cleanDigits);
+    const isSystemCode = str.includes('PENDING') || str.includes('VIRTUAL');
+    
+    if (isPurelyNumeric && !isSystemCode && cleanDigits.length > 0) {
+      const padded = cleanDigits.padEnd(16, '0').substring(0, 16);
+      return padded.replace(/(.{4})/g, '$1 ').trim();
     }
-    const numeric = Math.abs(hash).toString().padEnd(16, '0').substring(0, 16);
+    
+    let hash1 = 0;
+    let hash2 = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash1 = char + ((hash1 << 5) - hash1);
+      hash2 = char + ((hash2 << 7) - hash2) + hash1;
+    }
+    
+    let seed = Math.abs(hash1 ^ hash2);
+    let numeric = '';
+    for (let i = 0; i < 16; i++) {
+      seed = (seed * 9301 + 49297) % 233280;
+      numeric += (seed % 10).toString();
+    }
+    
     return numeric.replace(/(.{4})/g, '$1 ').trim();
   };
 
@@ -1599,10 +1619,9 @@ export default function ReportsPortal({
                             <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase ${
                               row.status === 'completed' ? 'bg-green-100 text-green-700' : 
                               row.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
-                              row.status === 'refunded' ? 'bg-slate-100 text-slate-600' :
                               'bg-red-100 text-red-700'
                             }`}>
-                              {row.status === 'completed' ? 'Sucesso' : row.status === 'refunded' ? 'Estornado' : row.status === 'pending' ? 'Pendente' : row.status}
+                              {row.status === 'completed' ? 'Sucesso' : row.status}
                             </span>
                           </div>
                         </td>
