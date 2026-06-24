@@ -50,8 +50,8 @@ function ProtectedRoute({
   if (!allowedRoles.includes(profile.role)) {
     // Redirect to their default module if they try to access something else
     const defaultPath = profile.role === 'admin' ? '/admin' : 
-                        profile.role === 'vendor' ? '/vendor' : 
-                        profile.role === 'recharge' ? '/pdv' : '/portal';
+                        profile.role === 'vendor' ? '/pdv' : 
+                        profile.role === 'recharge' ? '/recharge' : '/portal';
     return <Navigate to={defaultPath} replace />;
   }
 
@@ -582,100 +582,15 @@ function MainApp() {
     );
   }
 
-  if (profile.role === 'admin' && location.pathname === '/') {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
-        {/* Decorative Background */}
-        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-600/10 blur-[120px] -z-10 rounded-full" />
-        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-purple-600/10 blur-[120px] -z-10 rounded-full" />
-
-        <div className="w-full max-w-5xl space-y-12 animate-in fade-in zoom-in duration-500">
-          <header className="text-center space-y-4">
-             <div className="inline-flex p-5 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[32px] shadow-2xl shadow-blue-500/40 mb-2 relative group">
-                <div className="absolute inset-0 bg-white/20 rounded-[32px] scale-0 group-hover:scale-100 transition-transform duration-500" />
-                <Sparkles className="h-12 w-12 text-white relative z-10" />
-             </div>
-             <div className="space-y-1">
-                <h1 className="text-4xl md:text-6xl font-black text-white uppercase tracking-tighter leading-none">Global Event Control</h1>
-                <p className="text-slate-500 font-bold uppercase tracking-[0.3em] text-[10px]">Painel Administrativo • {profile.name}</p>
-             </div>
-          </header>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <button 
-              onClick={() => navigate('/admin')}
-              className="group relative h-72 md:h-80 bg-slate-900/50 hover:bg-slate-900 border border-white/5 hover:border-blue-500/50 rounded-[40px] p-8 text-left transition-all hover:-translate-y-2 active:translate-y-0 overflow-hidden shadow-2xl"
-            >
-              <div className="h-full flex flex-col justify-between">
-                <div className="p-4 bg-blue-600/10 rounded-2xl w-fit group-hover:bg-blue-600 group-hover:text-white transition-colors duration-300">
-                  <LayoutDashboard className="h-8 w-8 text-blue-400 group-hover:text-white" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Gestão Central</h2>
-                  <p className="text-slate-500 text-sm font-medium leading-relaxed">Administração total de barracas, produtos, usuários e relatórios financeiros.</p>
-                </div>
-              </div>
-              <div className="absolute top-8 right-8 opacity-0 group-hover:opacity-100 group-hover:translate-x-2 transition-all">
-                 <ArrowRight className="h-6 w-6 text-blue-500" />
-              </div>
-            </button>
-
-            <button 
-              onClick={() => navigate('/pdv')}
-              className="group relative h-72 md:h-80 bg-slate-900/50 hover:bg-slate-900 border border-white/5 hover:border-green-500/50 rounded-[40px] p-8 text-left transition-all hover:-translate-y-2 active:translate-y-0 overflow-hidden shadow-2xl"
-            >
-              <div className="h-full flex flex-col justify-between">
-                <div className="p-4 bg-green-500/10 rounded-2xl w-fit group-hover:bg-green-600 group-hover:text-white transition-colors duration-300">
-                  <Store className="h-8 w-8 text-green-400 group-hover:text-white" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Terminal PDV</h2>
-                  <p className="text-slate-500 text-sm font-medium leading-relaxed">Ponto de venda otimizado para vendas rápidas e recargas presenciais.</p>
-                </div>
-              </div>
-              <div className="absolute top-8 right-8 opacity-0 group-hover:opacity-100 group-hover:translate-x-2 transition-all">
-                 <ArrowRight className="h-6 w-6 text-green-500" />
-              </div>
-            </button>
-
-            <button 
-              onClick={() => navigate('/portal')}
-              className="group relative h-72 md:h-80 bg-slate-900/50 hover:bg-slate-900 border border-white/5 hover:border-purple-500/50 rounded-[40px] p-8 text-left transition-all hover:-translate-y-2 active:translate-y-0 overflow-hidden shadow-2xl lg:col-span-1 md:col-span-2"
-            >
-              <div className="h-full flex flex-col justify-between">
-                <div className="p-4 bg-purple-500/10 rounded-2xl w-fit group-hover:bg-purple-600 group-hover:text-white transition-colors duration-300">
-                  <UserIcon className="h-8 w-8 text-purple-400 group-hover:text-white" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-black text-white uppercase tracking-tight mb-2">Portal do Cliente</h2>
-                  <p className="text-slate-500 text-sm font-medium leading-relaxed">Visualize a interface do cliente, acompanhe extratos e gerencie saldos.</p>
-                </div>
-              </div>
-              <div className="absolute top-8 right-8 opacity-0 group-hover:opacity-100 group-hover:translate-x-2 transition-all">
-                 <ArrowRight className="h-6 w-6 text-purple-500" />
-              </div>
-            </button>
-          </div>
-
-          <footer className="flex justify-center pt-8">
-             <Button variant="ghost" onClick={() => auth.signOut()} className="text-slate-500 hover:text-white h-14 px-8 rounded-2xl gap-2 font-black uppercase tracking-widest text-[10px]">
-                <LogOut className="h-5 w-5" /> Sair da Conta
-             </Button>
-          </footer>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <Suspense fallback={<LoadingFallback />}>
       <Routes>
         <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/pdv' : profile.role === 'recharge' ? '/recharge' : '/portal'} replace />} />
         <Route path="/admin/*" element={<ProtectedRoute allowedRoles={['admin']} profile={profile}><AdminDashboard profile={profile} /></ProtectedRoute>} />
         <Route path="/vendor/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin']} profile={profile}><VendorDashboard profile={profile} /></ProtectedRoute>} />
-        <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin', 'recharge']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />
+        <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />
         <Route path="/recharge/*" element={<ProtectedRoute allowedRoles={['recharge', 'admin']} profile={profile}><AdminDashboard profile={profile} forcedTab="recharge_pos" /></ProtectedRoute>} />
-        <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student', 'admin', 'recharge', 'vendor']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
+        <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student', 'admin']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
         <Route path="/mock-payment" element={<MockPayment />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
