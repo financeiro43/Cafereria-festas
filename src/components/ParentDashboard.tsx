@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '@/lib/firebase';
-import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs, updateDoc, increment, startAfter, getDocsFromCache } from 'firebase/firestore';
+import { doc, onSnapshot, collection, query, where, orderBy, limit, addDoc, serverTimestamp, getDocs, getDoc, updateDoc, increment, startAfter, getDocsFromCache } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -199,7 +199,12 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       
       // Se for um cartão diferente e não for o próprio
       if (userData.uid !== profile.uid) {
-        if (profile.associatedUids?.includes(userData.uid)) {
+        // Obter os dados de perfil mais atualizados do responsável diretamente do banco para evitar race conditions ou props estressadas/desatualizadas do React
+        const parentSnap = await getDoc(userRef);
+        const parentData = parentSnap.exists() ? (parentSnap.data() as UserProfile) : profile;
+        const latestAssociatedUids = parentData.associatedUids || [];
+
+        if (latestAssociatedUids.includes(userData.uid)) {
           toast.info(`${userData.name} já está vinculado à sua conta.`);
           setDisplayedUid(userData.uid);
           return;
@@ -213,48 +218,41 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         }
 
         if (confirm(`Deseja vincular a conta de ${userData.name} como um dependente? Você poderá gerenciar o saldo e visualizar o histórico.`)) {
-          const loadingToast = toast.loading('Vinculando conta de dependente...');
           
+          const childBalance = userData.balance || 0;
+          
+          // Quando vinculamos um dependente com saldo compartilhado/unificado (padrão),
+          // para evitar perda de fundos, nós acrescentamos o saldo atual do dependente ao saldo do responsável/principal!
+          await updateDoc(userRef, {
+            associatedUids: Array.from(new Set([...latestAssociatedUids, userData.uid])),
+            balance: increment(childBalance),
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+          });
+
+          // Link parentUid and default balanceType in child's profile
           try {
-            const response = await fetch('/api/rede/link-dependent', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                parentUid: profile.uid,
-                childUid: userData.uid
-              })
+            await updateDoc(doc(db, 'users', userData.uid), {
+              parentUid: profile.uid,
+              balanceType: 'shared',
+              balance: 0, // Como agora está compartilhado, o saldo individual é considerado 0 (busca o do responsável)
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
-
-            const data = await response.json();
-            toast.dismiss(loadingToast);
-
-            if (!response.ok || !data.success) {
-              throw new Error(data.error || 'Erro ao vincular conta no servidor.');
-            }
-
-            const childBalance = data.transferredBalance || 0;
-
-            setShowSuccessAnimation(true);
-            toast.success(`Conta de ${userData.name} vinculada com sucesso!`, {
-              description: childBalance > 0 
-                ? `O saldo de R$ ${childBalance.toFixed(2)} do dependente foi unificado à sua carteira principal!` 
-                : 'Você já pode gerenciar este saldo.',
-              duration: 6000,
-            });
-            
-            setDisplayedUid(userData.uid);
-            
-            // Esconde animação após alguns segundos
-            setTimeout(() => setShowSuccessAnimation(false), 3000);
-          } catch (linkErr: any) {
-            toast.dismiss(loadingToast);
-            console.error('Erro ao vincular dependente via API:', linkErr);
-            toast.error('Erro ao vincular dependente', {
-              description: linkErr.message || 'Erro inesperado na API.'
-            });
+          } catch (childErr) {
+            console.error("Erro ao gravar parentUid no perfil do dependente:", childErr);
           }
+
+          setShowSuccessAnimation(true);
+          toast.success(`Conta de ${userData.name} vinculada com sucesso!`, {
+            description: childBalance > 0 
+              ? `O saldo de R$ ${childBalance.toFixed(2)} do dependente foi unificado à sua carteira principal!` 
+              : 'Você já pode gerenciar este saldo.',
+            duration: 6000,
+          });
+          
+          setDisplayedUid(userData.uid);
+          
+          // Esconde animação após alguns segundos
+          setTimeout(() => setShowSuccessAnimation(false), 3000);
         }
       } else {
         toast.success('Este cartão já é o principal da sua conta.');
@@ -372,18 +370,23 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       return;
     }
 
+    // Keep associatedProfiles strictly in sync with profile.associatedUids by removing any that are no longer linked
+    setAssociatedProfiles(prev => prev.filter(p => profile.associatedUids?.includes(p.uid)));
+
     const unsubs = profile.associatedUids.map(uid => {
       return onSnapshot(doc(db, 'users', uid), (snap) => {
         if (snap.exists()) {
           const data = { ...snap.data(), uid: snap.id } as UserProfile;
           setAssociatedProfiles(prev => {
-            const index = prev.findIndex(p => p.uid === data.uid);
+            // Filter current state to only include currently linked cards
+            const filtered = prev.filter(p => profile.associatedUids?.includes(p.uid));
+            const index = filtered.findIndex(p => p.uid === data.uid);
             if (index >= 0) {
-              const next = [...prev];
+              const next = [...filtered];
               next[index] = data;
               return next;
             }
-            return [...prev, data];
+            return [...filtered, data];
           });
         }
       });
@@ -411,19 +414,22 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         
         // Devolve o saldo personalizado restante para a carteira principal do responsável
         await updateDoc(doc(db, 'users', profile.uid), {
-          balance: increment(childCustomBalance)
+          balance: increment(childCustomBalance),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         
         await updateDoc(doc(db, 'users', displayedProfile.uid), {
           balanceType: 'shared',
-          balance: 0
+          balance: 0,
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         
         toast.success(`Modo de saldo alterado para Compartilhado! O saldo de R$ ${childCustomBalance.toFixed(2)} foi unificado à sua Carteira Principal.`);
       } else {
         await updateDoc(doc(db, 'users', displayedProfile.uid), {
           balanceType: 'custom',
-          balance: 0
+          balance: 0,
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         toast.success('Modo de saldo alterado para Personalizado! Agora você pode definir um saldo fixo dedicado para este cartão.');
       }
@@ -456,20 +462,24 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         }
         
         await updateDoc(doc(db, 'users', profile.uid), {
-          balance: increment(-diff)
+          balance: increment(-diff),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         await updateDoc(doc(db, 'users', displayedProfile.uid), {
-          balance: increment(diff)
+          balance: increment(diff),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         toast.success(`R$ ${diff.toFixed(2)} transferidos para o cartão de ${displayedProfile.name}.`);
       } else {
         // Devolve o excesso para a principal
         const absDiff = Math.abs(diff);
         await updateDoc(doc(db, 'users', profile.uid), {
-          balance: increment(absDiff)
+          balance: increment(absDiff),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         await updateDoc(doc(db, 'users', displayedProfile.uid), {
-          balance: increment(-absDiff)
+          balance: increment(-absDiff),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         toast.success(`R$ ${absDiff.toFixed(2)} devolvidos para sua Carteira Principal.`);
       }
@@ -500,12 +510,14 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         
         // Devolve o saldo personalizado restante para a carteira principal do responsável
         await updateDoc(doc(db, 'users', profile.uid), {
-          balance: increment(currentChildBalance)
+          balance: increment(currentChildBalance),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         
         await updateDoc(doc(db, 'users', targetUid), {
           balanceType: 'shared',
-          balance: 0
+          balance: 0,
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         
         toast.success(`Modo de saldo alterado para Compartilhado! O saldo de R$ ${currentChildBalance.toFixed(2)} foi unificado à sua Carteira Principal.`);
@@ -523,11 +535,13 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         }
         
         await updateDoc(doc(db, 'users', profile.uid), {
-          balance: increment(-newAmount)
+          balance: increment(-newAmount),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         await updateDoc(doc(db, 'users', targetUid), {
           balanceType: 'custom',
-          balance: newAmount
+          balance: newAmount,
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         
         toast.success(`R$ ${newAmount.toFixed(2)} transferidos para o cartão de ${childProfile.name} (Saldo Personalizado Ativado).`);
@@ -548,19 +562,23 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         }
         
         await updateDoc(doc(db, 'users', profile.uid), {
-          balance: increment(-diff)
+          balance: increment(-diff),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         await updateDoc(doc(db, 'users', targetUid), {
-          balance: increment(diff)
+          balance: increment(diff),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         toast.success(`R$ ${diff.toFixed(2)} adicionais transferidos para o cartão de ${childProfile.name}.`);
       } else {
         const absDiff = Math.abs(diff);
         await updateDoc(doc(db, 'users', profile.uid), {
-          balance: increment(absDiff)
+          balance: increment(absDiff),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         await updateDoc(doc(db, 'users', targetUid), {
-          balance: increment(-absDiff)
+          balance: increment(-absDiff),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         toast.success(`R$ ${absDiff.toFixed(2)} devolvidos para sua Carteira Principal.`);
       }
@@ -584,19 +602,22 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
         
         // Devolve o saldo personalizado restante para a carteira principal do responsável
         await updateDoc(doc(db, 'users', profile.uid), {
-          balance: increment(childCustomBalance)
+          balance: increment(childCustomBalance),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         
         await updateDoc(doc(db, 'users', targetUid), {
           balanceType: 'shared',
-          balance: 0
+          balance: 0,
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         
         toast.success(`Modo de saldo de ${childProfile.name} alterado para Compartilhado! O saldo de R$ ${childCustomBalance.toFixed(2)} foi unificado à sua carteira.`);
       } else {
         await updateDoc(doc(db, 'users', targetUid), {
           balanceType: 'custom',
-          balance: 0
+          balance: 0,
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
         toast.success(`Modo de saldo de ${childProfile.name} alterado para Personalizado! Agora você pode definir um saldo fixo dedicado para este cartão.`);
       }
@@ -624,10 +645,12 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           // Keep current custom balance on child
           await updateDoc(childRef, {
             parentUid: null,
-            balanceType: 'custom'
+            balanceType: 'custom',
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
           });
           await updateDoc(parentRef, {
-            associatedUids: newAssociatedUids
+            associatedUids: newAssociatedUids,
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
           });
           toast.success(`Cartão de ${unlinkProfile.name} desvinculado. O saldo de R$ ${childBalance.toFixed(2)} foi mantido no cartão.`);
         } else {
@@ -646,21 +669,25 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
             await updateDoc(childRef, {
               parentUid: null,
               balanceType: 'custom',
-              balance: finalTransferVal
+              balance: finalTransferVal,
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
             await updateDoc(parentRef, {
               associatedUids: newAssociatedUids,
-              balance: increment(-finalTransferVal)
+              balance: increment(-finalTransferVal),
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
             toast.success(`Cartão de ${unlinkProfile.name} desvinculado. R$ ${finalTransferVal.toFixed(2)} foram transferidos para o cartão.`);
           } else {
             await updateDoc(childRef, {
               parentUid: null,
               balanceType: 'custom',
-              balance: 0
+              balance: 0,
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
             await updateDoc(parentRef, {
-              associatedUids: newAssociatedUids
+              associatedUids: newAssociatedUids,
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
             toast.success(`Cartão de ${unlinkProfile.name} desvinculado. O cartão ficou com saldo R$ 0,00.`);
           }
@@ -672,11 +699,13 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           await updateDoc(childRef, {
             parentUid: null,
             balanceType: 'custom',
-            balance: 0
+            balance: 0,
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
           });
           await updateDoc(parentRef, {
             associatedUids: newAssociatedUids,
-            balance: increment(childBalance)
+            balance: increment(childBalance),
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
           });
           toast.success(`Cartão de ${unlinkProfile.name} desvinculado. O saldo de R$ ${childBalance.toFixed(2)} foi transferido para a sua conta principal.`);
         } else {
@@ -684,10 +713,12 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           await updateDoc(childRef, {
             parentUid: null,
             balanceType: 'custom',
-            balance: 0
+            balance: 0,
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
           });
           await updateDoc(parentRef, {
-            associatedUids: newAssociatedUids
+            associatedUids: newAssociatedUids,
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
           });
           toast.success(`Cartão de ${unlinkProfile.name} desvinculado com sucesso!`);
         }
@@ -1701,9 +1732,10 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                         const limitVal = isNaN(val) || val <= 0 ? 0 : val;
                         try {
                           await updateDoc(doc(db, 'users', editingChildProfile.uid), {
-                            dailyLimit: limitVal
+                            dailyLimit: limitVal,
+                            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
                           });
-                          toast.success('Limite diário atualizado!');
+                          toast.success('Limite diário updated!');
                         } catch (err) {
                           console.error(err);
                           toast.error('Erro ao atualizar limite');
@@ -1723,7 +1755,8 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                         const limitVal = isNaN(val) || val <= 0 ? 0 : val;
                         try {
                           await updateDoc(doc(db, 'users', editingChildProfile.uid), {
-                            transactionLimit: limitVal
+                            transactionLimit: limitVal,
+                            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
                           });
                           toast.success('Limite por compra atualizado!');
                         } catch (err) {
