@@ -1599,9 +1599,10 @@ export default function ReportsPortal({
                             <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase ${
                               row.status === 'completed' ? 'bg-green-100 text-green-700' : 
                               row.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
+                              row.status === 'refunded' ? 'bg-slate-100 text-slate-600' :
                               'bg-red-100 text-red-700'
                             }`}>
-                              {row.status === 'completed' ? 'Sucesso' : row.status}
+                              {row.status === 'completed' ? 'Sucesso' : row.status === 'refunded' ? 'Estornado' : row.status === 'pending' ? 'Pendente' : row.status}
                             </span>
                           </div>
                         </td>
