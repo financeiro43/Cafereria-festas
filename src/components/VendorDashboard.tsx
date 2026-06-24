@@ -155,6 +155,16 @@ export default function VendorDashboard({
     };
   }, []);
 
+  // Auto-dismiss success status modal after 2.5 seconds to speed up PDV checkout
+  useEffect(() => {
+    if (statusModal.show && statusModal.type === 'success') {
+      const timer = setTimeout(() => {
+        setStatusModal(prev => ({ ...prev, show: false }));
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [statusModal.show, statusModal.type]);
+
   // POS View State
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -560,6 +570,12 @@ export default function VendorDashboard({
 
       setScannedUser(userData);
       toast.success(`Cliente ${userData.name} identificado com sucesso!`);
+
+      // Auto-confirm the sale if there are items in the cart
+      if (cart.length > 0 && cartTotal > 0) {
+        toast.info("Processando venda automaticamente...");
+        await handleSale(userData);
+      }
     } catch (error) {
       console.error(error);
       setIsSearchingClient(false);
@@ -568,8 +584,9 @@ export default function VendorDashboard({
     }
   };
 
-  const handleSale = async () => {
-    if (!scannedUser || cartTotal <= 0) return;
+  const handleSale = async (userOverride?: UserProfile) => {
+    const activeUser = userOverride || scannedUser;
+    if (!activeUser || cartTotal <= 0) return;
 
     setProcessing(true);
     const failsafe = setTimeout(() => {
@@ -579,83 +596,83 @@ export default function VendorDashboard({
 
     try {
       
-      if (scannedUser.balance < cartTotal) {
+      if (activeUser.balance < cartTotal) {
         clearTimeout(failsafe);
         setProcessing(false);
         setStatusModal({
           show: true,
           type: 'error',
           title: 'Saldo Insuficiente',
-          message: `Eu fiz a venda e tem saldo indisponível. O saldo não é suficiente.\n\nCliente: ${scannedUser.name}\nSaldo Atual: R$ ${scannedUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nValor Necessário: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+          message: `Eu fiz a venda e tem saldo indisponível. O saldo não é suficiente.\n\nCliente: ${activeUser.name}\nSaldo Atual: R$ ${activeUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nValor Necessário: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
         });
         return;
       }
 
       // Validar limite por compra individual (Single transaction limit)
-      if (scannedUser.transactionLimit && scannedUser.transactionLimit > 0 && cartTotal > scannedUser.transactionLimit) {
+      if (activeUser.transactionLimit && activeUser.transactionLimit > 0 && cartTotal > activeUser.transactionLimit) {
         clearTimeout(failsafe);
         setProcessing(false);
         setStatusModal({
           show: true,
           type: 'error',
           title: 'Limite por Compra Excedido',
-          message: `Este cartão possui um limite máximo de R$ ${scannedUser.transactionLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} por compra.\n\nCliente: ${scannedUser.name}\nValor da Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+          message: `Este cartão possui um limite máximo de R$ ${activeUser.transactionLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} por compra.\n\nCliente: ${activeUser.name}\nValor da Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
         });
         return;
       }
 
       // Validar limite diário acumulado (Daily spending limit limit)
       const todayStr = new Date().toISOString().split('T')[0];
-      const currentSpentToday = (scannedUser.lastSpentDate === todayStr) ? (scannedUser.spentToday || 0) : 0;
+      const currentSpentToday = (activeUser.lastSpentDate === todayStr) ? (activeUser.spentToday || 0) : 0;
       
-      if (scannedUser.dailyLimit && scannedUser.dailyLimit > 0 && (currentSpentToday + cartTotal) > scannedUser.dailyLimit) {
+      if (activeUser.dailyLimit && activeUser.dailyLimit > 0 && (currentSpentToday + cartTotal) > activeUser.dailyLimit) {
         clearTimeout(failsafe);
         setProcessing(false);
-        const remainingLimit = Math.max(0, scannedUser.dailyLimit - currentSpentToday);
+        const remainingLimit = Math.max(0, activeUser.dailyLimit - currentSpentToday);
         setStatusModal({
           show: true,
           type: 'error',
           title: 'Limite Diário Excedido',
-          message: `Este cartão possui um limite diário de R$ ${scannedUser.dailyLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.\n\nCliente: ${scannedUser.name}\nJá gasto hoje: R$ ${currentSpentToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nDisponível restante: R$ ${remainingLimit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nTentativa de compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+          message: `Este cartão possui um limite diário de R$ ${activeUser.dailyLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.\n\nCliente: ${activeUser.name}\nJá gasto hoje: R$ ${currentSpentToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nDisponível restante: R$ ${remainingLimit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nTentativa de compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
         });
         return;
       }
 
       // Executar todos os registros no banco em paralelo para velocidade máxima (3x mais rápido!)
-      const isShared = (!scannedUser.balanceType || scannedUser.balanceType === 'shared') && !!scannedUser.parentUid;
+      const isShared = (!activeUser.balanceType || activeUser.balanceType === 'shared') && !!activeUser.parentUid;
       const nextSpentToday = currentSpentToday + cartTotal;
       
       let updateBalancePromise;
       if (isShared) {
         updateBalancePromise = Promise.all([
-          updateDoc(doc(db, 'users', scannedUser.parentUid!), {
+          updateDoc(doc(db, 'users', activeUser.parentUid!), {
             balance: increment(-cartTotal)
           }),
-          updateDoc(doc(db, 'users', scannedUser.uid), {
+          updateDoc(doc(db, 'users', activeUser.uid), {
             spentToday: nextSpentToday,
             lastSpentDate: todayStr
           })
         ]).catch(e => {
-          handleFirestoreError(e, OperationType.UPDATE, `users/${scannedUser!.uid}`);
+          handleFirestoreError(e, OperationType.UPDATE, `users/${activeUser!.uid}`);
           throw e;
         });
       } else {
-        updateBalancePromise = updateDoc(doc(db, 'users', scannedUser.uid), {
+        updateBalancePromise = updateDoc(doc(db, 'users', activeUser.uid), {
           balance: increment(-cartTotal),
           spentToday: nextSpentToday,
           lastSpentDate: todayStr
         }).catch(e => {
-          handleFirestoreError(e, OperationType.UPDATE, `users/${scannedUser!.uid}`);
+          handleFirestoreError(e, OperationType.UPDATE, `users/${activeUser!.uid}`);
           throw e;
         });
       }
 
-      const activeCardNumber = scannedUser.uid || (scannedUser as any).scannedCardCode || scannedUser.qrCode || '';
+      const activeCardNumber = activeUser.uid || (activeUser as any).scannedCardCode || activeUser.qrCode || '';
 
       const writeTransactionPromise = addDoc(collection(db, 'transactions'), {
-        userId: scannedUser.uid,
-        userName: scannedUser.name,
-        clientName: scannedUser.name,
+        userId: activeUser.uid,
+        userName: activeUser.name,
+        clientName: activeUser.name,
         cardNumber: activeCardNumber,
         amount: -cartTotal,
         type: 'debit',
@@ -670,9 +687,9 @@ export default function VendorDashboard({
       });
 
       const writeConsumptionPromise = addDoc(collection(db, 'consumption'), {
-        studentId: scannedUser.uid,
-        studentName: scannedUser.name,
-        clientName: scannedUser.name,
+        studentId: activeUser.uid,
+        studentName: activeUser.name,
+        clientName: activeUser.name,
         cardNumber: activeCardNumber,
         vendorId: profile.uid,
         stallId: activeStallId,
@@ -704,13 +721,13 @@ export default function VendorDashboard({
         show: true,
         type: 'success',
         title: 'Venda Concluída!',
-        message: `Cliente: ${scannedUser.name}\nCartão: ${formatCardNumber(activeCardNumber)}\n\nO pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso.\nNovo saldo do cliente: R$ ${(scannedUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+        message: `Cliente: ${activeUser.name}\nCartão: ${formatCardNumber(activeCardNumber)}\n\nO pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso.\nNovo saldo do cliente: R$ ${(activeUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
         items: completedItems
       });
 
       // Guardar detalhes para conferência na aba Pedidos
       setLastSale({
-        userName: scannedUser.name,
+        userName: activeUser.name,
         total: cartTotal,
         items: cart.map(item => `${item.quantity}x ${item.name}`),
         timestamp: new Date()
@@ -2038,6 +2055,16 @@ export default function VendorDashboard({
                   <p className="text-slate-400 text-sm font-medium whitespace-pre-wrap leading-relaxed">
                     {statusModal.message}
                   </p>
+                  {statusModal.type === 'success' && (
+                    <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mt-4">
+                      <motion.div 
+                        initial={{ width: '100%' }}
+                        animate={{ width: 0 }}
+                        transition={{ duration: 2.5, ease: 'linear' }}
+                        className="h-full bg-green-500"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {statusModal.type === 'success' && statusModal.items && statusModal.items.length > 0 && (
@@ -2079,7 +2106,7 @@ export default function VendorDashboard({
                     'bg-blue-600 hover:bg-blue-500'
                   }`}
                 >
-                  Continuar
+                  {statusModal.type === 'success' ? 'Continuar (Auto)' : 'Continuar'}
                 </Button>
               </div>
             </motion.div>
