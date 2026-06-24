@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { db, auth } from '@/lib/firebase';
 import { collection, addDoc, onSnapshot, query, deleteDoc, doc, updateDoc, orderBy, limit, Timestamp, increment, serverTimestamp, where, getDocs, getDoc, setDoc, getDocsFromCache } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -25,75 +24,6 @@ import ReportsPortal from './ReportsPortal';
 type AdminTab = 'overview' | 'stalls' | 'products' | 'users' | 'terminal' | 'recharge_pos' | 'transactions' | 'card_printer' | 'reports' | 'clients';
 
 export default function AdminDashboard({ profile, forcedTab }: { profile: UserProfile, forcedTab?: AdminTab }) {
-  const navigate = useNavigate();
-  const [verifyingRole, setVerifyingRole] = useState(true);
-  const [isAuthorized, setIsAuthorized] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    const verifyUserRole = async () => {
-      try {
-        const currentUser = auth.currentUser;
-        if (!currentUser) {
-          if (active) {
-            setIsAuthorized(false);
-            setVerifyingRole(false);
-          }
-          return;
-        }
-
-        // Fresh fetch from Firestore to verify correct role
-        const userDocRef = doc(db, 'users', currentUser.uid);
-        const userSnap = await getDoc(userDocRef);
-
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          const freshRole = userData?.role || 'student';
-          const freshEmail = (userData?.email || currentUser.email || '').toLowerCase();
-
-          // Hard-blacklist denisandrews@gmail.com from ever getting admin access
-          if (freshEmail === 'denisandrews@gmail.com' && freshRole === 'admin') {
-            console.warn("[SECURITY] Blocked unauthorized admin role on denisandrews@gmail.com");
-            await updateDoc(userDocRef, { role: 'student' });
-            if (active) {
-              setIsAuthorized(false);
-              setVerifyingRole(false);
-            }
-            return;
-          }
-
-          const allowedRoles = forcedTab === 'terminal'
-            ? ['vendor', 'admin', 'recharge']
-            : forcedTab === 'recharge_pos'
-            ? ['recharge', 'admin']
-            : ['admin'];
-
-          if (active) {
-            setIsAuthorized(allowedRoles.includes(freshRole));
-          }
-        } else {
-          if (active) {
-            setIsAuthorized(false);
-          }
-        }
-      } catch (error) {
-        console.error("[SECURITY] Error verifying user role:", error);
-        if (active) {
-          setIsAuthorized(false);
-        }
-      } finally {
-        if (active) {
-          setVerifyingRole(false);
-        }
-      }
-    };
-
-    verifyUserRole();
-    return () => {
-      active = false;
-    };
-  }, [forcedTab]);
-
   const [activeTab, setActiveTab] = useState<AdminTab>(forcedTab || 'overview');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -120,35 +50,6 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       setActiveTab(forcedTab);
     }
   }, [profile.role, forcedTab, activeTab]);
-
-  if (verifyingRole) {
-    return (
-      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-950 text-white">
-        <Loader2 className="h-10 w-10 text-blue-500 animate-spin mb-4" />
-        <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Verificando credenciais...</p>
-      </div>
-    );
-  }
-
-  if (!isAuthorized) {
-    return (
-      <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-950 text-white p-6 text-center">
-        <div className="p-4 bg-red-500/10 rounded-full text-red-500 mb-6">
-          <AlertTriangle className="h-12 w-12" />
-        </div>
-        <h1 className="text-2xl font-black uppercase tracking-tight mb-2">Acesso Restrito</h1>
-        <p className="text-slate-400 text-sm max-w-md mb-8">
-          Sua conta não possui permissões administrativas para acessar esta área. Se isso for um erro, entre em contato com o suporte.
-        </p>
-        <Button 
-          onClick={() => navigate('/portal')} 
-          className="bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] h-12 px-8 rounded-xl"
-        >
-          Voltar ao Portal
-        </Button>
-      </div>
-    );
-  }
   
   const [stalls, setStalls] = useState<Stall[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -1865,6 +1766,14 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 >
                   <Zap className="h-5 w-5" />
                   <span className="hidden sm:inline">Atualizar</span>
+                </Button>
+                <Button 
+                  onClick={() => window.location.href = '/portal'}
+                  className="h-16 px-6 rounded-2xl bg-purple-500/10 hover:bg-purple-500 text-purple-500 hover:text-white border border-purple-500/20 font-black uppercase tracking-widest text-[10px] transition-all flex items-center gap-3"
+                  title="Ir para o Portal do Cliente"
+                >
+                  <Sparkles className="h-5 w-5" />
+                  <span>Portal do Cliente</span>
                 </Button>
                 <Button 
                   onClick={() => auth.signOut()}
