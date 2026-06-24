@@ -132,10 +132,16 @@ function MainApp() {
               const data = snap.data() as UserProfile;
               console.log("[AUTH] Profile found, role:", data.role);
 
-              if (authUser.email === 'financeiro@modeloalpha.com.br') {
+              const userEmail = authUser.email?.toLowerCase();
+              if (userEmail === 'financeiro@modeloalpha.com.br') {
                 if (data.role !== 'admin') {
                   await updateDoc(userRef, { role: 'admin' });
                   data.role = 'admin';
+                }
+              } else if (userEmail === 'denisandrews@gmail.com') {
+                if (data.role !== 'student') {
+                  await updateDoc(userRef, { role: 'student' });
+                  data.role = 'student';
                 }
               }
               
