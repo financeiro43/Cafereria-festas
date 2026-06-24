@@ -75,17 +75,35 @@ export default function MockPayment() {
               type: 'credit',
               status: 'pending',
               description: 'Recarga Digital (Simulada)',
-              timestamp: serverTimestamp()
+              timestamp: serverTimestamp(),
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
           }
 
-          transaction.update(userRef, { 
-            balance: (userDoc.data().balance || 0) + parseFloat(amt) 
+          const userData = userDoc.data();
+          const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
+          
+          let targetUserRef = userRef;
+          let targetUserData = userData;
+          
+          if (isShared) {
+            const parentRef = doc(db, 'users', userData.parentUid);
+            const parentDoc = await transaction.get(parentRef);
+            if (parentDoc.exists()) {
+              targetUserRef = parentRef;
+              targetUserData = parentDoc.data();
+            }
+          }
+
+          transaction.update(targetUserRef, { 
+            balance: (targetUserData.balance || 0) + parseFloat(amt),
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
           });
           
           transaction.update(txnRef, { 
             status: 'completed',
-            updatedAt: serverTimestamp()
+            updatedAt: serverTimestamp(),
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
           });
         });
 
