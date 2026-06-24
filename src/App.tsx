@@ -132,9 +132,11 @@ function MainApp() {
               const data = snap.data() as UserProfile;
               console.log("[AUTH] Profile found, role:", data.role);
 
-              if (authUser.email === 'financeiro@modeloalpha.com.br' && data.role !== 'admin') {
-                await updateDoc(userRef, { role: 'admin' });
-                data.role = 'admin';
+              if (authUser.email === 'financeiro@modeloalpha.com.br') {
+                if (data.role !== 'admin') {
+                  await updateDoc(userRef, { role: 'admin' });
+                  data.role = 'admin';
+                }
               }
               
               setProfile(data);
