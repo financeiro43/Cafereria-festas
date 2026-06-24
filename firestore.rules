@@ -111,7 +111,7 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isSignedIn();
       
-      allow create: if isUser(userId) || isAdmin();
+      allow create: if (isUser(userId) && isValidUser(incoming()) && incoming().role == 'student' && incoming().balance == 0) || isAdmin();
       
       allow update: if isAdmin() ||
         (incoming()._backendSecret == 'FESTA_PASS_SRV_2026_SECRET') ||
