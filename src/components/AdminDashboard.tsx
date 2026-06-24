@@ -32,10 +32,24 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [sharedScannedUser, setSharedScannedUser] = useState<UserProfile | null>(null);
 
   useEffect(() => {
-    if (forcedTab) {
+    if (profile.role !== 'admin') {
+      if (profile.role === 'vendor') {
+        if (activeTab !== 'terminal') {
+          setActiveTab('terminal');
+        }
+      } else if (profile.role === 'recharge') {
+        if (activeTab !== 'recharge_pos' && activeTab !== 'terminal') {
+          setActiveTab('recharge_pos');
+        }
+      } else {
+        if (activeTab !== 'terminal' && activeTab !== 'recharge_pos') {
+          setActiveTab('terminal');
+        }
+      }
+    } else if (forcedTab) {
       setActiveTab(forcedTab);
     }
-  }, [forcedTab]);
+  }, [profile.role, forcedTab, activeTab]);
   
   const [stalls, setStalls] = useState<Stall[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -1636,7 +1650,12 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     { id: 'terminal', icon: ShoppingCart, label: 'Terminal PDV (Caixa)', category: 'Canais de Venda' },
     { id: 'recharge_pos', icon: QrCode, label: 'Carga e Recarga', category: 'Canais de Venda' },
     { id: 'settings', icon: SettingsIcon, label: 'Configurações', category: 'Sistema' },
-  ];
+  ].filter(item => {
+    if (profile.role === 'admin') return true;
+    if (profile.role === 'vendor') return item.id === 'terminal';
+    if (profile.role === 'recharge') return item.id === 'recharge_pos' || item.id === 'terminal';
+    return false;
+  });
 
   return (
     <div className="min-h-screen bg-slate-50 relative overflow-x-hidden">
