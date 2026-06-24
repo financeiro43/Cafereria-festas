@@ -75,6 +75,103 @@ async function startServer() {
     res.json({ status: "ok", dbInitialized: !!db });
   });
 
+  app.get("/api/fix-patrick-balance", async (req, res) => {
+    try {
+      console.log("[FIX] Running Patrick fix with firebase-admin...");
+      const adminModule = await import("firebase-admin");
+      const admin = adminModule.default || adminModule;
+      
+      if (admin.apps.length === 0) {
+        admin.initializeApp({
+          projectId: "cafeteria-f5d24"
+        });
+      }
+      
+      const adminDb = admin.firestore();
+      
+      // 1. Fetch all users to find Patrick Baptista or card 1601 9108 4500 0000
+      const usersSnap = await adminDb.collection("users").get();
+      let matchedUsers: any[] = [];
+      
+      usersSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const name = String(data.name || "").toLowerCase();
+        const qrCode = String(data.qrCode || "").replace(/\s+/g, "");
+        if (name.includes("patrick") || name.includes("baptista") || qrCode === "1601910845000000") {
+          matchedUsers.push({ id: docSnap.id, ...data });
+        }
+      });
+
+      if (matchedUsers.length === 0) {
+        return res.json({ success: false, message: "User not found with Patrick Baptista or 1601910845000000" });
+      }
+
+      // 2. Find transactions related to these matched users
+      const txSnap = await adminDb.collection("transactions").get();
+      const matchedTx: any[] = [];
+      txSnap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const userId = data.userId;
+        const isMatchedUser = matchedUsers.some(u => u.id === userId);
+        if (isMatchedUser || String(data.cardNumber || "").replace(/\s+/g, "") === "1601910845000000" || String(data.description || "").toLowerCase().includes("patrick")) {
+          matchedTx.push({ id: docSnap.id, ...data });
+        }
+      });
+
+      const pix50Tx = matchedTx.find(tx => tx.amount === 50 && tx.type === 'credit');
+      if (!pix50Tx) {
+        return res.json({ success: false, message: "R$ 50 credit transaction not found", matchedUsers, matchedTx });
+      }
+
+      const txUserId = pix50Tx.userId;
+      const userDocRef = adminDb.collection("users").doc(txUserId);
+      const userDocSnap = await userDocRef.get();
+      
+      if (!userDocSnap.exists) {
+        return res.json({ success: false, message: "User document not found for tx", txUserId });
+      }
+
+      const userData = userDocSnap.data() || {};
+      const isShared = (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
+      const targetUserId = isShared ? userData.parentUid : txUserId;
+      const targetUserRef = adminDb.collection("users").doc(targetUserId);
+      const targetUserSnap = await targetUserRef.get();
+
+      if (!targetUserSnap.exists) {
+        return res.json({ success: false, message: "Target balance user document not found", targetUserId });
+      }
+
+      const balanceBefore = targetUserSnap.data()?.balance || 0;
+
+      // Update both transaction and balance
+      const FieldValue = admin.firestore.FieldValue;
+      await targetUserRef.update({
+        balance: FieldValue.increment(50),
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      await adminDb.collection("transactions").doc(pix50Tx.id).update({
+        status: "completed",
+        updatedAt: FieldValue.serverTimestamp()
+      });
+
+      const targetUserSnapAfter = await targetUserRef.get();
+      const balanceAfter = targetUserSnapAfter.data()?.balance || 0;
+
+      return res.json({
+        success: true,
+        message: "Patrick Baptista's balance fixed successfully!",
+        userId: targetUserId,
+        userName: targetUserSnapAfter.data()?.name,
+        balanceBefore,
+        balanceAfter,
+        txId: pix50Tx.id
+      });
+    } catch (e: any) {
+      console.error("[FIX] Error in Patrick fix:", e);
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   // --- Rede API Integration ---
   const API_BASE = "/api/rede";
 
@@ -174,6 +271,88 @@ async function startServer() {
       res.json({ status: "connected", sandbox: isSandbox, pv: pv.substring(0, 4) + '****', tokenPrefix: accessToken.substring(0, 10) });
     } catch (e: any) {
       res.status(401).json({ status: "error", message: e.message });
+    }
+  });
+
+  // Securely link a dependent (child card) to a parent account using firebase-admin
+  app.post(`${API_BASE}/link-dependent`, async (req, res) => {
+    console.log(`[LINK-DEPENDENT] POST /link-dependent`);
+    try {
+      const { parentUid, childUid } = req.body;
+      if (!parentUid || !childUid) {
+        return res.status(400).json({ error: "Missing parentUid or childUid" });
+      }
+
+      const adminModule = await import("firebase-admin");
+      const admin = adminModule.default || adminModule;
+      
+      if (admin.apps.length === 0) {
+        admin.initializeApp({
+          projectId: "cafeteria-f5d24"
+        });
+      }
+      
+      const adminDb = admin.firestore();
+
+      const parentRef = adminDb.collection("users").doc(parentUid);
+      const childRef = adminDb.collection("users").doc(childUid);
+
+      const [parentSnap, childSnap] = await Promise.all([parentRef.get(), childRef.get()]);
+
+      if (!parentSnap.exists) {
+        return res.status(404).json({ error: "Responsável não encontrado" });
+      }
+      if (!childSnap.exists) {
+        return res.status(404).json({ error: "Dependente não encontrado" });
+      }
+
+      const childData = childSnap.data() || {};
+
+      if (childData.parentUid && childData.parentUid !== parentUid) {
+        return res.status(400).json({ 
+          error: `Este cartão já está vinculado a outro dispositivo! O cartão de ${childData.name || 'outro usuário'} já possui outro responsável associado.` 
+        });
+      }
+
+      const childBalance = childData.balance || 0;
+
+      await adminDb.runTransaction(async (transaction) => {
+        const freshParentSnap = await transaction.get(parentRef);
+        const freshChildSnap = await transaction.get(childRef);
+
+        const freshParentData = freshParentSnap.data() || {};
+
+        const existingAssociated = freshParentData.associatedUids || [];
+        const updatedAssociated = Array.from(new Set([...existingAssociated, childUid]));
+
+        const parentBalance = freshParentData.balance || 0;
+        const newParentBalance = parentBalance + childBalance;
+
+        transaction.update(parentRef, {
+          associatedUids: updatedAssociated,
+          balance: newParentBalance,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        transaction.update(childRef, {
+          parentUid: parentUid,
+          balanceType: "shared",
+          balance: 0,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      });
+
+      console.log(`[LINK-DEPENDENT] Successfully linked child ${childUid} to parent ${parentUid}. Transferred balance: R$ ${childBalance}`);
+
+      return res.json({ 
+        success: true, 
+        message: "Dependente vinculado com sucesso!", 
+        transferredBalance: childBalance 
+      });
+
+    } catch (error: any) {
+      console.error(`[LINK-DEPENDENT] Error linking dependent: ${error.message}`);
+      res.status(500).json({ error: error.message || "Internal Server Error" });
     }
   });
 
