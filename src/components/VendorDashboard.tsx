@@ -1,2120 +1,2100 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { db, auth } from '@/lib/firebase';
-import { collection, query, where, getDocs, getDoc, addDoc, doc, updateDoc, increment, serverTimestamp, onSnapshot, orderBy, limit, getDocsFromCache, getDocFromCache } from 'firebase/firestore';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { UserProfile, Product, Stall, Order, CartItem } from '../types';
-import { handleFirestoreError, OperationType } from '@/lib/error-handler';
-import { QrCode, ShoppingCart, Users, LogOut, Plus, Minus, Trash2, Store, Clock, PackageCheck, Loader2, Search, ChevronLeft, ChevronRight, BarChart3, TrendingUp, Package, Zap, ChevronDown, ChevronUp, Wifi, WifiOff, Receipt, CheckCircle2, UserCheck, XCircle } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
+import { Button } from './ui/button';
+import { Stall, Product, UserProfile, Transaction, Withdrawal } from '../types';
+import { 
+  FileText, 
+  Download, 
+  BarChart3, 
+  Table as TableIcon, 
+  DollarSign, 
+  Users, 
+  Store, 
+  Package, 
+  History,
+  TrendingUp,
+  TrendingDown,
+  AlertCircle,
+  Search,
+  Calendar,
+  CheckCircle2,
+  QrCode,
+  Tag,
+  CreditCard,
+  ShoppingBag,
+  ArrowUpRight,
+  ArrowDownLeft,
+  ArrowUpDown,
+  ChevronUp,
+  ChevronDown
+} from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'motion/react';
 
-import QRScanner from './QRScanner';
+interface ReportsPortalProps {
+  stalls?: Stall[];
+  products?: Product[];
+  users?: UserProfile[];
+  transactions?: Transaction[];
+  withdrawals?: Withdrawal[];
+  consumption?: any[];
+}
 
-export default function VendorDashboard({ 
-  profile,
-  externalCart,
-  setExternalCart,
-  externalScannedUser,
-  setExternalScannedUser
-}: { 
-  profile: UserProfile,
-  externalCart?: CartItem[],
-  setExternalCart?: React.Dispatch<React.SetStateAction<CartItem[]>>,
-  externalScannedUser?: UserProfile | null,
-  setExternalScannedUser?: React.Dispatch<React.SetStateAction<UserProfile | null>>
-}) {
-  const [activeStallId, setActiveStallId] = useState<string | null>(profile.vendorIds?.[0] || null);
-  const [availableStalls, setAvailableStalls] = useState<Stall[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [stall, setStall] = useState<Stall | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [activeTab, setActiveTab] = useState<'pos' | 'orders' | 'analytics'>('pos');
-  
-  // State management: Use external if provided, otherwise internal
-  const [internalCart, setInternalCart] = useState<CartItem[]>([]);
-  const cart = externalCart !== undefined ? externalCart : internalCart;
-  const setCart = setExternalCart !== undefined ? setExternalCart : setInternalCart;
+export default function ReportsPortal({ 
+  stalls = [], 
+  products = [], 
+  users = [], 
+  transactions = [], 
+  withdrawals = [],
+  consumption = []
+}: ReportsPortalProps) {
+  const [reportType, setReportType] = useState<'sales_by_stall' | 'sales_by_product' | 'financial_summary' | 'user_balances' | 'transactions_log' | 'cards_report'>('financial_summary');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'completed' | 'pending' | 'failed'>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [cardOriginFilter, setCardOriginFilter] = useState<'all' | 'system' | 'client'>('all');
+  const [cardUsageFilter, setCardUsageFilter] = useState<'all' | 'used' | 'unused'>('all');
+  const [expandedStall, setExpandedStall] = useState<string | null>(null);
 
-  const [internalScannedUser, setInternalScannedUser] = useState<UserProfile | null>(null);
-  const baseScannedUser = externalScannedUser !== undefined ? externalScannedUser : internalScannedUser;
-  const setScannedUser = setExternalScannedUser !== undefined ? setExternalScannedUser : setInternalScannedUser;
+  // Sorting control states
+  const [stallSortField, setStallSortField] = useState<'name' | 'sales' | 'volume'>('sales');
+  const [stallSortDirection, setStallSortDirection] = useState<'desc' | 'asc'>('desc');
 
-  const [liveScannedUser, setLiveScannedUser] = useState<UserProfile | null>(null);
-  const [liveParentUser, setLiveParentUser] = useState<UserProfile | null>(null);
+  const [productSortField, setProductSortField] = useState<'name' | 'stall' | 'price' | 'quantity' | 'total'>('total');
+  const [productSortDirection, setProductSortDirection] = useState<'desc' | 'asc'>('desc');
 
-  // Real-time synchronization for the scanned user
-  useEffect(() => {
-    if (!baseScannedUser?.uid) {
-      setLiveScannedUser(null);
-      return;
+  const [balanceSortField, setBalanceSortField] = useState<'name' | 'email' | 'balance'>('balance');
+  const [balanceSortDirection, setBalanceSortDirection] = useState<'desc' | 'asc'>('desc');
+
+  const [cardsSortField, setCardsSortField] = useState<'name' | 'email' | 'balance' | 'date'>('date');
+  const [cardsSortDirection, setCardsSortDirection] = useState<'desc' | 'asc'>('desc');
+
+  // Detail Modal state for clicking on a listing
+  const [selectedDetail, setSelectedDetail] = useState<{
+    type: 'product' | 'user' | 'card' | 'stall';
+    id: string; // name, uid or barcode/qrcode
+    title: string;
+    subtitle: string;
+  } | null>(null);
+
+  // Helper sorting headers togglers
+  const handleStallSort = (field: 'name' | 'sales' | 'volume') => {
+    if (stallSortField === field) {
+      setStallSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setStallSortField(field);
+      setStallSortDirection('desc');
     }
+  };
 
-    const unsubUser = onSnapshot(doc(db, 'users', baseScannedUser.uid), (snap) => {
-      if (snap.exists()) {
-        setLiveScannedUser({ ...snap.data(), uid: snap.id } as UserProfile);
-      } else {
-        setLiveScannedUser(null);
-      }
-    }, (err) => {
-      console.error("Error listening to scanned user:", err);
-    });
-
-    return () => {
-      unsubUser();
-    };
-  }, [baseScannedUser?.uid]);
-
-  // Real-time synchronization for the parent if the user is a dependent with shared balance
-  useEffect(() => {
-    if (!liveScannedUser) {
-      setLiveParentUser(null);
-      return;
+  const handleProductSort = (field: 'name' | 'stall' | 'price' | 'quantity' | 'total') => {
+    if (productSortField === field) {
+      setProductSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setProductSortField(field);
+      setProductSortDirection('desc');
     }
+  };
 
-    const isShared = (!liveScannedUser.balanceType || liveScannedUser.balanceType === 'shared') && liveScannedUser.parentUid;
-    if (!isShared) {
-      setLiveParentUser(null);
-      return;
+  const handleBalanceSort = (field: 'name' | 'email' | 'balance') => {
+    if (balanceSortField === field) {
+      setBalanceSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setBalanceSortField(field);
+      setBalanceSortDirection('desc');
     }
+  };
 
-    const parentUid = liveScannedUser.parentUid!;
-    const unsubParent = onSnapshot(doc(db, 'users', parentUid), (snap) => {
-      if (snap.exists()) {
-        setLiveParentUser({ ...snap.data(), uid: snap.id } as UserProfile);
-      } else {
-        setLiveParentUser(null);
-      }
-    }, (err) => {
-      console.error("Error listening to parent user:", err);
-    });
-
-    return () => {
-      unsubParent();
-    };
-  }, [liveScannedUser?.uid, liveScannedUser?.parentUid, liveScannedUser?.balanceType]);
-
-  // Compute scannedUser dynamically and reactively with resolved shared balance
-  const scannedUser = useMemo(() => {
-    if (!liveScannedUser) return null;
-    const isShared = (!liveScannedUser.balanceType || liveScannedUser.balanceType === 'shared') && liveScannedUser.parentUid;
-    
-    if (isShared && liveParentUser) {
-      return {
-        ...liveScannedUser,
-        balance: liveParentUser.balance || 0
-      };
+  const handleCardsSort = (field: 'name' | 'email' | 'balance' | 'date') => {
+    if (cardsSortField === field) {
+      setCardsSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setCardsSortField(field);
+      setCardsSortDirection('desc');
     }
-    return liveScannedUser;
-  }, [liveScannedUser, liveParentUser]);
+  };
+
+  // Reusable Sortable Column Header Renderer
+  const renderSortableHeader = (
+    label: string, 
+    currentField: string, 
+    activeField: string, 
+    direction: 'asc' | 'desc', 
+    onSort: (field: any) => void,
+    alignRight = false
+  ) => {
+    const isActive = activeField === currentField;
+    return (
+      <th 
+        onClick={() => onSort(currentField)}
+        className={`px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 cursor-pointer hover:bg-slate-100 select-none group transition-colors ${alignRight ? 'text-right' : ''}`}
+      >
+        <div className={`flex items-center gap-1.5 ${alignRight ? 'justify-end' : 'justify-start'}`}>
+          <span>{label}</span>
+          <div className="shrink-0 transition-opacity">
+            {isActive ? (
+              direction === 'asc' ? (
+                <ChevronUp className="h-3.5 w-3.5 text-slate-900" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5 text-slate-900" />
+              )
+            ) : (
+              <ArrowUpDown className="h-3.5 w-3.5 text-slate-300 opacity-60 group-hover:opacity-100" />
+            )}
+          </div>
+        </div>
+      </th>
+    );
+  };
+
+  // Helper to format currency
+  const formatCurrency = (val: number) => {
+    return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  };
 
   // Formatter matching online card (16 numbers with spaces every 4 digits)
   const formatCardNumber = (str: string) => {
-    if (!str) return '';
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    if (!str) return '0000 0000 0000 0000';
+    
+    const cleanDigits = str.replace(/\D/g, '');
+    const isPurelyNumeric = /^\d+$/.test(cleanDigits);
+    const isSystemCode = str.includes('PENDING') || str.includes('VIRTUAL');
+    
+    if (isPurelyNumeric && !isSystemCode && cleanDigits.length > 0) {
+      const padded = cleanDigits.padEnd(16, '0').substring(0, 16);
+      return padded.replace(/(.{4})/g, '$1 ').trim();
     }
-    const numeric = Math.abs(hash).toString().padEnd(16, '0').substring(0, 16);
+    
+    let hash1 = 0;
+    let hash2 = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash1 = char + ((hash1 << 5) - hash1);
+      hash2 = char + ((hash2 << 7) - hash2) + hash1;
+    }
+    
+    let seed = Math.abs(hash1 ^ hash2);
+    let numeric = '';
+    for (let i = 0; i < 16; i++) {
+      seed = (seed * 9301 + 49297) % 233280;
+      numeric += (seed % 10).toString();
+    }
+    
     return numeric.replace(/(.{4})/g, '$1 ').trim();
   };
 
-  const [showMobileCart, setShowMobileCart] = useState(false);
-  const [isSearchingClient, setIsSearchingClient] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-  const [processing, setProcessing] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
-  const [isOnline, setIsOnline] = useState(true);
-  const [statusModal, setStatusModal] = useState<{
-    show: boolean;
-    type: 'success' | 'error' | 'info';
-    title: string;
-    message: string;
-    items?: CartItem[];
-  }>({
-    show: false,
-    type: 'info',
-    title: '',
-    message: ''
-  });
+  // Helper to parse "YYYY-MM-DD" local date safely without timezone/UTC offset issues
+  const parseLocalDate = (dateStr: string, hour = 0, minute = 0, second = 0, ms = 0) => {
+    if (!dateStr) return null;
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return new Date(dateStr); // fallback
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // 0-indexed month
+    const day = parseInt(parts[2], 10);
+    return new Date(year, month, day, hour, minute, second, ms);
+  };
 
-  // Monitor connection status
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    setIsOnline(navigator.onLine);
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+  // Helper to parse multiple timestamp formats (Firestore/ISO/Milliseconds) to Date safely
+  const getParsedDate = (timestampField: any): Date | null => {
+    if (!timestampField) return null;
+    if (typeof timestampField.toDate === 'function') {
+      return timestampField.toDate();
+    }
+    if (typeof timestampField.toMillis === 'function') {
+      return new Date(timestampField.toMillis());
+    }
+    if (timestampField.seconds !== undefined) {
+      return new Date(timestampField.seconds * 1000);
+    }
+    const parsed = new Date(timestampField);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  };
+
+  // 1. Filtered Sales (Consumption) records
+  const filteredSales = useMemo(() => {
+    return consumption.filter(s => {
+      let isDateMatch = true;
+      try {
+        const sDate = getParsedDate(s.timestamp);
+        if (!sDate || isNaN(sDate.getTime())) return false; // Exclude with invalid timestamp unless all-time
+        
+        if (startDate) {
+          const start = parseLocalDate(startDate, 0, 0, 0, 0);
+          if (start) isDateMatch = isDateMatch && sDate >= start;
+        }
+        if (endDate) {
+          const end = parseLocalDate(endDate, 23, 59, 59, 999);
+          if (end) isDateMatch = isDateMatch && sDate <= end;
+        }
+      } catch (e) {
+        console.warn("Error parsing sales date", e);
+      }
+      return isDateMatch;
+    });
+  }, [consumption, startDate, endDate]);
+
+  // Helper to format date safety
+  const formatDate = (timestamp: any) => {
+    try {
+      if (!timestamp) return 'N/A';
+      const date = getParsedDate(timestamp);
+      if (!date || isNaN(date.getTime())) return 'Data Inválida';
+      return format(date, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+    } catch (e) {
+      return 'Erro na Data';
+    }
+  };
+
+  // 1. Transactions filtered by state criteria
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      const date = getParsedDate(t.timestamp);
+      if (!date || isNaN(date.getTime())) return false; // Exclude with invalid timestamp unless all-time
+      
+      const isStatusMatch = statusFilter === 'all' || t.status === statusFilter;
+      
+      let isDateMatch = true;
+      if (startDate) {
+        const start = parseLocalDate(startDate, 0, 0, 0, 0);
+        if (start) isDateMatch = isDateMatch && date >= start;
+      }
+      if (endDate) {
+        const end = parseLocalDate(endDate, 23, 59, 59, 999);
+        if (end) isDateMatch = isDateMatch && date <= end;
+      }
+
+      let isSearchMatch = true;
+      if (searchQuery.trim()) {
+        const queryNorm = searchQuery.toLowerCase().trim();
+        const user = users.find(u => u.uid === t.userId);
+        const nameMatch = (user?.name || '').toLowerCase().includes(queryNorm);
+        const emailMatch = (user?.email || '').toLowerCase().includes(queryNorm);
+        const descMatch = (t.description || '').toLowerCase().includes(queryNorm);
+        const stallMatch = (t.stallName || '').toLowerCase().includes(queryNorm);
+        const paymentMatch = (t.paymentMethod || '').toLowerCase().includes(queryNorm);
+        const typeMatch = (t.type === 'credit' ? 'carga' : 'compra').includes(queryNorm);
+        isSearchMatch = nameMatch || emailMatch || descMatch || stallMatch || paymentMatch || typeMatch;
+      }
+      
+      return isStatusMatch && isDateMatch && isSearchMatch;
+    });
+  }, [transactions, users, startDate, endDate, statusFilter, searchQuery]);
+
+  // 2. Financial Summary Data
+  const financialSummary = useMemo(() => {
+    const totalCreditsTransactions = filteredTransactions
+      .filter(t => t.type === 'credit' && t.status === 'completed');
+    const totalCredits = totalCreditsTransactions
+      .reduce((acc, t) => acc + (t.amount || 0), 0);
+    const totalCreditsCount = totalCreditsTransactions.length;
+
+    // Online credits: description contains 'Rede' or 'Simulado' or 'Simulada' or 'Online' or contains redeTid
+    const onlineCreditsTransactions = totalCreditsTransactions
+      .filter(t => 
+        t.description?.includes('Rede') || 
+        t.description?.includes('Simulado') || 
+        t.description?.includes('Simulada') || 
+        t.description?.includes('Online') ||
+        !!t.redeTid
+      );
+    const onlineCreditsAmount = onlineCreditsTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const onlineCreditsCount = onlineCreditsTransactions.length;
+
+    // Physical credits: manual or vendor/POS recharges
+    const physicalCreditsTransactions = totalCreditsTransactions
+      .filter(t => !(
+        t.description?.includes('Rede') || 
+        t.description?.includes('Simulado') || 
+        t.description?.includes('Simulada') || 
+        t.description?.includes('Online') ||
+        !!t.redeTid
+      ));
+    const physicalCreditsAmount = physicalCreditsTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const physicalCreditsCount = physicalCreditsTransactions.length;
+
+    const totalDebits = filteredTransactions
+      .filter(t => t.type === 'debit' && t.status === 'completed')
+      .reduce((acc, t) => acc + (t.amount || 0), 0);
+    
+    const totalWithdrawals = withdrawals
+      .filter(w => {
+        const date = getParsedDate(w.timestamp);
+        if (!date || isNaN(date.getTime())) return false;
+        let isDateMatch = true;
+        if (startDate) {
+          const start = parseLocalDate(startDate, 0, 0, 0, 0);
+          if (start) isDateMatch = isDateMatch && date >= start;
+        }
+        if (endDate) {
+          const end = parseLocalDate(endDate, 23, 59, 59, 999);
+          if (end) isDateMatch = isDateMatch && date <= end;
+        }
+        return isDateMatch;
+      })
+      .reduce((acc, w) => acc + (w.amount || 0), 0);
+
+    return [
+      { category: 'Total de Cargas', amount: totalCredits, desc: `Dinheiro total inserido no sistema (${totalCreditsCount} recargas)` },
+      { category: ' └─ Recargas Online (PWA)', amount: onlineCreditsAmount, desc: `${onlineCreditsCount} cargas concluídas online via Pix ou cartão pelo cliente` },
+      { category: ' └─ Recargas Presenciais (Caixa)', amount: physicalCreditsAmount, desc: `${physicalCreditsCount} cargas presenciais efetuadas pelos caixas` },
+      { category: 'Total de Consumo', amount: totalDebits, desc: 'Vendas realizadas nas barracas' },
+      { category: 'Total de Saques', amount: totalWithdrawals, desc: 'Saques realizados por vendedores' },
+      { category: 'Saldo em Circulação', amount: totalCredits - totalDebits, desc: 'Saldo pendente nos cartões' },
+    ];
+  }, [filteredTransactions, withdrawals, startDate, endDate]);
+
+  const filteredFinancialSummary = useMemo(() => {
+    if (!searchQuery.trim()) return financialSummary;
+    const queryNorm = searchQuery.toLowerCase().trim();
+    return financialSummary.filter(row => 
+      row.category.toLowerCase().includes(queryNorm) || 
+      row.desc.toLowerCase().includes(queryNorm)
+    );
+  }, [financialSummary, searchQuery]);
+
+  // Analytics for Recharges by Channel (Online vs Physical/Caixa)
+  const rechargeChannelStats = useMemo(() => {
+    const totalCreditsTransactions = filteredTransactions
+      .filter(t => t.type === 'credit' && t.status === 'completed');
+    
+    const onlineTxs = totalCreditsTransactions.filter(t => 
+      t.description?.includes('Rede') || 
+      t.description?.includes('Simulado') || 
+      t.description?.includes('Simulada') || 
+      t.description?.includes('Online') ||
+      !!t.redeTid
+    );
+    const physicalTxs = totalCreditsTransactions.filter(t => !(
+      t.description?.includes('Rede') || 
+      t.description?.includes('Simulado') || 
+      t.description?.includes('Simulada') || 
+      t.description?.includes('Online') ||
+      !!t.redeTid
+    ));
+
+    const onlineTotal = onlineTxs.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const onlineCount = onlineTxs.length;
+    const onlineAvg = onlineCount > 0 ? onlineTotal / onlineCount : 0;
+
+    const physicalTotal = physicalTxs.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const physicalCount = physicalTxs.length;
+    const physicalAvg = physicalCount > 0 ? physicalTotal / physicalCount : 0;
+
+    const granTotal = onlineTotal + physicalTotal;
+    const granCount = onlineCount + physicalCount;
+
+    const onlineValPct = granTotal > 0 ? Math.round((onlineTotal / granTotal) * 100) : 0;
+    const physicalValPct = granTotal > 0 ? Math.round((physicalTotal / granTotal) * 100) : 0;
+
+    const onlineCountPct = granCount > 0 ? Math.round((onlineCount / granCount) * 100) : 0;
+    const physicalCountPct = granCount > 0 ? Math.round((physicalCount / granCount) * 100) : 0;
+
+    return {
+      onlineTotal,
+      onlineCount,
+      onlineAvg,
+      onlineValPct,
+      onlineCountPct,
+      physicalTotal,
+      physicalCount,
+      physicalAvg,
+      physicalValPct,
+      physicalCountPct,
+      granTotal,
+      granCount,
     };
-  }, []);
+  }, [filteredTransactions]);
 
-  // Auto-dismiss success status modal after 2.5 seconds to speed up PDV checkout
-  useEffect(() => {
-    if (statusModal.show && statusModal.type === 'success') {
-      const timer = setTimeout(() => {
-        setStatusModal(prev => ({ ...prev, show: false }));
-      }, 2500);
-      return () => clearTimeout(timer);
-    }
-  }, [statusModal.show, statusModal.type]);
+  // Analytics for Recharges by Detailed Payment Method
+  const paymentMethodsStats = useMemo(() => {
+    const completedCredits = filteredTransactions
+      .filter(t => t.type === 'credit' && t.status === 'completed');
 
-  // POS View State
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
+    const initialMethods = {
+      // Online
+      'Pix (Online)': { amount: 0, count: 0, type: 'online', label: 'Pix Online', color: 'bg-emerald-500' },
+      'Crédito (Online)': { amount: 0, count: 0, type: 'online', label: 'Crédito Online', color: 'bg-teal-500' },
+      'Débito (Online)': { amount: 0, count: 0, type: 'online', label: 'Débito Online', color: 'bg-cyan-500' },
+      'Outros (Online)': { amount: 0, count: 0, type: 'online', label: 'Outros Online', color: 'bg-sky-500' },
+      // Physical / Caixa
+      'Dinheiro (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Dinheiro (Caixa)', color: 'bg-amber-500' },
+      'Pix (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Pix (Caixa)', color: 'bg-lime-500' },
+      'Débito (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Débito (Caixa)', color: 'bg-indigo-505' },
+      'Crédito (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Crédito (Caixa)', color: 'bg-violet-500' },
+      'Conta (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Conta (Caixa)', color: 'bg-purple-500' },
+      'Outros (Caixa)': { amount: 0, count: 0, type: 'physical', label: 'Outros (Caixa)', color: 'bg-pink-500' },
+    };
 
-  // Analytics State
-  const [stats, setStats] = useState({ 
-    totalRevenue: 0, 
-    totalItems: 0, 
-    productSales: {} as Record<string, { count: number; revenue: number; name: string }> 
-  });
-  const [statsLoading, setStatsLoading] = useState(false);
-  const [lastSale, setLastSale] = useState<{
-    userName: string;
-    total: number;
-    items: string[];
-    timestamp: Date;
-  } | null>(null);
-
-  const [posSales, setPosSales] = useState<any[]>([]);
-  const [deliveredDigitalOrders, setDeliveredDigitalOrders] = useState<any[]>([]);
-  const [historySearchQuery, setHistorySearchQuery] = useState('');
-  const [ordersSubTab, setOrdersSubTab] = useState<'pending' | 'history'>('pending');
-
-  const allPreviousOrders = useMemo(() => {
-    const combined = [...posSales, ...deliveredDigitalOrders];
-    return combined.sort((a, b) => {
-      const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp instanceof Date ? a.timestamp.getTime() : 0);
-      const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp instanceof Date ? b.timestamp.getTime() : 0);
-      return timeB - timeA;
-    });
-  }, [posSales, deliveredDigitalOrders]);
-
-  const filteredPreviousOrders = useMemo(() => {
-    return allPreviousOrders.filter(order => {
-      const queryStr = historySearchQuery.toLowerCase().trim();
-      if (!queryStr) return true;
+    completedCredits.forEach(t => {
+      const amt = t.amount || 0;
+      const desc = (t.description || '').toLowerCase();
       
-      const clientMatch = order.clientName.toLowerCase().includes(queryStr);
-      const cardMatch = order.cardNumber?.toLowerCase().includes(queryStr) || formatCardNumber(order.cardNumber || '').toLowerCase().includes(queryStr);
-      const itemsMatch = order.items.some((item: string) => item.toLowerCase().includes(queryStr));
-      const idMatch = order.id.toLowerCase().includes(queryStr);
-      
-      return clientMatch || cardMatch || itemsMatch || idMatch;
+      const isOnline = 
+        desc.includes('rede') || 
+        desc.includes('simulado') || 
+        desc.includes('simulada') || 
+        desc.includes('online') ||
+        !!t.redeTid;
+
+      let categoryKey: keyof typeof initialMethods;
+
+      if (isOnline) {
+        if (desc.includes('pix')) {
+          categoryKey = 'Pix (Online)';
+        } else if (desc.includes('crédito') || desc.includes('credit')) {
+          categoryKey = 'Crédito (Online)';
+        } else if (desc.includes('débito') || desc.includes('debit')) {
+          categoryKey = 'Débito (Online)';
+        } else {
+          categoryKey = 'Outros (Online)';
+        }
+      } else {
+        const methodField = t.paymentMethod ? t.paymentMethod.trim() : '';
+        const methodLower = methodField.toLowerCase();
+        
+        if (methodLower === 'dinheiro') {
+          categoryKey = 'Dinheiro (Caixa)';
+        } else if (methodLower === 'pix') {
+          categoryKey = 'Pix (Caixa)';
+        } else if (methodLower === 'débito' || methodLower === 'debito') {
+          categoryKey = 'Débito (Caixa)';
+        } else if (methodLower === 'crédito' || methodLower === 'credito') {
+          categoryKey = 'Crédito (Caixa)';
+        } else if (methodLower === 'conta') {
+          categoryKey = 'Conta (Caixa)';
+        } else {
+          if (desc.includes('dinheiro')) {
+            categoryKey = 'Dinheiro (Caixa)';
+          } else if (desc.includes('pix')) {
+            categoryKey = 'Pix (Caixa)';
+          } else if (desc.includes('débito') || desc.includes('debito')) {
+            categoryKey = 'Débito (Caixa)';
+          } else if (desc.includes('crédito') || desc.includes('credito')) {
+            categoryKey = 'Crédito (Caixa)';
+          } else if (desc.includes('conta')) {
+            categoryKey = 'Conta (Caixa)';
+          } else {
+            categoryKey = 'Outros (Caixa)';
+          }
+        }
+      }
+
+      initialMethods[categoryKey].amount += amt;
+      initialMethods[categoryKey].count += 1;
     });
-  }, [allPreviousOrders, historySearchQuery]);
 
-  useEffect(() => {
-    if (profile.role === 'admin') {
-      const unsub = onSnapshot(collection(db, 'stalls'), (snap) => {
-        setAvailableStalls(snap.docs.map(d => ({ id: d.id, ...d.data() } as Stall)));
-      });
-      return () => unsub();
-    } else if (profile.vendorIds && profile.vendorIds.length > 0) {
-      const q = query(collection(db, 'stalls'), where('__name__', 'in', profile.vendorIds));
-      const unsub = onSnapshot(q, (snap) => {
-        setAvailableStalls(snap.docs.map(d => ({ id: d.id, ...d.data() } as Stall)));
-      });
-      return () => unsub();
-    }
-  }, [profile.vendorIds, profile.role]);
+    return Object.entries(initialMethods).map(([name, data]) => ({
+      name,
+      ...data,
+    }));
+  }, [filteredTransactions]);
 
-  useEffect(() => {
-    if (profile.role === 'admin' && availableStalls.length > 0 && !activeStallId) {
-      setActiveStallId(availableStalls[0].id);
-    }
-  }, [availableStalls, profile.role, activeStallId]);
+  // 5. Sales by Product Data (Aggregates real values & quantities from consumption and transactions)
+  const salesByProduct = useMemo(() => {
+    // Start with a map populated of all products in the catalogue to support showing items with 0 sales too
+    const productMap: { [key: string]: { name: string; price: number; stall: string; quantity: number; totalValue: number } } = {};
+    
+    products.forEach(p => {
+      const stall = stalls.find(s => s.id === p.vendorId);
+      const key = `${stall?.name || 'Barraca N/A'}_${p.name}`;
+      productMap[key] = {
+        name: p.name || 'Produto sem nome',
+        price: p.price || 0,
+        stall: stall?.name || 'Barraca N/A',
+        quantity: 0,
+        totalValue: 0
+      };
+    });
 
-  useEffect(() => {
-    if (!activeStallId) {
-      setLoading(false);
-      return;
-    }
+    // Accumulate sales from filteredSales (detailed records)
+    filteredSales.forEach(sale => {
+      const stall = stalls.find(s => s.id === sale.stallId) || stalls.find(s => s.id === sale.vendorId);
+      const stallName = stall?.name || sale.stallName || 'Barraca N/A';
 
-    setLoading(true);
-
-    // Fetch Stall Info
-    const stallRef = doc(collection(db, 'stalls'), activeStallId);
-    const unsubStall = onSnapshot(stallRef, (snap) => {
-      if (snap.exists()) {
-        setStall({ id: snap.id, ...snap.data() } as Stall);
+      if (sale.detailedItems && Array.isArray(sale.detailedItems)) {
+        sale.detailedItems.forEach((item: any) => {
+          const key = `${stallName}_${item.name}`;
+          if (!productMap[key]) {
+            productMap[key] = {
+              name: item.name,
+              price: item.price || 0,
+              stall: stallName,
+              quantity: 0,
+              totalValue: 0
+            };
+          }
+          productMap[key].quantity += (item.quantity || 0);
+          productMap[key].totalValue += (item.subtotal || (item.price * item.quantity) || 0);
+        });
+      } else if (sale.items && Array.isArray(sale.items)) {
+        sale.items.forEach((itemStr: string) => {
+          const match = itemStr.match(/^(\d+)x\s+(.+)$/);
+          if (match) {
+            const qty = parseInt(match[1]);
+            const name = match[2].trim();
+            const key = `${stallName}_${name}`;
+            
+            if (!productMap[key]) {
+              const foundProduct = products.find(p => p.name.toLowerCase() === name.toLowerCase());
+              const price = foundProduct ? foundProduct.price : 0;
+              productMap[key] = {
+                name,
+                price,
+                stall: stallName,
+                quantity: 0,
+                totalValue: 0
+              };
+            }
+            productMap[key].quantity += qty;
+            productMap[key].totalValue += qty * productMap[key].price;
+          }
+        });
       }
     });
 
-    // Fetch Products for this Stall
-    const qP = query(collection(db, 'products'), where('vendorId', '==', activeStallId), where('active', '==', true));
-    const unsubProducts = onSnapshot(qP, (snap) => {
-      setProducts(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
-      setLoading(false);
-    });
-
-    // Fetch Digital Orders
-    const qO = query(
-      collection(db, 'orders'), 
-      where('stallId', '==', activeStallId)
-    );
-    const unsubOrders = onSnapshot(qO, (snap) => {
-      const allOrders = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
-      
-      // Filter out pending ones
-      const pendingOrders = allOrders.filter(o => o.status === 'pending');
-      // Sort on client side to avoid composite index requirement
-      const sortedOrders = pendingOrders.sort((a, b) => {
-        const timeA = a.timestamp?.toMillis ? a.timestamp.toMillis() : 0;
-        const timeB = b.timestamp?.toMillis ? b.timestamp.toMillis() : 0;
-        return timeA - timeB; // Oldest first for delivery queue
-      });
-      setOrders(sortedOrders);
-
-      // Filter out completed / delivered/ cancelled ones
-      const completedOrders = allOrders.filter(o => o.status !== 'pending').map(order => ({
-        id: order.id,
-        type: 'digital',
-        clientName: order.studentName || 'Cliente anônimo',
-        items: order.items || [],
-        total: order.total || 0,
-        cardNumber: '',
-        timestamp: order.timestamp,
-        status: order.status
-      }));
-      setDeliveredDigitalOrders(completedOrders);
-    });
-
-    // Fetch POS Sales (consumption)
-    const qC = query(
-      collection(db, 'consumption'),
-      where('stallId', '==', activeStallId)
-    );
-    const unsubConsumption = onSnapshot(qC, (snap) => {
-      const sales = snap.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          type: 'pdv',
-          clientName: data.clientName || data.studentName || 'Cliente anônimo',
-          items: data.items || [],
-          total: data.amount || 0,
-          cardNumber: data.cardNumber || '',
-          timestamp: data.timestamp,
-          status: 'completed'
-        };
-      });
-      setPosSales(sales);
-    });
-
-    return () => {
-      unsubStall();
-      unsubProducts();
-      unsubOrders();
-      unsubConsumption();
-    };
-  }, [activeStallId]);
-
-  // Analytics Aggregation
-  useEffect(() => {
-    if (activeTab !== 'analytics' || !activeStallId) return;
-
-    setStatsLoading(true);
-    const q = query(collection(db, 'consumption'), where('stallId', '==', activeStallId), limit(1000));
-    
-    const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs;
-      // Sort manually to avoid index requirement
-      docs.sort((a, b) => {
-        const timeA = a.data().timestamp?.toMillis ? a.data().timestamp.toMillis() : 0;
-        const timeB = b.data().timestamp?.toMillis ? b.data().timestamp.toMillis() : 0;
-        return timeB - timeA;
-      });
-
-      const newStats = { 
-        totalRevenue: 0, 
-        totalItems: 0, 
-        productSales: {} as Record<string, { count: number; revenue: number; name: string }> 
-      };
-      
-      docs.forEach(doc => {
-        const data = doc.data();
-        newStats.totalRevenue += data.amount || 0;
-        
-        // Detailed items analysis (New format)
-        if (data.detailedItems && Array.isArray(data.detailedItems)) {
-          data.detailedItems.forEach((item: { name: string; quantity: number; subtotal: number }) => {
-            newStats.totalItems += item.quantity;
-            if (!newStats.productSales[item.name]) {
-              newStats.productSales[item.name] = { count: 0, revenue: 0, name: item.name };
-            }
-            newStats.productSales[item.name].count += item.quantity;
-            newStats.productSales[item.name].revenue += item.subtotal;
-          });
-        } 
-        // Fallback for old simple "items" array format
-        else if (data.items && Array.isArray(data.items)) {
-          data.items.forEach((itemStr: string) => {
-            const match = itemStr.match(/(\d+)x\s(.+)/);
+    // Supplement or Fallback from filteredTransactions if totalSales is zero
+    const currentQtySold = Object.values(productMap).reduce((acc, p) => acc + p.quantity, 0);
+    if (currentQtySold === 0) {
+      const debits = filteredTransactions.filter(t => t.type === 'debit' && t.status === 'completed');
+      debits.forEach(t => {
+        const stallName = t.stallName || 'Barraca N/A';
+        if (t.items && Array.isArray(t.items)) {
+          t.items.forEach((itemStr: string) => {
+            const match = itemStr.match(/^(\d+)x\s+(.+)$/);
             if (match) {
               const qty = parseInt(match[1]);
-              const name = match[2];
-              newStats.totalItems += qty;
-              if (!newStats.productSales[name]) {
-                newStats.productSales[name] = { count: 0, revenue: 0, name };
+              const name = match[2].trim();
+              const key = `${stallName}_${name}`;
+
+              if (productMap[key]) {
+                 productMap[key].quantity += qty;
+                 productMap[key].totalValue += qty * productMap[key].price;
+              } else {
+                const foundProduct = products.find(p => p.name.toLowerCase() === name.toLowerCase());
+                const price = foundProduct ? foundProduct.price : (Math.abs(t.amount) / qty || 0);
+                productMap[key] = {
+                  name,
+                  price,
+                  stall: stallName,
+                  quantity: qty,
+                  totalValue: qty * price
+                };
               }
-              newStats.productSales[name].count += qty;
             }
           });
         }
       });
-
-      setStats(newStats);
-      setStatsLoading(false);
-    });
-
-    return () => unsub();
-  }, [activeTab, activeStallId]);
-
-  const filteredProducts = useMemo(() => {
-    return products.filter(p => 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [products, searchQuery]);
-
-  const paginatedProducts = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredProducts.slice(start, start + itemsPerPage);
-  }, [filteredProducts, currentPage]);
-
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
-
-  const markAsDelivered = async (orderId: string) => {
-    try {
-      await updateDoc(doc(collection(db, 'orders'), orderId), {
-        status: 'delivered',
-        deliveredAt: serverTimestamp()
-      });
-      toast.success('Pedido entregue!');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
     }
-  };
 
-  const cartTotal = useMemo(() => {
-    return cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-  }, [cart]);
-
-  const cartItemsNames = useMemo(() => {
-    return cart.map(item => `${item.quantity}x ${item.name}`).join(', ');
-  }, [cart]);
-
-  const addToCart = (product: Product) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.id === product.id);
-      if (existing) {
-        return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-      }
-      return [...prev, { ...product, quantity: 1 }];
-    });
-  };
-
-  const removeFromCart = (productId: string) => {
-    setCart(prev => {
-      const existing = prev.find(item => item.id === productId);
-      if (existing && existing.quantity > 1) {
-        return prev.map(item => item.id === productId ? { ...item, quantity: item.quantity - 1 } : item);
-      }
-      return prev.filter(item => item.id !== productId);
-    });
-  };
-
-  const deleteItemFromCart = (productId: string) => {
-    setCart(prev => prev.filter(item => item.id !== productId));
-  };
-
-  const clearCart = () => setCart([]);
-
-  const onScanSuccess = async (decodedText: string) => {
-    try {
-      const cleanText = decodedText.trim();
-      if (!cleanText) return;
-
-      setIsScanning(false);
-      setIsSearchingClient(true);
-      const toastId = toast.loading('Identificando cliente...', { id: 'v-scan' });
-      
-      let userDoc: any = null;
-
-      // 1. Validar e preparar a referência direta de documento de forma segura contra exceções de rotas com "/"
-      let userRef: any = null;
-      if (cleanText && !cleanText.includes('/') && cleanText.length < 100) {
-        try {
-          userRef = doc(db, 'users', cleanText);
-        } catch (e) {
-          console.warn("[LOOKUP] ID de documento inválido:", cleanText, e);
+    return Object.values(productMap)
+      .filter(row => {
+        if (!searchQuery.trim()) return true;
+        const queryNorm = searchQuery.toLowerCase().trim();
+        return row.name.toLowerCase().includes(queryNorm) || row.stall.toLowerCase().includes(queryNorm);
+      })
+      .sort((a, b) => {
+        let multiplier = productSortDirection === 'asc' ? 1 : -1;
+        if (productSortField === 'name') {
+          return multiplier * a.name.localeCompare(b.name, 'pt-BR');
+        } else if (productSortField === 'stall') {
+          return multiplier * a.stall.localeCompare(b.stall, 'pt-BR');
+        } else if (productSortField === 'price') {
+          return multiplier * (a.price - b.price);
+        } else if (productSortField === 'quantity') {
+          return multiplier * (a.quantity - b.quantity);
+        } else {
+          return multiplier * (a.totalValue - b.totalValue);
         }
+      });
+  }, [products, stalls, filteredSales, filteredTransactions, searchQuery, productSortField, productSortDirection]);
+
+  // 3. Sales by Stall Data
+  const salesByStall = useMemo(() => {
+    return stalls.map(stall => {
+      // 1. Get transaction records matching this stall
+      const stallSales = filteredTransactions.filter(t => {
+        if (t.type !== 'debit' || t.status !== 'completed') return false;
+
+        // Match stallName or vendorId
+        if (t.stallName && t.stallName.toLowerCase().trim() === stall.name.toLowerCase().trim()) return true;
+        if (t.vendorId === stall.id) return true;
+        if (t.description && t.description.toLowerCase().includes(`na barraca ${stall.name.toLowerCase()}`)) return true;
+
+        return false;
+      });
+
+      // 2. Determine total SALES AMOUNT
+      // Aggregated items from salesByProduct (which is computed from filteredSales and filteredTransactions)
+      const stallItems = salesByProduct.filter(p => p.stall.toLowerCase().trim() === stall.name.toLowerCase().trim());
+      const itemsTotalSales = stallItems.reduce((acc, p) => acc + p.totalValue, 0);
+      const txsTotalSales = stallSales.reduce((acc, t) => acc + Math.abs(t.amount || 0), 0);
+      const totalAmount = itemsTotalSales > 0 ? itemsTotalSales : txsTotalSales;
+
+      // 3. Determine TRANSACTION COUNT (Volume of purchases)
+      const consumptionCount = filteredSales.filter(sale => {
+        const sStall = stalls.find(s => s.id === sale.stallId) || stalls.find(s => s.id === sale.vendorId);
+        return (sStall?.name === stall.name || sale.stallName === stall.name || sale.stallId === stall.id);
+      }).length;
+      const transactionCount = consumptionCount > 0 ? consumptionCount : stallSales.length;
+
+      return {
+        stallName: stall.name || 'Sem nome',
+        totalSales: totalAmount,
+        transactionCount: transactionCount,
+      };
+    })
+    .filter(row => {
+      if (!searchQuery.trim()) return true;
+      const queryNorm = searchQuery.toLowerCase().trim();
+      return row.stallName.toLowerCase().includes(queryNorm);
+    })
+    .sort((a, b) => {
+      let multiplier = stallSortDirection === 'asc' ? 1 : -1;
+      if (stallSortField === 'name') {
+        return multiplier * a.stallName.localeCompare(b.stallName, 'pt-BR');
+      } else if (stallSortField === 'volume') {
+        return multiplier * (a.transactionCount - b.transactionCount);
+      } else {
+        return multiplier * (a.totalSales - b.totalSales);
+      }
+    });
+  }, [stalls, filteredTransactions, filteredSales, salesByProduct, searchQuery, stallSortField, stallSortDirection]);
+
+  // 4. Transactions Log mapped and filtered
+  const transactionsLog = useMemo(() => {
+    return [...filteredTransactions]
+      .sort((a, b) => {
+        const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+        const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+        const timeA = dateA instanceof Date && !isNaN(dateA.getTime()) ? dateA.getTime() : 0;
+        const timeB = dateB instanceof Date && !isNaN(dateB.getTime()) ? dateB.getTime() : 0;
+        return timeB - timeA;
+      })
+      .map(t => {
+        const user = users.find(u => u.uid === t.userId);
+        let stall = t.stallName || 'N/A';
+        if (stall === 'N/A' && t.description && t.description.includes('na barraca ')) {
+          const match = t.description.match(/na barraca ([^:]+):?/);
+          if (match) stall = match[1];
+        }
+        
+        return {
+          date: formatDate(t.timestamp),
+          user: user?.name || t.userName || 'Sistema',
+          cardNumber: formatCardNumber(t.cardNumber || user?.qrCode || t.userId || ''),
+          type: t.type === 'credit' ? 'CARGA' : 'COMPRA',
+          status: t.status || 'completed',
+          amount: t.amount || 0,
+          stall: stall,
+          paymentMethod: t.paymentMethod || 'N/A',
+          desc: t.description || ''
+        };
+      });
+  }, [filteredTransactions, users]);
+
+
+
+  // 6. User Balances
+  const userBalances = useMemo(() => {
+    return users
+      .filter(u => u.role === 'student' || u.role === 'admin')
+      .map(u => {
+        let registrationDate = 0;
+        if (u.timestamp) {
+          const dt = u.timestamp.toDate ? u.timestamp.toDate() : new Date(u.timestamp);
+          if (dt instanceof Date && !isNaN(dt.getTime())) registrationDate = dt.getTime();
+        } else if (u.consentedToTermsAt) {
+          const dt = new Date(u.consentedToTermsAt);
+          if (!isNaN(dt.getTime())) registrationDate = dt.getTime();
+        }
+
+        return {
+          uid: u.uid,
+          name: u.name || 'Sem nome',
+          email: u.email || 'N/A',
+          balance: u.balance || 0,
+          role: u.role === 'student' ? 'Cliente' : 'Admin',
+          registrationDate
+        };
+      })
+      .filter(row => {
+        // Date match (apply to register date if selected)
+        let isDateMatch = true;
+        if (startDate && row.registrationDate) {
+          const start = parseLocalDate(startDate, 0, 0, 0, 0);
+          if (start) isDateMatch = isDateMatch && row.registrationDate >= start.getTime();
+        }
+        if (endDate && row.registrationDate) {
+          const end = parseLocalDate(endDate, 23, 59, 59, 999);
+          if (end) isDateMatch = isDateMatch && row.registrationDate <= end.getTime();
+        }
+        if (!isDateMatch) return false;
+
+        if (!searchQuery.trim()) return true;
+        const queryNorm = searchQuery.toLowerCase().trim();
+        return row.name.toLowerCase().includes(queryNorm) || row.email.toLowerCase().includes(queryNorm);
+      })
+      .sort((a, b) => {
+        let multiplier = balanceSortDirection === 'asc' ? 1 : -1;
+        if (balanceSortField === 'name') {
+          return multiplier * a.name.localeCompare(b.name, 'pt-BR');
+        } else if (balanceSortField === 'email') {
+          return multiplier * a.email.localeCompare(b.email, 'pt-BR');
+        } else {
+          return multiplier * (a.balance - b.balance);
+        }
+      });
+  }, [users, searchQuery, startDate, endDate, balanceSortField, balanceSortDirection]);
+
+  // 7. Cards Activation Report: System-generated vs Online Client-generated
+  const cardsReport = useMemo(() => {
+    return users
+      .filter(u => u.role === 'student' || u.isPhysicalCard)
+      .map(u => {
+        let creationDate = 'N/A';
+        let timestampMillis = 0;
+        
+        if (u.timestamp) {
+          const dt = u.timestamp.toDate ? u.timestamp.toDate() : new Date(u.timestamp);
+          if (dt instanceof Date && !isNaN(dt.getTime())) {
+            creationDate = format(dt, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+            timestampMillis = dt.getTime();
+          }
+        } else if (u.consentedToTermsAt) {
+          const dt = new Date(u.consentedToTermsAt);
+          if (!isNaN(dt.getTime())) {
+            creationDate = format(dt, 'dd/MM/yyyy HH:mm', { locale: ptBR });
+            timestampMillis = dt.getTime();
+          }
+        }
+
+        const userRecharges = transactions.filter(
+          t => t.userId === u.uid && t.type === 'credit' && t.status === 'completed'
+        );
+        const hasRecharge = userRecharges.length > 0;
+        const rechargeCount = userRecharges.length;
+        const totalRecharged = userRecharges.reduce((acc, r) => acc + (r.amount || 0), 0);
+
+        return {
+          uid: u.uid,
+          name: u.name || 'Sem nome',
+          email: u.email || 'N/A',
+          qrCode: u.qrCode || u.uid,
+          balance: u.balance || 0,
+          isPhysical: !!u.isPhysicalCard,
+          origin: u.isPhysicalCard ? 'Sistema (Físico)' : 'Online (Cliente)',
+          dateStr: creationDate,
+          timestampMillis: timestampMillis,
+          hasRecharge,
+          rechargeCount,
+          totalRecharged
+        };
+      })
+      .filter(row => {
+        // Apply date limits (by registration) if supplied
+        let isDateMatch = true;
+        if (startDate && row.timestampMillis) {
+          const start = parseLocalDate(startDate, 0, 0, 0, 0);
+          if (start) isDateMatch = isDateMatch && row.timestampMillis >= start.getTime();
+        }
+        if (endDate && row.timestampMillis) {
+          const end = parseLocalDate(endDate, 23, 59, 59, 999);
+          if (end) isDateMatch = isDateMatch && row.timestampMillis <= end.getTime();
+        }
+        if (!isDateMatch) return false;
+
+        // Source/Origin filter
+        if (cardOriginFilter === 'system' && !row.isPhysical) return false;
+        if (cardOriginFilter === 'client' && row.isPhysical) return false;
+
+        // Usage filter
+        if (cardUsageFilter === 'used' && !row.hasRecharge) return false;
+        if (cardUsageFilter === 'unused' && row.hasRecharge) return false;
+
+        // Search filter
+        if (!searchQuery.trim()) return true;
+        const queryNorm = searchQuery.toLowerCase().trim();
+        return (
+          row.name.toLowerCase().includes(queryNorm) ||
+          row.email.toLowerCase().includes(queryNorm) ||
+          row.qrCode.toLowerCase().includes(queryNorm) ||
+          row.origin.toLowerCase().includes(queryNorm)
+        );
+      })
+      .sort((a, b) => {
+        let multiplier = cardsSortDirection === 'asc' ? 1 : -1;
+        if (cardsSortField === 'name') {
+          return multiplier * a.name.localeCompare(b.name, 'pt-BR');
+        } else if (cardsSortField === 'email') {
+          return multiplier * a.email.localeCompare(b.email, 'pt-BR');
+        } else if (cardsSortField === 'balance') {
+          return multiplier * (a.balance - b.balance);
+        } else {
+          return multiplier * (a.timestampMillis - b.timestampMillis);
+        }
+      });
+  }, [users, cardOriginFilter, cardUsageFilter, searchQuery, transactions, startDate, endDate, cardsSortField, cardsSortDirection]);
+
+  // Dynamic Metrics Cards (Totalizadores) calculation
+  const kpis = useMemo(() => {
+    switch (reportType) {
+      case 'financial_summary': {
+        const credits = filteredTransactions
+          .filter(t => t.type === 'credit' && t.status === 'completed')
+          .reduce((acc, t) => acc + (t.amount || 0), 0);
+        
+        const debits = filteredTransactions
+          .filter(t => t.type === 'debit' && t.status === 'completed')
+          .reduce((acc, t) => acc + (t.amount || 0), 0);
+        
+        const tWithdrawals = withdrawals.reduce((acc, w) => acc + (w.amount || 0), 0);
+
+        return [
+          { label: 'Total Carregado', value: formatCurrency(credits), text: 'Saldo inserido no sistema', type: 'success' },
+          { label: 'Total Consumido', value: formatCurrency(debits), text: 'Vendas das barracas', type: 'info' },
+          { label: 'Saldo em Circulação', value: formatCurrency(Math.max(0, credits - debits)), text: 'Bandeira retida nos cartões', type: 'warning' },
+          { label: 'Total de Saques', value: formatCurrency(tWithdrawals), text: 'Resgates efetuados', type: 'danger' },
+        ];
+      }
+      case 'sales_by_stall': {
+        const totalVendas = salesByStall.reduce((acc, s) => acc + s.totalSales, 0);
+        const totalTxs = salesByStall.reduce((acc, s) => acc + s.transactionCount, 0);
+        const ticketMedio = totalTxs > 0 ? totalVendas / totalTxs : 0;
+        const topStall = salesByStall[0]?.stallName || 'N/A';
+
+        return [
+          { label: 'Faturamento Geral', value: formatCurrency(totalVendas), text: 'Vendido nas barracas', type: 'success' },
+          { label: 'Volume de Pedidos', value: `${totalTxs} compras`, text: 'Transações registradas', type: 'info' },
+          { label: 'Ticket Médio/Compra', value: formatCurrency(ticketMedio), text: 'Ticket médio gasto', type: 'warning' },
+          { label: 'Líder de Vendas', value: topStall, text: 'Barraca com maior receita', type: 'danger' },
+        ];
+      }
+      case 'transactions_log': {
+        const totalCount = transactionsLog.length;
+        const creditsSum = filteredTransactions.filter(t => t.type === 'credit' && t.status === 'completed').reduce((acc, t) => acc + t.amount, 0);
+        const debitsSum = filteredTransactions.filter(t => t.type === 'debit' && t.status === 'completed').reduce((acc, t) => acc + t.amount, 0);
+        const failCount = filteredTransactions.filter(t => t.status === 'failed').length;
+
+        return [
+          { label: 'Transações Filtradas', value: `${totalCount} txs`, text: 'Filtradas pela busca atual', type: 'success' },
+          { label: 'Total Entradas (+)', value: formatCurrency(creditsSum), text: 'Soma de cargas ativas', type: 'info' },
+          { label: 'Total Saídas (-)', value: formatCurrency(debitsSum), text: 'Soma de consumos locais', type: 'warning' },
+          { label: 'Transações com Falha', value: `${failCount} registros`, text: 'Não concluídas com sucesso', type: 'danger' },
+        ];
+      }
+      case 'user_balances': {
+        const totalUsers = userBalances.length;
+        const walletsSum = userBalances.reduce((acc, u) => acc + u.balance, 0);
+        const averageBal = totalUsers > 0 ? walletsSum / totalUsers : 0;
+        const highestBal = userBalances.reduce((max, u) => u.balance > max ? u.balance : max, 0);
+
+        return [
+          { label: 'Clientes Ativos', value: `${totalUsers} carteiras`, text: 'Base de usuários ativa', type: 'success' },
+          { label: 'Saldos Totais PWA', value: formatCurrency(walletsSum), text: 'Créditos custodiados', type: 'info' },
+          { label: 'Saldo Médio por Conta', value: formatCurrency(averageBal), text: 'Média de créditos/usuário', type: 'warning' },
+          { label: 'Maior Caixa Individual', value: formatCurrency(highestBal), text: 'Maior carteira do sistema', type: 'danger' },
+        ];
+      }
+      case 'sales_by_product': {
+        const totalProdCount = salesByProduct.length;
+        const totalItemsSold = salesByProduct.reduce((acc, p) => acc + p.quantity, 0);
+        const totalFaturamento = salesByProduct.reduce((acc, p) => acc + p.totalValue, 0);
+        
+        // Find product with largest quantity sold
+        const sortedByQty = [...salesByProduct].sort((a, b) => b.quantity - a.quantity);
+        const bestSeller = sortedByQty[0]?.quantity > 0 ? `${sortedByQty[0].name} (${sortedByQty[0].quantity} un.)` : 'Nenhum';
+
+        return [
+          { label: 'Faturamento Total', value: formatCurrency(totalFaturamento), text: 'Valor gerado por produtos', type: 'success' },
+          { label: 'Unidades Vendidas', value: `${totalItemsSold} un.`, text: 'Total de produtos servidos', type: 'info' },
+          { label: 'Mais Vendido (Qtd)', value: bestSeller, text: 'Líder do cardápio', type: 'warning' },
+          { label: 'Produtos Ativos', value: `${totalProdCount} itens`, text: 'Modelos no catálogo', type: 'danger' },
+        ];
+      }
+      case 'cards_report': {
+        const totalCards = cardsReport.length;
+        const pCards = cardsReport.filter(c => c.isPhysical).length;
+        const vCards = cardsReport.filter(c => !c.isPhysical).length;
+        const totalBal = cardsReport.reduce((acc, c) => acc + c.balance, 0);
+        
+        const utilizedCount = cardsReport.filter(c => c.hasRecharge).length;
+        const utilizationPct = totalCards > 0 ? Math.round((utilizedCount / totalCards) * 100) : 0;
+
+        return [
+          { label: 'Total de Cartões', value: `${totalCards} ativos`, text: 'Soma de físico mais online', type: 'success' },
+          { label: 'Cartões Utilizados', value: `${utilizedCount} usados`, text: `${utilizationPct}% realizaram recarga`, type: 'info' },
+          { label: 'Gerados p/ Sistema (Físicos)', value: `${pCards} cartões`, text: 'Impressos ou via ADM', type: 'warning' },
+          { label: 'Saldo Retido em Cartões', value: formatCurrency(totalBal), text: 'Total financeiro sob custódia', type: 'danger' },
+        ];
+      }
+      default:
+        return [];
+    }
+  }, [reportType, filteredTransactions, withdrawals, salesByStall, transactionsLog, userBalances, salesByProduct, cardsReport]);
+
+  const exportToExcel = () => {
+    try {
+      let data: any[] = [];
+      let filename = 'relatorio';
+
+      if (reportType === 'financial_summary') {
+        data = filteredFinancialSummary.map(row => ({
+          'Categoria': row.category,
+          'Valor (R$)': typeof row.amount === 'number' ? row.amount : Number(row.amount || 0),
+          'Descrição': row.desc
+        }));
+        filename = 'resumo_financeiro';
+      } else if (reportType === 'sales_by_stall') {
+        const expandedRows: any[] = [];
+        salesByStall.forEach(stallRow => {
+          const stallItems = salesByProduct.filter(p => p.stall.toLowerCase().trim() === stallRow.stallName.toLowerCase().trim() && p.quantity > 0);
+          if (stallItems.length === 0) {
+            expandedRows.push({
+              'Barraca': stallRow.stallName,
+              'Produto': 'Sem vendas de produtos',
+              'Preço Unitário (R$)': 0,
+              'Qtd Vendida': 0,
+              'Faturamento do Produto (R$)': 0,
+              'Faturamento Total da Barraca (R$)': stallRow.totalSales,
+              'Total de Compras': stallRow.transactionCount
+            });
+          } else {
+            stallItems.forEach(item => {
+              expandedRows.push({
+                'Barraca': stallRow.stallName,
+                'Produto': item.name,
+                'Preço Unitário (R$)': item.price,
+                'Qtd Vendida': item.quantity,
+                'Faturamento do Produto (R$)': item.totalValue,
+                'Faturamento Total da Barraca (R$)': stallRow.totalSales,
+                'Total de Compras': stallRow.transactionCount
+              });
+            });
+          }
+        });
+        data = expandedRows;
+        filename = 'vendas_por_barraca';
+      } else if (reportType === 'user_balances') {
+        data = userBalances.map(row => ({
+          'Nome': row.name,
+          'Email': row.email,
+          'Saldo Atual (R$)': typeof row.balance === 'number' ? row.balance : Number(row.balance || 0)
+        }));
+        filename = 'saldos_clientes';
+      } else if (reportType === 'sales_by_product') {
+        data = salesByProduct.map(row => ({
+          'Produto': row.name,
+          'Barraca': row.stall,
+          'Preço Unitário (R$)': typeof row.price === 'number' ? row.price : Number(row.price || 0),
+          'Qtd Vendida': row.quantity || 0,
+          'Faturamento Total (R$)': typeof row.totalValue === 'number' ? row.totalValue : Number(row.totalValue || 0)
+        }));
+        filename = 'vendas_por_produto';
+      } else if (reportType === 'transactions_log') {
+        data = transactionsLog.map(row => ({
+          'Data': row.date,
+          'Usuário': row.user,
+          'Cartão / Código': row.cardNumber || '',
+          'Tipo': row.type,
+          'Meio': row.paymentMethod,
+          'Valor (R$)': typeof row.amount === 'number' ? row.amount : Number(row.amount || 0),
+          'Barraca/Ponto': row.stall,
+          'Descrição': row.desc
+        }));
+        filename = 'log_transacoes';
+      } else if (reportType === 'cards_report') {
+        data = cardsReport.map(row => ({
+          'Nome': row.name,
+          'Email': row.email,
+          'Número do Cartão': formatCardNumber(row.uid || row.qrCode),
+          'QR Code / ID': row.qrCode,
+          'Origem': row.origin,
+          'Status de Uso': row.hasRecharge ? `Utilizado (${row.rechargeCount} recargas)` : 'Apenas Ativado',
+          'Total Recarregado (R$)': typeof row.totalRecharged === 'number' ? row.totalRecharged : Number(row.totalRecharged || 0),
+          'Saldo (R$)': typeof row.balance === 'number' ? row.balance : Number(row.balance || 0),
+          'Data de Cadastro': row.dateStr
+        }));
+        filename = 'registro_de_cartoes';
       }
 
-      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
-      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
+      const ws = XLSX.utils.json_to_sheet(data);
 
-      // Função auxiliar para resolver com o primeiro documento válido encontrado
-      const getFirstExistingDoc = async (promises: Promise<any>[]) => {
-        return new Promise<any>((resolve) => {
-          let resolved = false;
-          let pending = promises.length;
-          
-          if (pending === 0) {
-            resolve(null);
-            return;
-          }
+      // Apply Excel currency format to monetary columns dynamically
+      if (ws['!ref']) {
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        for (let col = range.s.c; col <= range.e.c; col++) {
+          const headerAddress = XLSX.utils.encode_cell({ r: range.s.r, c: col });
+          const headerCell = ws[headerAddress];
+          if (headerCell && typeof headerCell.v === 'string') {
+            const headerText = headerCell.v;
+            // Check if column is a money column
+            const isMonetary = 
+              headerText.includes('(R$)') || 
+              headerText.includes('Valor') || 
+              headerText.includes('Preço') || 
+              headerText.includes('Saldo') || 
+              headerText.includes('Total') || 
+              headerText.includes('Faturamento');
 
-          promises.forEach(p => {
-            p.then(doc => {
-              if (resolved) return;
-              if (doc && typeof doc.exists === 'function' && doc.exists()) {
-                resolved = true;
-                resolve(doc);
-              } else {
-                pending--;
-                if (pending === 0) {
-                  resolve(null);
+            if (isMonetary) {
+              for (let row = range.s.r + 1; row <= range.e.r; row++) {
+                const cellAddress = XLSX.utils.encode_cell({ r: row, c: col });
+                const cell = ws[cellAddress];
+                if (cell && typeof cell.v === 'number') {
+                  cell.t = 'n';
+                  cell.z = '"R$ " #,##0.00'; // Standard Excel currency format for BRL
                 }
               }
-            }).catch(() => {
-              if (resolved) return;
-              pending--;
-              if (pending === 0) {
-                resolve(null);
-              }
-            });
-          });
-        });
-      };
-
-      // 2. PRIMEIRA TENTATIVA: Cache Local (Tempo de resposta instantâneo, ~2ms)
-      try {
-        const cachePromises = [
-          userRef ? getDocFromCache(userRef).catch(() => null) : Promise.resolve(null),
-          getDocsFromCache(qMain)
-            .then(snap => (!snap.empty ? snap.docs[0] : null))
-            .catch(() => null),
-          getDocsFromCache(qCards)
-            .then(snap => (!snap.empty ? snap.docs[0] : null))
-            .catch(() => null)
-        ];
-        
-        userDoc = await getFirstExistingDoc(cachePromises);
-      } catch (cacheErr) {
-        console.warn("[CACHE] Erro ou ausência de cache local:", cacheErr);
-      }
-
-      // 3. SEGUNDA TENTATIVA: Servidor em Paralelo com Limite de Tempo de 4 segundos (Evita esperas longas de rede)
-      if (!userDoc) {
-        try {
-          const serverPromises = [
-            userRef ? getDoc(userRef).catch(() => null) : Promise.resolve(null),
-            getDocs(qMain)
-              .then(snap => (!snap.empty ? snap.docs[0] : null))
-              .catch(() => null),
-            getDocs(qCards)
-              .then(snap => (!snap.empty ? snap.docs[0] : null))
-              .catch(() => null)
-          ];
-          
-          // Corrida de promessas com resolução instantânea assim que o primeiro documento for encontrado
-          const serverResultPromise = getFirstExistingDoc(serverPromises);
-          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
-          
-          userDoc = await Promise.race([serverResultPromise, timeoutPromise]);
-        } catch (serverErr) {
-          console.error("[SERVER] Erro na consulta ao servidor:", serverErr);
+            }
+          }
         }
       }
 
-      toast.dismiss(toastId);
-      setIsSearchingClient(false);
-
-      if (!userDoc) {
-        setStatusModal({
-          show: true,
-          type: 'error',
-          title: 'Erro de Identificação',
-          message: 'QR Code ou Cartão não reconhecido ou instabilidade na rede. Verifique o cadastro do cliente e tente novamente.'
-        });
-        return;
-      }
-
-      let userData = { ...userDoc.data(), uid: userDoc.id, scannedCardCode: cleanText } as UserProfile & { scannedCardCode?: string };
-
-      // Se o usuário possuir saldo compartilhado com um parente/responsável (parentUid)
-      if ((!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid) {
-        try {
-          const parentRef = doc(db, 'users', userData.parentUid);
-          let parentDoc = await getDocFromCache(parentRef).catch(() => null);
-          if (!parentDoc || !parentDoc.exists()) {
-            parentDoc = await getDoc(parentRef).catch(() => null);
-          }
-          if (parentDoc && parentDoc.exists()) {
-            const parentData = parentDoc.data() as UserProfile;
-            userData.balance = parentData.balance || 0;
-          }
-        } catch (parentErr) {
-          console.error("Erro ao buscar saldo compartilhado do responsável:", parentErr);
-        }
-      }
-
-      setScannedUser(userData);
-      toast.success(`Cliente ${userData.name} identificado com sucesso!`);
-
-      // Auto-confirm the sale if there are items in the cart
-      if (cart.length > 0 && cartTotal > 0) {
-        toast.info("Processando venda automaticamente...");
-        await handleSale(userData);
-      }
-    } catch (error) {
-      console.error(error);
-      setIsSearchingClient(false);
-      toast.dismiss('v-scan');
-      handleFirestoreError(error, OperationType.LIST, 'users');
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Dados");
+      XLSX.writeFile(wb, `${filename}_${format(new Date(), 'yyyy-MM-dd_HHmm')}.xlsx`);
+      toast.success('Excel exportado com sucesso!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao exportar para Excel');
     }
   };
 
-  const handleSale = async (userOverride?: UserProfile) => {
-    const activeUser = userOverride || scannedUser;
-    if (!activeUser || cartTotal <= 0) return;
-
-    setProcessing(true);
-    const failsafe = setTimeout(() => {
-      setProcessing(false);
-      toast.error("Tempo limite atingido.");
-    }, 25000);
-
+  const exportToPDF = () => {
     try {
+      const doc = new jsPDF();
+      const title = reportType.replace(/_/g, ' ').toUpperCase();
       
-      if (activeUser.balance < cartTotal) {
-        clearTimeout(failsafe);
-        setProcessing(false);
-        setStatusModal({
-          show: true,
-          type: 'error',
-          title: 'Saldo Insuficiente',
-          message: `Eu fiz a venda e tem saldo indisponível. O saldo não é suficiente.\n\nCliente: ${activeUser.name}\nSaldo Atual: R$ ${activeUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nValor Necessário: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+      doc.setFontSize(18);
+      doc.text('FESTA PASS - INTELIGÊNCIA EM EVENTOS', 14, 20);
+      doc.setFontSize(14);
+      doc.text(title, 14, 30);
+      doc.setFontSize(10);
+      doc.text(`Gerado em: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 38);
+
+      let head: string[][] = [];
+      let body: any[][] = [];
+
+      if (reportType === 'financial_summary') {
+        head = [['Categoria', 'Valor (R$)', 'Descrição']];
+        body = filteredFinancialSummary.map(row => [row.category, formatCurrency(row.amount), row.desc]);
+      } else if (reportType === 'sales_by_stall') {
+        head = [['Barraca', 'Produto', 'Preço Unitário', 'Qtd Vendida', 'Total Prod (R$)', 'Total Barraca (R$)', 'Compras']];
+        const rows: any[][] = [];
+        salesByStall.forEach(stallRow => {
+          const stallItems = salesByProduct.filter(p => p.stall.toLowerCase().trim() === stallRow.stallName.toLowerCase().trim() && p.quantity > 0);
+          if (stallItems.length === 0) {
+            rows.push([
+              stallRow.stallName,
+              'Sem vendas no período',
+              formatCurrency(0),
+              '0 un.',
+              formatCurrency(0),
+              formatCurrency(stallRow.totalSales),
+              stallRow.transactionCount.toString()
+            ]);
+          } else {
+            stallItems.forEach((item, itemIdx) => {
+              rows.push([
+                itemIdx === 0 ? stallRow.stallName : '', // Show stall name on the first line of the stall group
+                item.name,
+                formatCurrency(item.price),
+                `${item.quantity} un.`,
+                formatCurrency(item.totalValue),
+                itemIdx === 0 ? formatCurrency(stallRow.totalSales) : '', // Show total on the first line
+                itemIdx === 0 ? stallRow.transactionCount.toString() : '' // Show transactions count on the first line
+              ]);
+            });
+          }
         });
-        return;
+        body = rows;
+      } else if (reportType === 'user_balances') {
+        head = [['Nome', 'Email', 'Saldo Atual (R$)']];
+        body = userBalances.map(row => [row.name, row.email, formatCurrency(row.balance)]);
+      } else if (reportType === 'sales_by_product') {
+        head = [['Produto', 'Barraca', 'Preço Unitário', 'Qtd Vendida', 'Total Faturado']];
+        body = salesByProduct.map(row => [
+          row.name,
+          row.stall,
+          formatCurrency(row.price),
+          `${row.quantity || 0} un.`,
+          formatCurrency(row.totalValue || 0)
+        ]);
+      } else if (reportType === 'transactions_log') {
+        head = [['Data', 'Usuário', 'Cartão', 'Tipo', 'Meio', 'Valor', 'Barraca']];
+        body = transactionsLog.map(row => [
+          row.date,
+          row.user,
+          row.cardNumber || '',
+          row.type,
+          row.paymentMethod,
+          formatCurrency(row.amount),
+          row.stall
+        ]);
+      } else if (reportType === 'cards_report') {
+        head = [['Nome', 'Email', 'Nº Cartão', 'QR Code', 'Uso', 'Total Recarregado', 'Origem', 'Saldo (R$)', 'Cadastro']];
+        body = cardsReport.map(row => [
+          row.name, 
+          row.email, 
+          formatCardNumber(row.uid || row.qrCode),
+          row.qrCode, 
+          row.hasRecharge ? `Utilizado (${row.rechargeCount}x)` : 'Apenas Ativado',
+          formatCurrency(row.totalRecharged),
+          row.origin, 
+          formatCurrency(row.balance), 
+          row.dateStr
+        ]);
       }
 
-      // Validar limite por compra individual (Single transaction limit)
-      if (activeUser.transactionLimit && activeUser.transactionLimit > 0 && cartTotal > activeUser.transactionLimit) {
-        clearTimeout(failsafe);
-        setProcessing(false);
-        setStatusModal({
-          show: true,
-          type: 'error',
-          title: 'Limite por Compra Excedido',
-          message: `Este cartão possui um limite máximo de R$ ${activeUser.transactionLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} por compra.\n\nCliente: ${activeUser.name}\nValor da Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-        });
-        return;
-      }
-
-      // Validar limite diário acumulado (Daily spending limit limit)
-      const todayStr = new Date().toISOString().split('T')[0];
-      const currentSpentToday = (activeUser.lastSpentDate === todayStr) ? (activeUser.spentToday || 0) : 0;
-      
-      if (activeUser.dailyLimit && activeUser.dailyLimit > 0 && (currentSpentToday + cartTotal) > activeUser.dailyLimit) {
-        clearTimeout(failsafe);
-        setProcessing(false);
-        const remainingLimit = Math.max(0, activeUser.dailyLimit - currentSpentToday);
-        setStatusModal({
-          show: true,
-          type: 'error',
-          title: 'Limite Diário Excedido',
-          message: `Este cartão possui um limite diário de R$ ${activeUser.dailyLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.\n\nCliente: ${activeUser.name}\nJá gasto hoje: R$ ${currentSpentToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nDisponível restante: R$ ${remainingLimit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nTentativa de compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-        });
-        return;
-      }
-
-      // Executar todos os registros no banco em paralelo para velocidade máxima (3x mais rápido!)
-      const isShared = (!activeUser.balanceType || activeUser.balanceType === 'shared') && !!activeUser.parentUid;
-      const nextSpentToday = currentSpentToday + cartTotal;
-      
-      let updateBalancePromise;
-      if (isShared) {
-        updateBalancePromise = Promise.all([
-          updateDoc(doc(db, 'users', activeUser.parentUid!), {
-            balance: increment(-cartTotal)
-          }),
-          updateDoc(doc(db, 'users', activeUser.uid), {
-            spentToday: nextSpentToday,
-            lastSpentDate: todayStr
-          })
-        ]).catch(e => {
-          handleFirestoreError(e, OperationType.UPDATE, `users/${activeUser!.uid}`);
-          throw e;
-        });
-      } else {
-        updateBalancePromise = updateDoc(doc(db, 'users', activeUser.uid), {
-          balance: increment(-cartTotal),
-          spentToday: nextSpentToday,
-          lastSpentDate: todayStr
-        }).catch(e => {
-          handleFirestoreError(e, OperationType.UPDATE, `users/${activeUser!.uid}`);
-          throw e;
-        });
-      }
-
-      const activeCardNumber = activeUser.uid || (activeUser as any).scannedCardCode || activeUser.qrCode || '';
-
-      const writeTransactionPromise = addDoc(collection(db, 'transactions'), {
-        userId: activeUser.uid,
-        userName: activeUser.name,
-        clientName: activeUser.name,
-        cardNumber: activeCardNumber,
-        amount: -cartTotal,
-        type: 'debit',
-        description: `Compra na barraca ${stall?.name || ''}: ${cartItemsNames}`,
-        stallName: stall?.name || 'Barraca',
-        items: cart.map(item => `${item.quantity}x ${item.name}`),
-        vendorId: profile.uid,
-        status: 'completed',
-        timestamp: serverTimestamp()
-      }).catch(e => {
-        handleFirestoreError(e, OperationType.CREATE, 'transactions');
+      autoTable(doc, {
+        head: head,
+        body: body,
+        startY: 45,
+        theme: 'striped',
+        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255] },
       });
 
-      const writeConsumptionPromise = addDoc(collection(db, 'consumption'), {
-        studentId: activeUser.uid,
-        studentName: activeUser.name,
-        clientName: activeUser.name,
-        cardNumber: activeCardNumber,
-        vendorId: profile.uid,
-        stallId: activeStallId,
-        amount: cartTotal,
-        items: cart.map(item => `${item.quantity}x ${item.name}`),
-        detailedItems: cart.map(item => ({
-          productId: item.id,
-          name: item.name,
-          quantity: item.quantity,
-          price: item.price,
-          subtotal: item.price * item.quantity
-        })),
-        timestamp: serverTimestamp()
-      }).catch(e => {
-        handleFirestoreError(e, OperationType.CREATE, 'consumption');
-      });
-
-      // Aguarda apenas a atualização de saldo (crítica) para autorizar a venda instantaneamente.
-      // O registro das coleções de transações e consumo são salvos em segundo plano.
-      await updateBalancePromise;
-      
-      // Salva os logs em segundo plano sem travar a tela do operador
-      writeTransactionPromise.catch(e => console.error("Erro em background (transactions):", e));
-      writeConsumptionPromise.catch(e => console.error("Erro em background (consumption):", e));
-
-      const completedItems = [...cart];
-
-      setStatusModal({
-        show: true,
-        type: 'success',
-        title: 'Venda Concluída!',
-        message: `Cliente: ${activeUser.name}\nCartão: ${formatCardNumber(activeCardNumber)}\n\nO pagamento de R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} foi processado com sucesso.\nNovo saldo do cliente: R$ ${(activeUser.balance - cartTotal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
-        items: completedItems
-      });
-
-      // Guardar detalhes para conferência na aba Pedidos
-      setLastSale({
-        userName: activeUser.name,
-        total: cartTotal,
-        items: cart.map(item => `${item.quantity}x ${item.name}`),
-        timestamp: new Date()
-      });
-
-      // Clear cart and client for the next sale
-      setScannedUser(null);
-      clearCart();
-    } catch (error) {
-      console.error('Erro no processamento da venda:', error);
-      // Already handled by nested tries or generic catch if top-level logic fails
-    } finally {
-      clearTimeout(failsafe);
-      setProcessing(false);
+      doc.save(`${reportType}_${format(new Date(), 'yyyy-MM-dd_HHmm')}.pdf`);
+      toast.success('PDF exportado com sucesso!');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao gerar PDF');
     }
   };
-
-  if (loading) {
-    return <div className="h-screen bg-slate-900 flex items-center justify-center font-bold text-white">Carregando Terminal...</div>;
-  }
-
-  if (!(profile.vendorIds && profile.vendorIds.length > 0) && profile.role !== 'admin') {
-    return (
-      <div className="h-screen bg-slate-900 flex flex-col items-center justify-center p-8 text-center text-white">
-        <Store className="h-20 w-20 text-slate-700 mb-6" />
-        <h1 className="text-3xl font-black mb-4">Barraca Não Vinculada</h1>
-        <p className="text-slate-400 max-w-md">O administrador precisa vincular seu perfil a uma barraca nas configurações.</p>
-        <Button variant="ghost" onClick={() => auth.signOut()} className="mt-8 text-slate-500">Sair da conta</Button>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white pb-32 md:pb-8 relative overflow-hidden">
-      {/* Background Decorative Elements */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full" />
-        <div className="absolute top-[20%] -right-[10%] w-[30%] h-[30%] bg-indigo-600/10 blur-[100px] rounded-full" />
-        <div className="absolute -bottom-[10%] left-[20%] w-[50%] h-[40%] bg-blue-900/10 blur-[150px] rounded-full" />
-      </div>
-
-      <div className="max-w-[1536px] mx-auto px-4 py-4 md:px-6 md:py-6 space-y-6 relative z-10">
-        <header className="flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-900/40 backdrop-blur-xl border border-white/10 p-4 rounded-3xl shadow-2xl sticky top-2 z-30 transition-all duration-300">
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            <div className="h-12 w-12 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 ring-1 ring-white/20">
-              <Store className="h-6 w-6 text-white" />
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Upper header section */}
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-slate-100">
+        <div className="space-y-3">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-600">
+            <BarChart3 className="h-3.5 w-3.5" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">Business Intelligence</span>
+          </div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+            <div className="h-12 w-12 rounded-xl bg-slate-950 flex items-center justify-center text-white shadow-lg shrink-0">
+              <FileText className="h-6 w-6" />
             </div>
-            <div className="flex-1">
-              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mb-1">Terminal Ativo</p>
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-black text-white tracking-tight leading-none">{stall?.name || 'Carregando...'}</h2>
-                {(profile.role === 'admin' || (profile.vendorIds && profile.vendorIds.length > 1)) && (
-                  <select 
-                    className="bg-white/5 hover:bg-white/10 text-[10px] px-3 py-1.5 rounded-xl border border-white/10 font-black text-blue-400 uppercase outline-none transition-all cursor-pointer"
-                    value={activeStallId || ''}
-                    onChange={(e) => setActiveStallId(e.target.value)}
-                  >
-                    {profile.role === 'admin' && <option value="" className="bg-slate-900">Selecionar...</option>}
-                    {availableStalls.map(s => <option key={s.id} value={s.id} className="bg-slate-900">{s.name}</option>)}
-                  </select>
-                )}
-              </div>
+            PAINEL DE RELATÓRIOS
+          </h2>
+          <p className="text-slate-500 font-medium">
+            Métricas estratégicas e controle inteligente para o seu evento.
+          </p>
+        </div>
+      </header>
+
+      {/* Advanced dynamic filters section */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col gap-6">
+        <div className="flex flex-wrap items-center gap-4">
+          
+          {/* Dynamic Search */}
+          <div className="flex flex-col gap-1.5 w-full md:w-64">
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Pesquisar geral</label>
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input 
+                type="text"
+                placeholder="Pesquisar por texto..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-xs font-bold text-slate-705 outline-none focus:ring-2 focus:ring-slate-950/10 w-full"
+              />
             </div>
           </div>
 
-          <div className="flex items-center gap-3 w-full md:w-auto justify-between sm:justify-end">
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="bg-white/5 p-1 rounded-2xl border border-white/5">
-              <TabsList className="bg-transparent border-none h-10 gap-1">
-                <TabsTrigger value="pos" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white font-black text-[10px] uppercase h-8 px-4 rounded-xl transition-all">
-                   <ShoppingCart className="h-3.5 w-3.5 mr-2" /> PDV
-                </TabsTrigger>
-                <TabsTrigger value="orders" className="data-[state=active]:bg-blue-600 data-[state=active]:text-white font-black text-[10px] uppercase h-8 px-4 rounded-xl transition-all relative">
-                   <Clock className="h-3.5 w-3.5 mr-2" /> Pedidos
-                   {orders.length > 0 && (
-                     <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[8px] font-black h-5 w-5 flex items-center justify-center rounded-full border-2 border-slate-900 shadow-lg">
-                       {orders.length}
-                     </span>
-                   )}
-                </TabsTrigger>
-                <TabsTrigger value="analytics" className="data-[state=active]:bg-indigo-600 data-[state=active]:text-white font-black text-[10px] uppercase h-8 px-4 rounded-xl transition-all">
-                   <BarChart3 className="h-3.5 w-3.5 mr-2" /> Análise
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-            
-            <div className="hidden sm:block h-8 w-px bg-white/10 mx-1" />
-
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-500 ${isOnline ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-red-500/10 border-red-500/20 text-red-500 animate-pulse'}`}>
-              {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-              <span className="text-[9px] font-black uppercase tracking-widest hidden xs:inline">{isOnline ? 'Online' : 'Offline'}</span>
-            </div>
-
-            <div className="hidden sm:flex items-center gap-4 bg-white/10 px-4 py-2 rounded-2xl border border-white/20">
-              <div className="text-right">
-                <p className="text-[10px] font-black text-white uppercase leading-none mb-1 truncate max-w-[100px]">{profile.name}</p>
-                <p className="text-[8px] font-bold text-blue-400 uppercase tracking-widest">{profile.role}</p>
-              </div>
-              <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center font-black text-xs text-white">
-                {profile.name.charAt(0).toUpperCase()}
-              </div>
-            </div>
-
-            <Button 
-                variant="ghost" 
-                onClick={() => {
-                  toast.promise(async () => {
-                    if ('serviceWorker' in navigator) {
-                      const registrations = await navigator.serviceWorker.getRegistrations();
-                      for (let reg of registrations) await reg.unregister();
-                    }
-                    window.location.reload();
-                  }, {
-                    loading: 'Limpando cache...',
-                    success: 'Atualizando...',
-                    error: 'Erro ao atualizar'
-                  });
-                }} 
-                className="h-11 px-4 bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white rounded-2xl transition-all flex items-center gap-2 font-black uppercase tracking-widest text-[10px]"
-                title="Atualizar App"
-              >
-              <Zap className="h-4 w-4" />
-              <span className="hidden xs:inline">Atualizar</span>
-            </Button>
-
-            <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={() => auth.signOut()} 
-                className="h-11 w-11 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-2xl transition-all"
-              >
-              <LogOut className="h-5 w-5" />
-            </Button>
+          {/* Start Date */}
+          <div className="flex flex-col gap-1.5 w-full sm:w-auto">
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Período de Início</label>
+            <input 
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10"
+            />
           </div>
-        </header>
 
-        <AnimatePresence mode="wait">
-          {activeTab === 'pos' ? (
-            <motion.div 
-              key="pos"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.02 }}
-              className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-8 items-start transition-all"
-            >
-              {/* Product Area */}
-              <div className="w-full space-y-8">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-6 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
-                  <div>
-                    <h3 className="text-xs font-black uppercase tracking-[0.4em] text-slate-500 mb-1">Cardápio do Evento</h3>
-                    <p className="text-xs font-bold text-slate-400">Toque para adicionar, clique longo ou botão (-) para remover</p>
-                  </div>
-                  <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-blue-500/10 rounded-2xl border border-blue-500/20">
-                    <Zap className="h-4 w-4 text-blue-500" />
-                    <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Atendimento Rápido</span>
-                  </div>
-                </div>
+          {/* End Date */}
+          <div className="flex flex-col gap-1.5 w-full sm:w-auto">
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Período de Término</label>
+            <input 
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10"
+            />
+          </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-5 gap-3 md:gap-4 overflow-y-auto max-h-[70vh] pr-2 custom-scrollbar pb-10">
-                  {paginatedProducts.length === 0 ? (
-                    <motion.div 
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="col-span-full py-40 text-center text-slate-600 bg-white/[0.02] rounded-[40px] border-4 border-dashed border-white/5"
-                    >
-                      <PackageCheck className="h-16 w-16 mx-auto opacity-10 mb-4" />
-                      <p className="text-lg font-black uppercase tracking-widest opacity-20">Aguardando estoque</p>
-                    </motion.div>
-                  ) : (
-                    paginatedProducts.map((product, index) => {
-                      const cartItem = cart.find(i => i.id === product.id);
-                      const count = cartItem?.quantity || 0;
-                      return (
-                        <div key={product.id} className="relative group">
-                          <motion.button
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            whileHover={{ scale: 1.02, y: -2 }}
-                            whileTap={{ scale: 0.95 }}
-                            transition={{ 
-                              type: 'spring', 
-                              stiffness: 400, 
-                              damping: 15,
-                              delay: index * 0.03 
-                            }}
-                            onClick={() => addToCart(product)}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              if (count > 0) removeFromCart(product.id);
-                            }}
-                            className={`w-full aspect-square flex flex-col items-start justify-end p-5 rounded-[32px] border-2 transition-all text-left relative overflow-hidden ${
-                              count > 0 
-                                ? 'bg-blue-600 border-blue-400 shadow-[0_20px_60px_rgba(37,99,235,0.3)] ring-4 ring-blue-500/10' 
-                                : 'bg-white/[0.03] border-white/5 hover:border-blue-500/30 hover:bg-white/[0.06]'
-                            }`}
-                          >
-                            <AnimatePresence>
-                              {count > 0 && (
-                                <motion.div 
-                                  initial={{ scale: 0, rotate: -45, y: 10 }}
-                                  animate={{ scale: 1, rotate: 0, y: 0 }}
-                                  exit={{ scale: 0, rotate: 45, y: 10 }}
-                                  transition={{ type: 'spring', stiffness: 500, damping: 15 }}
-                                  className="absolute top-4 right-4 bg-white text-blue-600 text-[12px] font-black h-9 w-9 flex items-center justify-center rounded-2xl shadow-2xl z-20 border-2 border-blue-100 ring-4 ring-white/10"
-                                >
-                                  {count}
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-
-                            <div className={`absolute inset-0 bg-gradient-to-br transition-opacity duration-500 ${count > 0 ? 'from-white/10 to-transparent' : 'from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100'}`} />
-                            
-                            <div className="relative z-10 w-full space-y-1 pr-6">
-                              <span className={`block text-[10px] font-black uppercase tracking-[0.1em] line-clamp-1 leading-tight transition-all ${count > 0 ? 'text-blue-100' : 'text-slate-500 group-hover:text-blue-300'}`}>
-                                {product.category || 'Geral'}
-                              </span>
-                              <span className={`block text-[12px] font-black uppercase tracking-tight line-clamp-2 leading-tight transition-all ${count > 0 ? 'text-white' : 'text-slate-200 group-hover:text-white'}`}>
-                                {product.name}
-                              </span>
-                              <div className="pt-2">
-                                <span className={`text-xl font-black tabular-nums transition-all ${count > 0 ? 'text-white' : 'text-white'}`}>
-                                  <span className="text-[10px] font-bold mr-0.5 opacity-60">R$</span> {product.price.toFixed(2)}
-                                </span>
-                              </div>
-                            </div>
-                          </motion.button>
-
-                          {count > 0 && (
-                            <motion.button
-                              initial={{ opacity: 0, scale: 0.5 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              whileTap={{ scale: 0.8 }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeFromCart(product.id);
-                              }}
-                              className="absolute bottom-4 right-4 h-10 w-10 bg-slate-950/80 backdrop-blur-md rounded-2xl border border-white/20 flex items-center justify-center text-white z-30 hover:bg-red-500 transition-colors shadow-lg"
-                            >
-                              <Minus className="h-5 w-5" strokeWidth={3} />
-                            </motion.button>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-6 pt-6 pb-4">
-                    <Button 
-                      variant="ghost" 
-                      size="lg" 
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                      className="text-slate-500 hover:text-white bg-white/5 hover:bg-white/10 rounded-2xl h-12 px-6 font-black text-[10px] uppercase"
-                    >
-                      <ChevronLeft className="h-4 w-4 mr-2" /> Anterior
-                    </Button>
-                    <div className="flex items-center gap-1">
-                      {Array.from({length: totalPages}).map((_, i) => (
-                        <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === i + 1 ? 'w-8 bg-blue-500' : 'w-1.5 bg-white/10'}`} />
-                      ))}
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="lg" 
-                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                      disabled={currentPage === totalPages}
-                      className="text-slate-500 hover:text-white bg-white/5 hover:bg-white/10 rounded-2xl h-12 px-6 font-black text-[10px] uppercase"
-                    >
-                      Próxima <ChevronRight className="h-4 w-4 ml-2" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {/* Sidebar: Shopping Bag */}
-              <div className="hidden lg:block w-full sticky top-24 space-y-6">
-                <Card className="bg-slate-900/60 backdrop-blur-3xl border border-white/10 text-white rounded-[32px] overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] transition-all">
-                  <header className="p-6 border-b border-white/5 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 bg-white/5 rounded-xl flex items-center justify-center">
-                        <ShoppingCart className="h-4 w-4 text-blue-400" />
-                      </div>
-                      <h3 className="font-black text-[11px] uppercase tracking-[0.2em] text-slate-400">Carrinho</h3>
-                    </div>
-                    {cart.length > 0 && (
-                      <Button variant="ghost" size="sm" onClick={clearCart} className="text-red-400 h-8 text-[10px] font-black hover:bg-red-500/10 rounded-xl px-3 transition-colors">
-                        LIMPAR
-                      </Button>
-                    )}
-                  </header>
-                  
-                  <CardContent className="p-0">
-                    <div className="max-h-[min(420px,55vh)] overflow-y-auto custom-scrollbar px-6">
-                      {cart.length === 0 ? (
-                        <div className="py-24 text-center space-y-4">
-                          <div className="h-20 w-20 bg-white/[0.02] rounded-full flex items-center justify-center mx-auto ring-1 ring-white/5 shadow-inner">
-                            <ShoppingCart className="h-10 w-10 opacity-10 text-slate-400" />
-                          </div>
-                          <p className="text-[11px] font-black text-slate-600 uppercase tracking-[0.2em] leading-relaxed">Sua sacola<br/>está vazia</p>
-                        </div>
-                      ) : (
-                        <div className="py-4 space-y-3">
-                          <AnimatePresence initial={false} mode="popLayout">
-                            {cart.map((item) => (
-                              <motion.div 
-                                key={item.id}
-                                layout
-                                initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, x: 20, scale: 0.9 }}
-                                className="flex items-center justify-between p-4 bg-white/[0.04] rounded-2xl border border-white/5 group hover:border-blue-500/30 transition-all shadow-lg"
-                              >
-                                <div className="flex-1 mr-4 min-w-0">
-                                  <p className="font-black text-[11px] uppercase truncate text-white/90 tracking-tight leading-tight mb-1">{item.name}</p>
-                                  <p className="text-[11px] text-blue-400 font-bold tabular-nums">R$ {item.price.toFixed(2)}</p>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl ring-1 ring-white/10">
-                                    <motion.button 
-                                      whileTap={{ scale: 0.8 }}
-                                      onClick={() => removeFromCart(item.id)} 
-                                      className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-slate-500 hover:text-red-400 transition-colors"
-                                    >
-                                      <Minus size={14} strokeWidth={3}/>
-                                    </motion.button>
-                                    <span className="w-6 text-center text-xs font-black tabular-nums">{item.quantity}</span>
-                                    <motion.button 
-                                      whileTap={{ scale: 0.8 }}
-                                      onClick={() => addToCart(item)} 
-                                      className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 text-blue-400 hover:text-blue-300 transition-colors"
-                                    >
-                                      <Plus size={14} strokeWidth={3}/>
-                                    </motion.button>
-                                  </div>
-                                  
-                                  <button 
-                                    onClick={() => deleteItemFromCart(item.id)}
-                                    className="h-10 w-10 flex items-center justify-center rounded-xl bg-white/[0.02] border border-white/5 text-slate-500 hover:text-red-500 hover:bg-red-500/10 transition-all group/trash"
-                                  >
-                                    <Trash2 className="h-4 w-4 group-hover/trash:scale-110 transition-transform" />
-                                  </button>
-                                </div>
-                              </motion.div>
-                            ))}
-                          </AnimatePresence>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="p-8 bg-slate-950/40 border-t border-white/10 space-y-6">
-                      <div className="flex justify-between items-end">
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Total Geral</span>
-                          <div className="text-4xl font-black text-white tracking-tighter">
-                            <span className="text-xl font-bold mr-1 opacity-40">R$</span>
-                            {cartTotal.toFixed(2)}
-                          </div>
-                        </div>
-                        <div className="text-[10px] font-black text-blue-500/50 uppercase tracking-widest bg-blue-500/5 px-3 py-1 rounded-full border border-blue-500/10">
-                          {cart.reduce((a, b) => a + b.quantity, 0)} Itens
-                        </div>
-                      </div>
-
-                      {!scannedUser ? (
-                        <div className="space-y-3">
-                          <Button 
-                            onClick={() => setIsScanning(true)}
-                            disabled={cart.length === 0}
-                            className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.3em] rounded-2xl shadow-[0_20px_40px_rgba(37,99,235,0.3)] border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all group overflow-hidden relative"
-                          >
-                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
-                            <QrCode className="mr-3 h-6 w-6" /> Escanear Carteira
-                          </Button>
-                          
-                          <div className="relative">
-                            <Input
-                              placeholder="FOCO P/ LEITOR DE CARTÃO (RFID/SWIPE)"
-                              onKeyDown={async (e) => {
-                                if (e.key === 'Enter') {
-                                  const text = e.currentTarget.value.trim();
-                                  if (text) {
-                                    await onScanSuccess(text);
-                                    e.currentTarget.value = '';
-                                  }
-                                }
-                              }}
-                              disabled={cart.length === 0}
-                              className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 font-bold uppercase text-[11px] tracking-wider text-center h-12 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none w-full"
-                              autoFocus={cart.length > 0}
-                            />
-                            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
-                              <span className="text-[8px] font-black uppercase text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">Leitor USB</span>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <motion.div 
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="bg-white/5 p-5 rounded-3xl border-2 border-blue-600/30 space-y-5"
-                        >
-                           <div className="flex justify-between items-center bg-slate-950/50 p-3 rounded-2xl border border-white/5">
-                              <div className="min-w-0 flex items-center gap-3">
-                                <div className="h-10 w-10 bg-blue-600 rounded-xl flex items-center justify-center font-black text-lg">
-                                  {scannedUser.name.charAt(0).toUpperCase()}
-                                </div>
-                                <div>
-                                  <p className="font-black text-xs uppercase truncate text-white leading-none mb-1">{scannedUser.name}</p>
-                                  <p className="text-[11px] font-black text-blue-400 font-mono tracking-wide leading-none mt-1">
-                                    {formatCardNumber(scannedUser.uid || (scannedUser as any).scannedCardCode || scannedUser.qrCode || '')}
-                                  </p>
-                                  <p className="text-[8px] font-bold text-slate-500 font-mono tracking-tight mb-1.5 mt-0.5">
-                                    ID: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}
-                                  </p>
-                                  <div className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
-                                    scannedUser.balance < cartTotal ? 'bg-red-500/10 text-red-500' : 'bg-green-500/10 text-green-400'
-                                  }`}>
-                                    Saldo: R$ {scannedUser.balance.toFixed(2)}
-                                  </div>
-                                </div>
-                              </div>
-                              <button 
-                                onClick={() => setScannedUser(null)} 
-                                className="h-8 w-8 flex items-center justify-center hover:bg-white/10 rounded-xl transition-all text-slate-500 hover:text-white"
-                              >
-                                <XCircle className="h-5 w-5" />
-                              </button>
-                           </div>
-                           
-                           <Button 
-                             onClick={handleSale}
-                             disabled={processing || scannedUser.balance < cartTotal || cart.length === 0}
-                             className={`w-full h-14 font-black uppercase text-xs tracking-[0.2em] rounded-2xl transition-all ${
-                               scannedUser.balance < cartTotal 
-                                ? 'bg-slate-800 text-slate-600 cursor-not-allowed' 
-                                : 'bg-green-600 hover:bg-green-500 shadow-xl shadow-green-600/20 active:scale-95'
-                             }`}
-                           >
-                              {processing ? <Loader2 className="h-6 w-6 animate-spin" /> : 
-                               scannedUser.balance < cartTotal ? 'SALDO INSUFICIENTE' : 'CONCLUIR PAGAMENTO'}
-                           </Button>
-                        </motion.div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </motion.div>
-          ) : activeTab === 'orders' ? (
-          <motion.div 
-            key="orders"
-            initial={{ opacity: 0, scale: 0.98 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.02 }}
-            className="space-y-8 pb-10"
-          >
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
-               <div className="flex items-center gap-4">
-                 <div className="h-14 w-14 bg-gradient-to-br from-blue-500 to-indigo-700 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                    <Package className="h-7 w-7 text-white" />
-                 </div>
-                 <div>
-                    <h3 className="text-2xl font-black text-white uppercase tracking-tight">Central de Pedidos</h3>
-                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Controle seus pedidos digitais e vendas diretas do PDV</p>
-                 </div>
-               </div>
-               
-               {/* Sub-tabs comutadoras embutidas */}
-               <div className="flex bg-slate-950/80 p-1 rounded-2xl border border-white/10 w-full lg:w-auto self-stretch lg:self-center">
-                 <button
-                   onClick={() => setOrdersSubTab('pending')}
-                   className={`flex-1 lg:flex-none py-2.5 px-6 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
-                     ordersSubTab === 'pending'
-                       ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                       : 'text-slate-400 hover:text-white hover:bg-white/5'
-                   }`}
-                 >
-                   <Clock className="h-3.5 w-3.5" />
-                   Pendentes ({orders.length})
-                 </button>
-                 <button
-                   onClick={() => setOrdersSubTab('history')}
-                   className={`flex-1 lg:flex-none py-2.5 px-6 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
-                     ordersSubTab === 'history'
-                       ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                       : 'text-slate-400 hover:text-white hover:bg-white/5'
-                   }`}
-                 >
-                   <Search className="h-3.5 w-3.5" />
-                   Histórico / PDV ({allPreviousOrders.length})
-                 </button>
-               </div>
-            </div>
-
-            {ordersSubTab === 'pending' ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Seção de Última Venda Realizada - Para Conferência */}
-                {lastSale && (
-                  <motion.div 
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="col-span-full"
-                  >
-                    <Card className="bg-emerald-500/10 border-emerald-500/20 text-emerald-100 rounded-[32px] overflow-hidden">
-                      <CardHeader className="bg-emerald-500/10 border-b border-emerald-500/10 p-5">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="h-10 w-10 bg-emerald-500 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-500/20">
-                              <CheckCircle2 className="h-5 w-5 text-white" />
-                            </div>
-                            <div>
-                              <CardTitle className="text-sm font-black uppercase tracking-widest text-emerald-400">Última Venda Realizada</CardTitle>
-                              <CardDescription className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-widest">Concluída há pouco para conferência</CardDescription>
-                            </div>
-                          </div>
-                          <span className="text-[10px] font-black tabular-nums bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-500/10">
-                            {lastSale.timestamp.toLocaleTimeString('pt-BR')}
-                          </span>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="p-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                          <div className="space-y-4">
-                            <div className="bg-black/20 p-4 rounded-2xl border border-emerald-500/10">
-                               <div className="flex items-center gap-2 mb-2">
-                                  <UserCheck className="h-4 w-4 text-emerald-500" />
-                                  <span className="text-[10px] font-black uppercase text-emerald-500/70">Cliente</span>
-                               </div>
-                               <p className="font-black text-lg uppercase tracking-tight">{lastSale.userName}</p>
-                            </div>
-                            <div className="bg-black/20 p-4 rounded-2xl border border-emerald-500/10">
-                               <div className="flex items-center gap-2 mb-2">
-                                  <Receipt className="h-4 w-4 text-emerald-500" />
-                                  <span className="text-[10px] font-black uppercase text-emerald-500/70">Total Pago</span>
-                               </div>
-                               <p className="font-black text-3xl tracking-tighter">
-                                 <span className="text-base font-bold opacity-50 mr-1">R$</span>
-                                 {lastSale.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                               </p>
-                            </div>
-                          </div>
-                          
-                          <div className="bg-emerald-950/20 p-6 rounded-3xl border-2 border-emerald-500/10 relative overflow-hidden">
-                             <div className="absolute top-0 right-0 p-4 opacity-5">
-                               <ShoppingCart className="h-24 w-24" />
-                             </div>
-                             <h4 className="text-[10px] font-black uppercase tracking-widest text-emerald-500 mb-4 flex items-center gap-2">
-                               <Package className="h-3 w-3" /> Itens Vendidos
-                             </h4>
-                             <ul className="space-y-2">
-                                {lastSale.items.map((item, i) => (
-                                  <li key={i} className="flex justify-between items-center text-xs font-bold text-emerald-100/90 py-2 border-b border-white/5 last:border-0">
-                                     <span className="bg-emerald-500/20 px-2 py-0.5 rounded text-[10px] font-black mr-2">{item.split('x')[0]}x</span>
-                                     <span className="flex-1 truncate uppercase">{item.split('x')[1].trim()}</span>
-                                  </li>
-                                ))}
-                             </ul>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                )}
-
-                {orders.length === 0 ? (
-                  <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="col-span-full py-40 text-center text-slate-500 border-4 border-dashed border-white/5 rounded-[48px] bg-white/[0.01] backdrop-blur-sm"
-                  >
-                    <Clock className="h-20 w-20 mx-auto opacity-10 mb-6" />
-                    <p className="text-lg font-black uppercase tracking-[0.2em] opacity-30">Aguardando novos pedidos...</p>
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => setActiveTab('pos')} 
-                      className="mt-6 font-black text-[10px] uppercase tracking-widest text-blue-500 hover:text-white hover:bg-blue-600/20 rounded-full px-8 py-6 h-auto transition-all"
-                    >
-                      VOLTAR AO PDV
-                    </Button>
-                  </motion.div>
-                ) : (
-                  orders.map((order, idx) => {
-                    const isExpanded = expandedOrderId === order.id;
-                    return (
-                      <motion.div
-                        key={order.id}
-                        initial={{ opacity: 0, y: 30 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: idx * 0.05 }}
-                        layout
-                      >
-                        <Card 
-                          onClick={() => setExpandedOrderId(isExpanded ? null : order.id)}
-                          className={`bg-slate-900/40 backdrop-blur-xl border border-white/10 text-white rounded-[32px] overflow-hidden group hover:border-blue-500/50 transition-all shadow-2xl relative cursor-pointer active:scale-[0.99] ${isExpanded ? 'ring-2 ring-blue-500/40' : ''}`}
-                        >
-                          {/* Status Badge */}
-                          <div className="absolute top-6 right-6 flex items-center gap-2 z-20">
-                            <div className="flex items-center gap-1.5 bg-blue-500/10 px-3 py-1.5 rounded-xl border border-blue-500/20">
-                              <Clock className="h-3 w-3 text-blue-400 animate-pulse" />
-                              <span className="text-[9px] font-black uppercase text-blue-400 tracking-widest">PENDENTE</span>
-                            </div>
-                            <div className={`transition-transform duration-300 bg-white/5 p-1.5 rounded-xl border border-white/5 ${isExpanded ? 'rotate-180' : ''}`}>
-                              <ChevronDown className="h-4 w-4 text-slate-500" />
-                            </div>
-                          </div>
-
-                          <CardHeader className={`p-8 transition-colors ${isExpanded ? 'bg-white/5' : 'bg-transparent'}`}>
-                            <div className="flex flex-col gap-1">
-                              <span className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">#{order.id.slice(-6).toUpperCase()}</span>
-                              <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 bg-blue-600/20 rounded-xl flex items-center justify-center font-black text-blue-400 border border-blue-500/20">
-                                  {order.studentName.charAt(0).toUpperCase()}
-                                </div>
-                                <CardTitle className="text-xl font-black tracking-tight">{order.studentName}</CardTitle>
-                              </div>
-                              <div className="flex items-center gap-4 mt-3">
-                                <div className="flex items-center gap-1.5 text-slate-400">
-                                  <Package className="h-3.5 w-3.5" />
-                                  <span className="text-[10px] font-black uppercase tracking-widest">{order.items.length} {order.items.length === 1 ? 'Item' : 'Itens'}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5 text-blue-400">
-                                  <TrendingUp className="h-3.5 w-3.5" />
-                                  <span className="text-[10px] font-black uppercase tracking-widest tabular-nums">R$ {order.total.toFixed(2)}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </CardHeader>
-
-                          <AnimatePresence>
-                            {isExpanded && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-                              >
-                                <CardContent className="p-8 pt-0 space-y-6">
-                                  <div className="h-px bg-white/5 w-full mb-6" />
-                                  
-                                  <div className="space-y-3">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-500 flex items-center justify-between">
-                                      <span>Produtos do Pedido</span>
-                                      {order.timestamp && (
-                                         <span className="text-slate-600 lowercase font-normal italic">
-                                           at {new Date(order.timestamp.toMillis?.() || Date.now()).toLocaleTimeString()}
-                                         </span>
-                                      )}
-                                    </p>
-                                    <div className="grid gap-2">
-                                      {order.items.map((item, idx) => (
-                                        <div key={idx} className="group/item flex items-center justify-between bg-white/[0.03] p-4 rounded-2xl border border-white/5 hover:bg-white/[0.05] transition-all">
-                                          <div className="flex items-center gap-3">
-                                            <div className="h-6 w-6 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                                              <Package className="h-3 w-3 text-blue-500 group-hover/item:scale-110 transition-transform" />
-                                            </div>
-                                            <p className="font-black text-xs uppercase text-slate-200 tracking-tight">{item}</p>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div className="pt-6 border-t border-white/10 flex flex-col sm:flex-row gap-4 items-center justify-between">
-                                    <div className="text-center sm:text-left">
-                                      <p className="text-[9px] text-slate-500 uppercase font-black tracking-widest mb-1">Total Confirmado</p>
-                                      <div className="text-3xl font-black text-white tracking-tighter">
-                                        <span className="text-sm font-bold opacity-30 mr-1">R$</span>
-                                        {order.total.toFixed(2)}
-                                      </div>
-                                    </div>
-
-                                    <Button 
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        markAsDelivered(order.id);
-                                      }}
-                                      className="w-full sm:w-auto h-14 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase tracking-[0.2em] gap-3 rounded-2xl shadow-[0_15px_30px_-5px_rgba(16,185,129,0.3)] transition-all group overflow-hidden relative px-8"
-                                    >
-                                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
-                                      <div className="flex items-center gap-2">
-                                        <PackageCheck className="h-5 w-5" />
-                                        ENTREGAR AGORA
-                                      </div>
-                                    </Button>
-                                  </div>
-                                </CardContent>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </Card>
-                      </motion.div>
-                    );
-                  })
-                )}
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {/* Campo de Busca de Pedidos Anteriores */}
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
-                  <Input
-                    type="text"
-                    placeholder="Buscar por nome do cliente, produto comprado, final do ID ou cartão..."
-                    value={historySearchQuery}
-                    onChange={(e) => setHistorySearchQuery(e.target.value)}
-                    className="pl-12 pr-4 py-6 h-auto bg-white/[0.02] border-white/10 rounded-2xl text-white placeholder-slate-500 text-sm focus:ring-blue-500/50 focus:border-blue-500 w-full"
-                  />
-                </div>
-
-                {filteredPreviousOrders.length === 0 ? (
-                  <motion.div 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="py-32 text-center text-slate-500 border-4 border-dashed border-white/5 rounded-[48px] bg-white/[0.01]"
-                  >
-                    <Search className="h-16 w-16 mx-auto opacity-10 mb-4" />
-                    <p className="text-base font-black uppercase tracking-[0.2em] opacity-30">Nenhum pedido anterior encontrado</p>
-                    <p className="text-slate-600 text-xs mt-2 uppercase tracking-widest">Tente usar outros termos de pesquisa</p>
-                  </motion.div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {filteredPreviousOrders.slice(0, 80).map((histOrder, idx) => {
-                      const isPDV = histOrder.type === 'pdv';
-                      const dateStr = histOrder.timestamp?.toMillis 
-                        ? new Date(histOrder.timestamp.toMillis()).toLocaleString('pt-BR')
-                        : (histOrder.timestamp instanceof Date ? histOrder.timestamp.toLocaleString('pt-BR') : 'Sem data');
-
-                      return (
-                        <motion.div
-                          key={histOrder.id}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: Math.min(idx * 0.03, 0.3) }}
-                        >
-                          <Card className="bg-slate-900/30 backdrop-blur-xl border border-white/10 text-white rounded-[24px] overflow-hidden hover:border-blue-500/30 transition-all shadow-xl h-full flex flex-col justify-between">
-                            <CardHeader className="p-5 bg-white/[0.02] border-b border-white/5">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[10px] text-slate-500 font-black uppercase tracking-wider">
-                                    #{histOrder.id.slice(-6).toUpperCase()}
-                                  </span>
-                                  {isPDV ? (
-                                    <span className="bg-emerald-500/10 text-emerald-400 text-[8px] font-black uppercase px-2 py-0.5 rounded-lg border border-emerald-500/20 tracking-wider">
-                                      Venda Direta PDV
-                                    </span>
-                                  ) : (
-                                    <span className="bg-blue-500/10 text-blue-400 text-[8px] font-black uppercase px-2 py-0.5 rounded-lg border border-blue-500/20 tracking-wider">
-                                      Pedido Digital
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-[10px] font-bold text-slate-500 tabular-nums">
-                                  {dateStr}
-                                </span>
-                              </div>
-                            </CardHeader>
-                            <CardContent className="p-5 space-y-4 flex-1 flex flex-col justify-between">
-                              <div className="space-y-3">
-                                <div className="flex justify-between items-start gap-4">
-                                  <div className="space-y-1 min-w-0">
-                                    <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider leading-none">Cliente</p>
-                                    <p className="font-extrabold text-sm text-slate-200 uppercase tracking-tight truncate max-w-[180px]">
-                                      {histOrder.clientName}
-                                    </p>
-                                  </div>
-                                  <div className="text-right shrink-0">
-                                    <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider leading-none">Total Pago</p>
-                                    <p className="font-black text-sm text-blue-400 tabular-nums">
-                                      R$ {histOrder.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                {histOrder.cardNumber && (
-                                  <div className="bg-slate-950/40 p-2.5 rounded-xl border border-white/5 flex items-center justify-between">
-                                    <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-widest">Cartão Usado</span>
-                                    <span className="text-[10px] font-black text-slate-300 font-mono">
-                                      {formatCardNumber(histOrder.cardNumber)}
-                                    </span>
-                                  </div>
-                                )}
-
-                                <div className="space-y-1.5">
-                                  <p className="text-[9px] text-slate-500 font-black uppercase tracking-wider leading-none">Itens Comprados</p>
-                                  <div className="bg-white/[0.01] rounded-2xl border border-white/5 p-3 space-y-1.5 max-h-[140px] overflow-y-auto custom-scrollbar">
-                                    {histOrder.items.map((item: string, i: number) => {
-                                      const parts = item.split('x');
-                                      const qty = parts[0] || '1';
-                                      const name = parts.slice(1).join('x').trim() || item;
-                                      return (
-                                        <div key={i} className="flex justify-between items-center text-[11px] font-semibold text-slate-300">
-                                          <span className="bg-white/5 px-1.5 py-0.5 rounded text-[9px] font-black text-slate-400">
-                                            {qty}x
-                                          </span>
-                                          <span className="flex-1 truncate uppercase text-left pl-2 text-slate-300">{name}</span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </motion.div>
-        ) : (
-          <motion.div 
-             key="analytics"
-             initial={{ opacity: 0, scale: 0.95 }}
-             animate={{ opacity: 1, scale: 1 }}
-             exit={{ opacity: 0, scale: 1.05 }}
-             className="space-y-10 pb-10"
-          >
-              <div className="flex items-center gap-4 bg-white/[0.03] p-6 rounded-[32px] border border-white/5">
-                <div className="h-14 w-14 bg-gradient-to-br from-indigo-500 to-purple-700 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                    <BarChart3 className="h-7 w-7 text-white" />
-                </div>
-                <div>
-                    <h3 className="text-2xl font-black text-white uppercase tracking-tight">Análise Estratégica</h3>
-                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Desempenho da sua barraca em tempo real</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                 <motion.div whileHover={{ y: -5 }}>
-                   <Card className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-[32px] overflow-hidden shadow-2xl relative group">
-                      <div className="absolute -right-8 -top-8 w-24 h-24 bg-green-500/10 blur-3xl rounded-full group-hover:bg-green-500/20 transition-all" />
-                      <CardContent className="p-10 space-y-4">
-                         <div className="h-12 w-12 bg-green-500/10 rounded-2xl flex items-center justify-center ring-1 ring-green-500/20">
-                            <TrendingUp className="h-6 w-6 text-green-500" />
-                         </div>
-                         <div className="space-y-1">
-                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 leading-none">Faturamento Total</p>
-                            <h4 className="text-4xl font-black text-white tracking-tighter">
-                              <span className="text-xl font-bold opacity-40 mr-1">R$</span>
-                              {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                            </h4>
-                         </div>
-                      </CardContent>
-                   </Card>
-                 </motion.div>
-
-                 <motion.div whileHover={{ y: -5 }}>
-                   <Card className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-[32px] overflow-hidden shadow-2xl relative group">
-                      <div className="absolute -right-8 -top-8 w-24 h-24 bg-blue-500/10 blur-3xl rounded-full group-hover:bg-blue-500/20 transition-all" />
-                      <CardContent className="p-10 space-y-4">
-                         <div className="h-12 w-12 bg-blue-500/10 rounded-2xl flex items-center justify-center ring-1 ring-blue-500/20">
-                            <Package className="h-6 w-6 text-blue-500" />
-                         </div>
-                         <div className="space-y-1">
-                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 leading-none">Volumes Vendidos</p>
-                            <h4 className="text-4xl font-black text-white tracking-tighter">
-                              {stats.totalItems} <span className="text-xl font-bold opacity-40 ml-1">unid.</span>
-                            </h4>
-                         </div>
-                      </CardContent>
-                   </Card>
-                 </motion.div>
-
-                 <motion.div whileHover={{ y: -5 }}>
-                   <Card className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-[32px] overflow-hidden shadow-2xl relative group">
-                      <div className="absolute -right-8 -top-8 w-24 h-24 bg-purple-500/10 blur-3xl rounded-full group-hover:bg-purple-500/20 transition-all" />
-                      <CardContent className="p-10 space-y-4">
-                         <div className="h-12 w-12 bg-purple-500/10 rounded-2xl flex items-center justify-center ring-1 ring-purple-500/20">
-                            <Users className="h-6 w-6 text-purple-500" />
-                         </div>
-                         <div className="space-y-1">
-                            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500 leading-none">Ticket Médio</p>
-                            <h4 className="text-4xl font-black text-white tracking-tighter">
-                              <span className="text-xl font-bold opacity-40 mr-1">R$</span>
-                              {(stats.totalRevenue / (Object.keys(stats.productSales).length || 1)).toFixed(2)}
-                            </h4>
-                         </div>
-                      </CardContent>
-                   </Card>
-                 </motion.div>
-              </div>
-
-              <div className="space-y-6">
-                 <div className="flex items-center justify-between px-2">
-                    <h3 className="text-xs font-black uppercase tracking-[0.4em] text-slate-600">Ranking de Produtos</h3>
-                    <div className="h-px flex-1 bg-white/5 mx-6" />
-                 </div>
-                 <div className="bg-white/[0.02] backdrop-blur-xl border border-white/5 rounded-[48px] overflow-hidden shadow-2xl">
-                    <div className="divide-y divide-white/5">
-                       {statsLoading ? (
-                          <div className="p-32 text-center">
-                            <Loader2 className="h-12 w-12 animate-spin mx-auto text-blue-600/40" />
-                            <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest mt-4">Calculando dados...</p>
-                          </div>
-                       ) : Object.keys(stats.productSales).length === 0 ? (
-                          <div className="p-32 text-center">
-                            <Package className="h-16 w-16 mx-auto opacity-5 text-white mb-6" />
-                            <p className="text-[11px] text-slate-600 font-black uppercase tracking-[0.3em]">Nenhum registro de venda</p>
-                          </div>
-                       ) : (
-                          Object.values(stats.productSales)
-                            .sort((a, b) => (b as any).count - (a as any).count)
-                            .map((item: any, i) => (
-                              <motion.div 
-                                key={i} 
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: i * 0.05 }}
-                                className="flex items-center justify-between p-8 hover:bg-white/[0.03] transition-all group"
-                              >
-                                 <div className="flex items-center gap-8">
-                                    <div className={`h-14 w-14 rounded-2xl flex items-center justify-center font-black text-xl shadow-lg transition-transform group-hover:scale-110 ${
-                                      i === 0 ? 'bg-amber-500 text-white shadow-amber-900/20 ring-4 ring-amber-500/10' : 
-                                      i === 1 ? 'bg-slate-400 text-white shadow-slate-900/20' :
-                                      i === 2 ? 'bg-orange-600 text-white shadow-orange-900/20' :
-                                      'bg-slate-800 text-slate-500 ring-1 ring-white/5'
-                                    }`}>
-                                       {i + 1}
-                                    </div>
-                                    <div>
-                                       <p className="text-lg font-black text-white/90 uppercase tracking-tight mb-0.5">{item.name}</p>
-                                       <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">{item.count} unidades vendidas</p>
-                                    </div>
-                                 </div>
-                                 {item.revenue > 0 && (
-                                   <div className="text-2xl font-black text-white tracking-tighter">
-                                      <span className="text-sm font-bold opacity-40 mr-1">R$</span>
-                                      {item.revenue.toFixed(2)}
-                                   </div>
-                                 )}
-                              </motion.div>
-                            ))
-                       )}
-                    </div>
-                 </div>
-              </div>
-          </motion.div>
-        )}
-        </AnimatePresence>
-      </div>
-
-      {/* Mobile Control Bar - Premium Refinement */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-950/80 backdrop-blur-3xl border-t border-white/10 px-6 py-4 lg:hidden safe-area-bottom shadow-[0_-30px_60px_rgba(0,0,0,0.8)]">
-        <div className="max-w-md mx-auto space-y-4">
-          {scannedUser && (
-            <div className="bg-white/5 border border-white/5 p-3 rounded-2xl flex items-center justify-between text-xs mb-1">
-              <div className="min-w-0">
-                <p className="font-extrabold text-white truncate max-w-[180px] uppercase text-[10px] tracking-wide leading-none mb-1">{scannedUser.name}</p>
-                <p className="text-[10px] font-black font-mono text-blue-400 tracking-wide leading-tight mt-0.5">
-                  Cartão: {formatCardNumber(scannedUser.uid || (scannedUser as any).scannedCardCode || scannedUser.qrCode || '')}
-                </p>
-                <p className="text-[8px] font-bold text-slate-500 font-mono leading-none tracking-tight">
-                  ID: {(scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-[9px] font-black uppercase text-slate-500 leading-none">Saldo</p>
-                <p className="text-sm font-extrabold text-emerald-400 tracking-tight leading-none mt-1">R$ {scannedUser.balance.toFixed(2)}</p>
-              </div>
+          {/* Transaction status filter */}
+          {reportType === 'transactions_log' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Filtro de Status</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10 min-w-[130px] h-[34px]"
+              >
+                <option value="all">Todos Status</option>
+                <option value="completed">Concluídos</option>
+                <option value="pending">Pendentes</option>
+                <option value="failed">Falhos</option>
+              </select>
             </div>
           )}
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] leading-none">Total Agora</span>
-              <div className="text-2xl font-black text-white tracking-tighter">
-                <span className="text-sm font-bold opacity-40 mr-1">R$</span>
-                {cartTotal.toFixed(2)}
-              </div>
-            </div>
-            {cart.length > 0 && (
-              <Button 
-                onClick={() => setShowMobileCart(true)}
-                variant="ghost" 
-                className="h-10 text-[10px] font-black uppercase text-blue-400 bg-blue-500/10 rounded-xl px-4 border border-blue-500/20"
+
+          {/* Card Origin filter */}
+          {reportType === 'cards_report' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Origem do Cartão</label>
+              <select
+                value={cardOriginFilter}
+                onChange={(e) => setCardOriginFilter(e.target.value as any)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10 min-w-[160px] h-[34px]"
               >
-                {cart.reduce((a, b) => a + b.quantity, 0)} Itens • Detalhes
-              </Button>
-            )}
-          </div>
-          
-          <div className="flex gap-4 h-14">
-            <AnimatePresence mode="popLayout">
-              {cart.length > 0 && !scannedUser ? (
-                <motion.div 
-                  key="scan-btn"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  className="flex-1"
-                >
-                  <Button 
-                    onClick={() => setIsScanning(true)} 
-                    className="w-full h-full bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.2em] rounded-[20px] shadow-2xl shadow-blue-500/30 border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all"
-                  >
-                    <QrCode className="h-5 w-5 mr-3" /> ESCANEAR
-                  </Button>
-                </motion.div>
-              ) : scannedUser ? (
-                <motion.div 
-                  key="pay-btn-group"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  className="flex-1 flex gap-3"
-                >
-                  <Button 
-                    onClick={handleSale}
-                    disabled={processing || scannedUser.balance < cartTotal || cart.length === 0}
-                    className={`flex-1 h-full font-black uppercase text-xs tracking-widest rounded-[20px] shadow-2xl transition-all ${
-                       scannedUser.balance < cartTotal 
-                       ? 'bg-slate-800 text-slate-600' 
-                       : 'bg-green-600 hover:bg-green-500 shadow-green-600/20 active:translate-y-1'
-                    }`}
-                  >
-                    {processing ? <Loader2 className="h-5 w-5 animate-spin" /> : 
-                     scannedUser.balance < cartTotal ? 'SALDO BAIXO' : 'CONFIRMAR'}
-                  </Button>
-                  <Button 
-                    variant="ghost" 
-                    onClick={() => setScannedUser(null)}
-                    className="w-14 h-full bg-white/5 rounded-[20px] text-slate-500 hover:text-white border border-white/5"
-                  >
-                    <XCircle className="h-6 w-6" />
-                  </Button>
-                </motion.div>
-              ) : (
-                <motion.div 
-                  key="empty-scan"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex-1"
-                >
-                  <Button 
-                    onClick={() => setIsScanning(true)}
-                    className="w-full h-full bg-white/5 hover:bg-white/10 text-slate-400 font-extrabold uppercase text-[10px] tracking-widest rounded-[20px] border border-white/10"
-                  >
-                    <QrCode className="h-5 w-5 mr-3 opacity-50" /> QR CODE
-                  </Button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                <option value="all">Todas as Origens</option>
+                <option value="system">Sistema (Físico/Caixa)</option>
+                <option value="client">Online (Cliente PWA)</option>
+              </select>
+            </div>
+          )}
+
+          {/* Card Usage filter */}
+          {reportType === 'cards_report' && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest px-1">Uso do Cartão</label>
+              <select
+                value={cardUsageFilter}
+                onChange={(e) => setCardUsageFilter(e.target.value as any)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-slate-950/10 min-w-[185px] h-[34px]"
+              >
+                <option value="all">Todos os Cartões</option>
+                <option value="used">Utilizados (Mín. 1 recarga)</option>
+                <option value="unused">Não Utilizados (Sem recarga)</option>
+              </select>
+            </div>
+          )}
+
+          {/* Clear button */}
+          {(startDate || endDate || statusFilter !== 'all' || cardOriginFilter !== 'all' || cardUsageFilter !== 'all' || searchQuery) && (
+            <Button 
+              variant="ghost" 
+              onClick={() => { 
+                setStartDate(''); 
+                setEndDate(''); 
+                setStatusFilter('all'); 
+                setCardOriginFilter('all');
+                setCardUsageFilter('all');
+                setSearchQuery('');
+              }}
+              className="h-10 self-end mt-4 text-[10px] font-black uppercase text-red-500 hover:text-red-600 hover:bg-red-50 rounded-xl"
+            >
+              Resetar Filtros
+            </Button>
+          )}
+
+          {/* Export tools */}
+          <div className="flex gap-2.5 ml-auto self-end mt-4 sm:mt-0">
+            <Button 
+              onClick={exportToPDF}
+              variant="outline"
+              className="rounded-xl border-slate-200 font-bold text-xs uppercase tracking-wider h-10 px-4 hover:bg-slate-50 text-slate-700"
+            >
+              <Download className="h-4 w-4 mr-2 text-slate-500" /> Exportar PDF
+            </Button>
+            <Button 
+              onClick={exportToExcel}
+              className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider h-10 px-4 shadow-md shadow-emerald-700/10"
+            >
+              <TableIcon className="h-4 w-4 mr-2" /> Exportar Excel
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Mobile Cart Modal */}
-      <AnimatePresence>
-        {showMobileCart && (
-          <div className="fixed inset-0 z-[110] lg:hidden">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowMobileCart(false)}
-              className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
-            />
-            <motion.div 
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="absolute bottom-0 left-0 right-0 max-h-[85vh] bg-slate-900 border-t border-white/10 rounded-t-[48px] overflow-hidden flex flex-col"
-            >
-              <div className="w-12 h-1.5 bg-white/10 rounded-full mx-auto my-4" />
-              
-              <div className="px-8 pb-4 flex items-center justify-between border-b border-white/5">
-                <div className="flex items-center gap-3">
-                  <ShoppingCart className="h-5 w-5 text-blue-400" />
-                  <h3 className="font-black text-xs uppercase tracking-widest text-white">Seu Carrinho</h3>
+      {/* Analytics Sum-up Metric Scorecards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {kpis.map((kpi, idx) => {
+          let cardStyle = 'border-slate-100 bg-white';
+          let iconBadgeStyle = 'bg-slate-100 text-slate-800';
+          
+          if (kpi.type === 'success') {
+            cardStyle = 'border-emerald-100 bg-emerald-50/20';
+            iconBadgeStyle = 'bg-emerald-500/10 text-emerald-600';
+          } else if (kpi.type === 'info') {
+            cardStyle = 'border-blue-100 bg-blue-50/20';
+            iconBadgeStyle = 'bg-blue-500/10 text-blue-600';
+          } else if (kpi.type === 'warning') {
+            cardStyle = 'border-amber-100 bg-amber-50/20';
+            iconBadgeStyle = 'bg-amber-500/10 text-amber-600';
+          } else if (kpi.type === 'danger') {
+            cardStyle = 'border-rose-100 bg-rose-50/20';
+            iconBadgeStyle = 'bg-rose-500/10 text-rose-600';
+          }
+
+          return (
+            <Card key={idx} className={`shadow-sm rounded-3xl border ${cardStyle} overflow-hidden hover:scale-[1.01] transition-transform duration-200`}>
+              <CardContent className="p-6 flex justify-between items-center relative">
+                <div className="space-y-1 flex-1 min-w-0">
+                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest block">{kpi.label}</span>
+                  <h4 className="text-2xl font-black text-slate-900 tracking-tight truncate">{kpi.value}</h4>
+                  <p className="text-[10px] text-slate-450 font-semibold leading-normal mt-0.5 truncate text-slate-500">{kpi.text}</p>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setShowMobileCart(false)} className="rounded-full text-slate-500">
-                  <XCircle className="h-6 w-6" />
-                </Button>
-              </div>
+                
+                <div className={`h-11 w-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${iconBadgeStyle}`}>
+                  {reportType === 'financial_summary' && idx === 0 && <DollarSign className="h-5 w-5" />}
+                  {reportType === 'financial_summary' && idx === 1 && <ShoppingBag className="h-5 w-5" />}
+                  {reportType === 'financial_summary' && idx === 2 && <TrendingUp className="h-5 w-5" />}
+                  {reportType === 'financial_summary' && idx === 3 && <TrendingDown className="h-5 w-5" />}
 
-              <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-                {cart.length === 0 ? (
-                  <div className="py-20 text-center animate-pulse">
-                    <ShoppingCart className="h-12 w-12 mx-auto text-slate-700 mb-4" />
-                    <p className="text-[10px] font-black uppercase text-slate-600 tracking-widest">Vazio</p>
-                  </div>
-                ) : (
-                  cart.map((item) => (
-                    <motion.div 
-                      key={item.id}
-                      layout
-                      className="flex items-center justify-between p-4 bg-white/[0.03] rounded-2xl border border-white/5"
-                    >
-                      <div className="flex-1 mr-4">
-                        <p className="font-black text-[11px] uppercase text-white/90 truncate">{item.name}</p>
-                        <p className="text-[10px] text-blue-400 font-bold">R$ {item.price.toFixed(2)}</p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl ring-1 ring-white/10">
-                          <button onClick={() => removeFromCart(item.id)} className="h-8 w-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 transition-colors">
-                            <Minus size={14} strokeWidth={3}/>
-                          </button>
-                          <span className="w-6 text-center text-xs font-black tabular-nums">{item.quantity}</span>
-                          <button onClick={() => addToCart(item)} className="h-8 w-8 flex items-center justify-center rounded-lg text-blue-400 hover:text-blue-300 transition-colors">
-                            <Plus size={14} strokeWidth={3}/>
-                          </button>
-                        </div>
-                        <button 
-                          onClick={() => deleteItemFromCart(item.id)}
-                          className="h-9 w-9 flex items-center justify-center rounded-xl bg-red-500/10 text-red-500"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </motion.div>
-                  ))
-                )}
-              </div>
+                  {reportType === 'sales_by_stall' && idx === 0 && <Store className="h-5 w-5" />}
+                  {reportType === 'sales_by_stall' && idx === 1 && <History className="h-5 w-5" />}
+                  {reportType === 'sales_by_stall' && idx === 2 && <TrendingUp className="h-5 w-5" />}
+                  {reportType === 'sales_by_stall' && idx === 3 && <CheckCircle2 className="h-5 w-5" />}
 
-              <div className="p-8 bg-slate-950/50 border-t border-white/10 flex flex-col gap-6 safe-area-bottom">
-                <div className="flex justify-between items-end">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Total</span>
-                    <div className="text-4xl font-black text-white tracking-tighter">
-                      <span className="text-xl font-bold mr-1 opacity-40">R$</span>
-                      {cartTotal.toFixed(2)}
+                  {reportType === 'transactions_log' && idx === 0 && <History className="h-5 w-5" />}
+                  {reportType === 'transactions_log' && idx === 1 && <ArrowUpRight className="h-5 w-5" />}
+                  {reportType === 'transactions_log' && idx === 2 && <ArrowDownLeft className="h-5 w-5" />}
+                  {reportType === 'transactions_log' && idx === 3 && <CheckCircle2 className="h-5 w-5" />}
+
+                  {reportType === 'user_balances' && idx === 0 && <Users className="h-5 w-5" />}
+                  {reportType === 'user_balances' && idx === 1 && <Users className="h-5 w-5" />}
+                  {reportType === 'user_balances' && idx === 2 && <TrendingUp className="h-5 w-5" />}
+                  {reportType === 'user_balances' && idx === 3 && <DollarSign className="h-5 w-5" />}
+
+                  {reportType === 'sales_by_product' && idx === 0 && <Package className="h-5 w-5" />}
+                  {reportType === 'sales_by_product' && idx === 1 && <Tag className="h-5 w-5" />}
+                  {reportType === 'sales_by_product' && idx === 2 && <TrendingUp className="h-5 w-5" />}
+                  {reportType === 'sales_by_product' && idx === 3 && <Store className="h-5 w-5" />}
+
+                  {reportType === 'cards_report' && idx === 0 && <CreditCard className="h-5 w-5" />}
+                  {reportType === 'cards_report' && idx === 1 && <Users className="h-5 w-5" />}
+                  {reportType === 'cards_report' && idx === 2 && <QrCode className="h-5 w-5" />}
+                  {reportType === 'cards_report' && idx === 3 && <DollarSign className="h-5 w-5" />}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Main reports dashboard layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        {/* Navigation Sidebar */}
+        <div className="space-y-6">
+          <div>
+            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 px-2">Categorias de Relatórios</p>
+            <nav className="space-y-1.5">
+              {[
+                { id: 'financial_summary', label: 'Resumo Financeiro', icon: DollarSign },
+                { id: 'sales_by_stall', label: 'Vendas/Barraca', icon: Store },
+                { id: 'transactions_log', label: 'Histórico de Vendas', icon: History },
+                { id: 'cards_report', label: 'Ativação de Cartões', icon: CreditCard, subtitle: 'Físico vs Online' },
+                { id: 'user_balances', label: 'Saldos Atuais', icon: Users },
+                { id: 'sales_by_product', label: 'Vendas por Produto', icon: Package },
+              ].map((type) => (
+                <button
+                  key={type.id}
+                  onClick={() => setReportType(type.id as any)}
+                  className={`w-full flex items-center justify-between p-3.5 rounded-xl transition-all border text-left ${
+                    reportType === type.id 
+                      ? 'bg-slate-950 text-white border-slate-950 shadow-md translate-x-1' 
+                      : 'bg-white text-slate-500 border-slate-100 hover:bg-slate-50 hover:text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <type.icon className={`h-4.5 w-4.5 shrink-0 ${reportType === type.id ? 'text-white' : 'text-slate-400'}`} />
+                    <div className="leading-tight">
+                      <span className="font-bold text-sm block">{type.label}</span>
+                      {type.subtitle && (
+                        <span className={`text-[9px] font-black uppercase tracking-wider block mt-0.5 ${reportType === type.id ? 'text-white/70' : 'text-slate-400'}`}>{type.subtitle}</span>
+                      )}
                     </div>
                   </div>
-                  <Button onClick={() => setShowMobileCart(false)} className="bg-blue-600 font-black uppercase text-[10px] tracking-widest rounded-xl px-6 h-12 shadow-lg shadow-blue-600/20">
-                    ADICIONAR MAIS
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
+                </button>
+              ))}
+            </nav>
           </div>
-        )}
-      </AnimatePresence>
 
-      {/* Searching Client Loading Overlay */}
-      <AnimatePresence>
-        {isSearchingClient && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-950/80 backdrop-blur-xl"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-sm bg-slate-900/90 border border-white/10 rounded-[40px] p-8 text-center space-y-6 shadow-2xl overflow-hidden"
-            >
-              {/* Animated glowing decorative circle */}
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-40 h-40 bg-blue-500/10 blur-3xl pointer-events-none rounded-full" />
-              
-              <div className="relative flex justify-center items-center h-32 w-32 mx-auto">
-                {/* Double pulse circles */}
-                <span className="absolute inline-flex h-24 w-24 rounded-full bg-blue-500/15 animate-ping" />
-                <span className="absolute inline-flex h-16 w-16 rounded-full bg-blue-400/20 animate-pulse" />
-                
-                {/* Rotating ring */}
-                <div className="absolute h-28 w-28 rounded-full border-2 border-dashed border-blue-500/45 animate-spin" />
-                
-                {/* Center search/RFID card icon with floating animation */}
-                <motion.div 
-                  className="bg-blue-600 h-16 w-16 rounded-2xl flex items-center justify-center text-white shadow-[0_15px_30px_rgba(37,99,235,0.4)] border border-blue-400/30"
-                  animate={{ 
-                    y: [0, -6, 0],
-                    rotate: [0, 5, -5, 0]
-                  }}
-                  transition={{ 
-                    repeat: Infinity, 
-                    duration: 2.5,
-                    ease: "easeInOut"
-                  }}
-                >
-                  <Search className="h-7 w-7 text-white" />
-                </motion.div>
-              </div>
-
-              <div className="space-y-2 relative z-10">
-                <h3 className="text-lg font-black text-white uppercase tracking-wider">Aguardando Cliente</h3>
-                <p className="text-slate-400 text-xs font-semibold">Consultando banco de dados...</p>
-              </div>
-
-              <div className="flex items-center justify-center gap-1.5 py-1 px-4 bg-white/5 border border-white/5 rounded-2xl w-fit mx-auto text-[10px] text-slate-500 font-mono">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
-                <span>AGUARDANDO RETORNO</span>
-              </div>
-            </motion.div>
+          <div className="p-5 rounded-2xl bg-blue-50 border border-blue-100 space-y-3 shadow-sm">
+            <div className="flex items-center gap-2 text-blue-700">
+               <TrendingUp className="h-4 w-4 shrink-0" />
+               <span className="text-xs font-black uppercase tracking-wider">Análise de Canal</span>
+            </div>
+            <p className="text-xs text-blue-600 leading-relaxed font-semibold">
+              O relatório <strong>Ativação de Cartões</strong> ajuda você a comparar se os clientes preferem ativar uma conta online pelo PWA ou se preferem cartões impressos pelo caixa.
+            </p>
           </div>
-        )}
-      </AnimatePresence>
+        </div>
 
-      {isScanning && (
-        <QRScanner onScan={onScanSuccess} onClose={() => setIsScanning(false)} title="Identificar Cliente" />
-      )}
+        {/* Database Grid Content Card */}
+        <div className="lg:col-span-3">
+          <Card className="rounded-3xl border-slate-200 shadow-sm overflow-hidden bg-white">
+            <CardHeader className="bg-slate-50/50 border-b border-slate-100 p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <CardTitle className="text-xl font-black text-slate-900 uppercase tracking-tight">
+                    {reportType === 'financial_summary' && 'Resumo Financeiro Consolidado'}
+                    {reportType === 'sales_by_stall' && 'Desempenho por Ponto de Venda'}
+                    {reportType === 'transactions_log' && 'Histórico de Vendas Detalhado'}
+                    {reportType === 'user_balances' && 'Relatório de Créditos Ativos'}
+                    {reportType === 'sales_by_product' && 'Desempenho de Vendas por Produto'}
+                    {reportType === 'cards_report' && 'Ativação de Cartões (Físico vs Online)'}
+                  </CardTitle>
+                  <CardDescription className="font-semibold mt-1">
+                    Visualização de dados refinada com filtros dinâmicos de texto e período.
+                  </CardDescription>
 
-      <AnimatePresence>
-        {selectedOrder && (
-          <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-12 md:pt-20">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedOrder(null)}
-              className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: -20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: -20 }}
-              className="relative w-full max-w-lg bg-slate-900 border border-white/10 rounded-[40px] shadow-2xl overflow-hidden mt-4"
-            >
-              <div className="absolute top-6 right-6">
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => setSelectedOrder(null)}
-                  className="rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white"
-                >
-                  <XCircle className="h-6 w-6" />
-                </Button>
-              </div>
-
-              <div className="p-8 space-y-8">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">
-                    <Clock className="h-3 w-3" />
-                    <span>Detalhes do Pedido</span>
-                  </div>
-                  <h3 className="text-3xl font-black text-white tracking-tighter">
-                    {(selectedOrder as any).studentName}
-                  </h3>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                    ID: #{selectedOrder.id.slice(-8)}
-                  </p>
-                </div>
-
-                <div className="bg-white/[0.02] rounded-3xl border border-white/5 p-6 space-y-4">
-                  <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    <span>Horário da Solicitação</span>
-                    <span className="text-white">
-                      {selectedOrder.timestamp?.toDate ? 
-                        new Intl.DateTimeFormat('pt-BR', { 
-                          hour: '2-digit', 
-                          minute: '2-digit', 
-                          second: '2-digit',
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric'
-                        }).format(selectedOrder.timestamp.toDate()) : 
-                        'Data indisponível'
-                      }
+                  {/* Active date range in header for all reports */}
+                  <div className="flex items-center gap-1.5 mt-2.5 bg-slate-950 text-white px-3 py-1 rounded-md text-[10px] font-black w-fit uppercase tracking-wider">
+                    <Calendar className="h-3 w-3 shrink-0 text-emerald-400" />
+                    <span>
+                      Período: {startDate ? format(new Date(startDate + 'T00:00:00'), 'dd/MM/yyyy') : 'Todo o Histórico'} 
+                      {endDate ? ` até ${format(new Date(endDate + 'T23:59:59'), 'dd/MM/yyyy')}` : ''}
                     </span>
                   </div>
-                  <div className="h-px bg-white/5" />
-                  <div className="space-y-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Itens Solicitados</p>
-                    <div className="space-y-2">
-                      {selectedOrder.items.map((item, idx) => (
-                        <div key={idx} className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 ring-1 ring-inset ring-white/[0.02]">
-                          <div className="h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(37,99,235,0.8)]" />
-                          <p className="font-black text-sm uppercase text-white/90 tracking-tight">{item}</p>
-                        </div>
-                      ))}
+                </div>
+                <div className="text-left sm:text-right shrink-0">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Sincronizado há pouco</span>
+                  <span className="text-xs font-bold text-slate-600">{format(new Date(), 'HH:mm:ss')}</span>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto min-w-full">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/80 border-b border-slate-100">
+                      {reportType === 'financial_summary' && (
+                        <>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Indicador</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Descrição</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Valor</th>
+                        </>
+                      )}
+                      {reportType === 'sales_by_stall' && (
+                        <>
+                          {renderSortableHeader('Barraca / PDV', 'name', stallSortField, stallSortDirection, handleStallSort)}
+                          {renderSortableHeader('Volume', 'volume', stallSortField, stallSortDirection, handleStallSort, true)}
+                          {renderSortableHeader('Total Acumulado', 'sales', stallSortField, stallSortDirection, handleStallSort, true)}
+                        </>
+                      )}
+                      {reportType === 'transactions_log' && (
+                        <>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Horário</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Usuário</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Meio</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Barraca</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 text-right">Valor</th>
+                        </>
+                      )}
+                      {reportType === 'user_balances' && (
+                        <>
+                          {renderSortableHeader('Nome do Titular', 'name', balanceSortField, balanceSortDirection, handleBalanceSort)}
+                          {renderSortableHeader('E-mail', 'email', balanceSortField, balanceSortDirection, handleBalanceSort)}
+                          {renderSortableHeader('Saldo Disponível', 'balance', balanceSortField, balanceSortDirection, handleBalanceSort, true)}
+                        </>
+                      )}
+                      {reportType === 'sales_by_product' && (
+                        <>
+                          {renderSortableHeader('Descrição do Item', 'name', productSortField, productSortDirection, handleProductSort)}
+                          {renderSortableHeader('Barraca / Ponto', 'stall', productSortField, productSortDirection, handleProductSort)}
+                          {renderSortableHeader('Preço Unitário', 'price', productSortField, productSortDirection, handleProductSort, true)}
+                          {renderSortableHeader('Qtd Vendida', 'quantity', productSortField, productSortDirection, handleProductSort, true)}
+                          {renderSortableHeader('Total Acumulado', 'total', productSortField, productSortDirection, handleProductSort, true)}
+                        </>
+                      )}
+                      {reportType === 'cards_report' && (
+                        <>
+                          {renderSortableHeader('Titular do Cartão', 'name', cardsSortField, cardsSortDirection, handleCardsSort)}
+                          {renderSortableHeader('E-mail', 'email', cardsSortField, cardsSortDirection, handleCardsSort)}
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400 border-none">QR Code / ID</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Origem</th>
+                          <th className="px-6 py-4 text-[10px] uppercase font-black tracking-wider text-slate-400">Uso / Recargas</th>
+                          {renderSortableHeader('Adesão / Cadastro', 'date', cardsSortField, cardsSortDirection, handleCardsSort, true)}
+                          {renderSortableHeader('Saldo', 'balance', cardsSortField, cardsSortDirection, handleCardsSort, true)}
+                        </>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {reportType === 'financial_summary' && filteredFinancialSummary.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 font-black text-slate-700">{row.category}</td>
+                        <td className="px-6 py-4 text-xs font-semibold text-slate-500 leading-normal">{row.desc}</td>
+                        <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(row.amount)}</td>
+                      </tr>
+                    ))}
+                    
+                    {reportType === 'sales_by_stall' && salesByStall.map((row, idx) => {
+                      const isExpanded = expandedStall === row.stallName;
+                      // Filter items sold at this specific stall
+                      const stallItems = salesByProduct.filter(item => item.stall === row.stallName && item.quantity > 0);
+
+                      return (
+                        <React.Fragment key={idx}>
+                          <tr 
+                            onClick={() => setExpandedStall(isExpanded ? null : row.stallName)}
+                            className="hover:bg-slate-50/50 cursor-pointer transition-colors border-b border-slate-100"
+                          >
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="h-8 w-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-black text-[10px] shrink-0">
+                                  {row.stallName.substring(0, 2).toUpperCase()}
+                                </div>
+                                <div className="leading-tight">
+                                  <span className="font-bold text-slate-700 block">{row.stallName}</span>
+                                  <span className="text-[10px] text-blue-600 font-extrabold hover:underline select-none">
+                                    {isExpanded ? 'Ocultar faturamento detalhado ▲' : 'Ver faturamento detalhado ▼'}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-right font-bold text-slate-400 font-mono">{row.transactionCount} compras</td>
+                            <td className="px-6 py-4 text-right font-black text-slate-900 font-mono">{formatCurrency(row.totalSales)}</td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="bg-slate-50/40 border-b border-slate-100">
+                              <td colSpan={3} className="px-8 py-4">
+                                <div className="bg-white/90 rounded-2xl border border-slate-200/60 p-5 space-y-3.5 shadow-inner">
+                                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                                    <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                                      Produtos Vendidos - {row.stallName}
+                                    </h4>
+                                    <span className="text-[10px] font-bold text-slate-500">
+                                      Total do Período: {formatCurrency(row.totalSales)}
+                                    </span>
+                                  </div>
+                                  {stallItems.length === 0 ? (
+                                    <p className="text-xs text-slate-400 italic">Nenhum item vendido registrado com detalhes neste período.</p>
+                                  ) : (
+                                    <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto pr-1">
+                                      {stallItems.map((item, itemIdx) => {
+                                        const percentageShare = row.totalSales > 0 ? Math.round((item.totalValue / row.totalSales) * 100) : 0;
+                                        return (
+                                          <div key={itemIdx} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                                            <div className="flex items-center gap-2">
+                                              <span className="h-1.5 w-1.5 rounded-full bg-slate-900 shrink-0 animate-pulse" />
+                                              <span className="font-bold text-slate-700">{item.name}</span>
+                                              <span className="text-[9px] px-1.5 py-0.5 rounded-md font-black bg-slate-100 text-slate-600 font-mono">
+                                                {percentageShare}%
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-4 justify-between font-mono shrink-0">
+                                              <span className="text-[10px] font-bold text-slate-400 font-mono">
+                                                {item.quantity} un. x {formatCurrency(item.price)}
+                                              </span>
+                                              <span className="font-black text-slate-900 w-24 text-right font-mono">
+                                                {formatCurrency(item.totalValue)}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+
+                    {reportType === 'transactions_log' && transactionsLog.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 text-[11px] font-bold text-slate-400">{row.date}</td>
+                        <td className="px-6 py-4">
+                          <span className="font-bold text-slate-700 block text-sm">{row.user}</span>
+                          {row.cardNumber && (
+                            <span className="text-[10px] text-slate-400 font-mono block">Cartão: {row.cardNumber}</span>
+                          )}
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-[9px] font-black uppercase tracking-widest ${row.type === 'CARGA' ? 'text-green-500' : 'text-blue-500'}`}>
+                              {row.type}
+                            </span>
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase ${
+                              row.status === 'completed' ? 'bg-green-100 text-green-700' : 
+                              row.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {row.status === 'completed' ? 'Sucesso' : row.status}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-[10px] font-black text-slate-450 uppercase tracking-widest text-slate-500">{row.paymentMethod}</span>
+                        </td>
+                        <td className="px-6 py-4 font-semibold text-slate-500 text-xs">{row.stall}</td>
+                        <td className={`px-6 py-4 text-right font-black ${row.type === 'CARGA' ? 'text-green-600' : 'text-slate-900'}`}>
+                          {row.type === 'CARGA' ? '+' : '-'}{formatCurrency(row.amount)}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {reportType === 'user_balances' && userBalances.map((row, idx) => (
+                      <tr 
+                        key={idx} 
+                        onClick={() => setSelectedDetail({
+                          type: 'user',
+                          id: row.uid || row.name,
+                          title: row.name,
+                          subtitle: row.email
+                        })}
+                        className="hover:bg-slate-50/70 active:bg-slate-100/80 cursor-pointer transition-colors"
+                        title="Clique para ver detalhamento de movimentações deste titular"
+                      >
+                        <td className="px-6 py-4">
+                          <span className="font-bold text-slate-700 block text-sm">{row.name}</span>
+                          <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">{row.role}</span>
+                        </td>
+                        <td className="px-6 py-4 text-xs font-semibold text-slate-500">{row.email}</td>
+                        <td className="px-6 py-4 text-right font-black text-slate-900">
+                          <div className="flex items-center justify-end gap-2">
+                            <span>{formatCurrency(row.balance)}</span>
+                            <span className="text-[9px] uppercase font-black tracking-wider bg-slate-100 text-slate-405 px-1.5 py-0.5 rounded text-slate-400">Ver ➔</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {reportType === 'sales_by_product' && salesByProduct.map((row, idx) => (
+                      <tr 
+                        key={idx} 
+                        onClick={() => setSelectedDetail({
+                          type: 'product',
+                          id: row.name,
+                          title: row.name,
+                          subtitle: row.stall
+                        })}
+                        className="hover:bg-slate-50/70 active:bg-slate-100/80 cursor-pointer transition-colors"
+                        title="Clique para ver compradores e datas deste produto"
+                      >
+                        <td className="px-6 py-4 font-bold text-slate-700">{row.name}</td>
+                        <td className="px-6 py-4 font-semibold text-slate-500 text-xs">{row.stall}</td>
+                        <td className="px-6 py-4 text-right font-black text-slate-900 font-mono">{formatCurrency(row.price)}</td>
+                        <td className="px-6 py-4 text-right font-bold text-slate-500 font-mono">{row.quantity || 0} un.</td>
+                        <td className="px-6 py-4 text-right font-black text-emerald-600 font-mono">
+                          <div className="flex items-center justify-end gap-2">
+                            <span>{formatCurrency(row.totalValue || 0)}</span>
+                            <span className="text-[9px] uppercase font-black tracking-wider bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded">Ver ➔</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+
+                     {reportType === 'cards_report' && cardsReport.map((row, idx) => (
+                      <tr 
+                        key={row.uid || idx} 
+                        onClick={() => setSelectedDetail({
+                          type: 'card',
+                          id: row.uid || row.qrCode,
+                          title: row.name,
+                          subtitle: row.email
+                        })}
+                        className="hover:bg-slate-50/70 active:bg-slate-100/80 cursor-pointer transition-colors select-none"
+                        title="Clique para ver o histórico deste cartão"
+                      >
+                        <td className="px-6 py-4">
+                          <span className="font-bold text-slate-800 block text-sm">{row.name}</span>
+                          {row.isPhysical ? (
+                            <span className="text-[8px] font-black uppercase tracking-widest text-blue-500">Impressão Física</span>
+                          ) : (
+                            <span className="text-[8px] font-black uppercase tracking-widest text-green-500">Autocadastro Cliente</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-semibold text-slate-500">{row.email}</td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-0.5 select-all">
+                            <span className="font-mono text-[11px] font-black text-slate-700 leading-tight">{formatCardNumber(row.uid || row.qrCode)}</span>
+                            <span className="font-mono text-[9px] text-slate-400">ID: {row.qrCode}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                            row.isPhysical 
+                              ? 'bg-blue-50 border border-blue-100 text-blue-700' 
+                              : 'bg-emerald-50 border border-emerald-100 text-emerald-700'
+                          }`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${row.isPhysical ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+                            {row.origin}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {row.hasRecharge ? (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                Utilizado ({row.rechargeCount}x)
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-bold block">
+                                Tot: {formatCurrency(row.totalRecharged)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-500 border border-slate-200">
+                              Apenas Ativado
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right text-xs font-bold text-slate-500">{row.dateStr}</td>
+                        <td className="px-6 py-4 text-right font-black text-emerald-600">
+                          <div className="flex items-center justify-end gap-2">
+                            <span>{formatCurrency(row.balance)}</span>
+                            <span className="text-[9px] uppercase font-black tracking-wider bg-emerald-50 border border-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded">Ver ➔</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              
+              {((reportType === 'financial_summary' && filteredFinancialSummary.length === 0) ||
+                (reportType === 'sales_by_stall' && salesByStall.length === 0) ||
+                (reportType === 'transactions_log' && transactionsLog.length === 0) ||
+                (reportType === 'user_balances' && userBalances.length === 0) ||
+                (reportType === 'sales_by_product' && salesByProduct.length === 0) ||
+                (reportType === 'cards_report' && cardsReport.length === 0)) && (
+                <div className="py-20 flex flex-col items-center justify-center text-slate-400 gap-4 bg-slate-50/20">
+                  <AlertCircle className="h-10 w-10 opacity-20 text-slate-500" />
+                  <p className="font-bold text-xs uppercase tracking-widest opacity-60">Nenhum registro corresponde aos filtros definidos</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {reportType === 'financial_summary' && (
+            <div className="mt-6">
+              <Card className="rounded-3xl border-slate-200 shadow-sm overflow-hidden bg-white p-6 space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2 uppercase">
+                      <CreditCard className="h-5 w-5 text-indigo-600" /> Análise de Recargas por Canal
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-500">
+                      Comparativo oficial entre cargas digitais (via PWA do Evento) e cargas físicas (efetuadas no Caixa).
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 text-xs font-black text-slate-600 uppercase">
+                    Total: {formatCurrency(rechargeChannelStats.granTotal)} ({rechargeChannelStats.granCount} txs)
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
+                  {/* Online Recargas Column */}
+                  <div className="bg-emerald-50/15 border border-emerald-100/60 rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100/60 text-emerald-800">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                        RECARGAS ONLINE (PWA)
+                      </span>
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Via Pix / Rede</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Valor Arrecadado</span>
+                        <h4 className="text-2xl font-black text-slate-900">{formatCurrency(rechargeChannelStats.onlineTotal)}</h4>
+                        <span className="text-[10px] text-emerald-600 font-bold block">{rechargeChannelStats.onlineValPct}% do faturamento de cargas</span>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Quantidade (Qtd)</span>
+                        <h4 className="text-2xl font-black text-slate-900">{rechargeChannelStats.onlineCount} <span className="text-xs text-slate-450 font-normal">recargas</span></h4>
+                        <span className="text-[10px] text-emerald-600 font-bold block">{rechargeChannelStats.onlineCountPct}% do volume total de txs</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100/60 flex justify-between items-center text-xs">
+                      <span className="font-semibold text-slate-505">Média por Recarga:</span>
+                      <span className="font-black text-slate-800">{formatCurrency(rechargeChannelStats.onlineAvg)}</span>
+                    </div>
+                  </div>
+
+                  {/* Cashier/Physical Recargas Column */}
+                  <div className="bg-indigo-50/10 border border-indigo-100/50 rounded-2xl p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-indigo-100/65 text-indigo-800">
+                        <span className="h-2 w-2 rounded-full bg-indigo-500" />
+                        RECARGAS NO CAIXA (FÍSICO)
+                      </span>
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Via Caixa / PDV</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Valor Arrecadado</span>
+                        <h4 className="text-2xl font-black text-slate-900">{formatCurrency(rechargeChannelStats.physicalTotal)}</h4>
+                        <span className="text-[10px] text-indigo-600 font-bold block">{rechargeChannelStats.physicalValPct}% do faturamento de cargas</span>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Quantidade (Qtd)</span>
+                        <h4 className="text-2xl font-black text-slate-900">{rechargeChannelStats.physicalCount} <span className="text-xs text-slate-450 font-normal">recargas</span></h4>
+                        <span className="text-[10px] text-indigo-600 font-bold block">{rechargeChannelStats.physicalCountPct}% do volume total de txs</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100/50 flex justify-between items-center text-xs">
+                      <span className="font-semibold text-slate-505">Média por Recarga:</span>
+                      <span className="font-black text-slate-800">{formatCurrency(rechargeChannelStats.physicalAvg)}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between bg-blue-600/10 p-6 rounded-3xl border border-blue-500/20">
-                  <span className="text-sm font-black text-blue-400 uppercase tracking-widest">Total Pago</span>
-                  <div className="text-3xl font-black text-white tracking-tighter">
-                    <span className="text-base font-bold opacity-40 mr-1">R$</span>
-                    {selectedOrder.total.toFixed(2)}
+                {/* Progress bars showing graphic representation */}
+                <div className="space-y-3 pt-2">
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Distribuição Financeira (% do Valor de Entrada)</span>
+                      <span className="font-bold text-slate-700">Online {rechargeChannelStats.onlineValPct}% vs Caixa {rechargeChannelStats.physicalValPct}%</span>
+                    </div>
+                    <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                      <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${rechargeChannelStats.onlineValPct}%` }} />
+                      <div className="bg-indigo-500 h-full transition-all duration-500" style={{ width: `${rechargeChannelStats.physicalValPct}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">Distribuição Operacional (% de Transações de Entrada)</span>
+                      <span className="font-bold text-slate-700">Online {rechargeChannelStats.onlineCountPct}% vs Caixa {rechargeChannelStats.physicalCountPct}%</span>
+                    </div>
+                    <div className="h-3 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                      <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${rechargeChannelStats.onlineCountPct}%` }} />
+                      <div className="bg-indigo-500 h-full transition-all duration-500" style={{ width: `${rechargeChannelStats.physicalCountPct}%` }} />
+                    </div>
                   </div>
                 </div>
 
-                <Button 
-                  onClick={() => {
-                    markAsDelivered(selectedOrder.id);
-                    setSelectedOrder(null);
-                  }}
-                  className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs tracking-[0.2em] gap-3 rounded-2xl shadow-xl shadow-blue-500/20 active:scale-95 transition-all"
-                >
-                  <CheckCircle2 className="h-6 w-6" /> CONFIRMAR ENTREGA AGORA
-                </Button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {statusModal.show && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setStatusModal(prev => ({ ...prev, show: false }))}
-              className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-[40px] shadow-2xl overflow-hidden text-center p-8"
-            >
-              <div className="flex flex-col items-center gap-6">
-                <div className={`h-24 w-24 rounded-full flex items-center justify-center ${
-                  statusModal.type === 'success' ? 'bg-green-500/10 text-green-500 ring-4 ring-green-500/5' :
-                  statusModal.type === 'error' ? 'bg-red-500/10 text-red-500 ring-4 ring-red-500/5' :
-                  'bg-blue-500/10 text-blue-500 ring-4 ring-blue-500/5'
-                }`}>
-                  {statusModal.type === 'success' ? <CheckCircle2 className="h-12 w-12" /> :
-                   statusModal.type === 'error' ? <XCircle className="h-12 w-12" /> :
-                   <QrCode className="h-12 w-12" />}
-                </div>
+                {/* Detailed Payment Method Breakdown */}
+                <div className="pt-4 border-t border-slate-100 space-y-4">
+                  <div className="flex flex-col gap-1">
+                    <h4 className="text-xs font-black uppercase text-slate-500 tracking-[0.1em]">Detalhamento por Meio de Pagamento</h4>
+                    <p className="text-[11px] font-semibold text-slate-400">Valores e quantidades exatos transacionados em cada modalidade.</p>
+                  </div>
 
-                <div className="space-y-2 w-full">
-                  <h3 className="text-2xl font-black text-white uppercase tracking-tighter">
-                    {statusModal.title}
-                  </h3>
-                  <p className="text-slate-400 text-sm font-medium whitespace-pre-wrap leading-relaxed">
-                    {statusModal.message}
-                  </p>
-                  {statusModal.type === 'success' && (
-                    <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mt-4">
-                      <motion.div 
-                        initial={{ width: '100%' }}
-                        animate={{ width: 0 }}
-                        transition={{ duration: 2.5, ease: 'linear' }}
-                        className="h-full bg-green-500"
-                      />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Online Methods */}
+                    <div className="space-y-3">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg w-max">
+                        Online (Meios Digitais)
+                      </div>
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/20">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-50/85 text-[10px] font-black text-slate-450 uppercase tracking-wider border-b border-slate-150">
+                              <th className="px-4 py-2.5 font-bold">Meio</th>
+                              <th className="px-4 py-2.5 font-bold text-right">Qtd</th>
+                              <th className="px-4 py-2.5 font-bold text-right">Valor Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paymentMethodsStats
+                              .filter(m => m.type === 'online')
+                              .map(method => (
+                                <tr key={method.name} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/55 transition-colors">
+                                  <td className="px-4 py-3 flex items-center gap-2">
+                                    <div className={`h-2.5 w-2.5 rounded-full ${method.color}`} />
+                                    <span className="font-bold text-slate-700">{method.label}</span>
+                                  </td>
+                                  <td className="px-4 py-3 font-semibold text-slate-550 text-right tabular-nums">{method.count} recargas</td>
+                                  <td className="px-4 py-3 font-black text-slate-800 text-right tabular-nums">{formatCurrency(method.amount)}</td>
+                                </tr>
+                              ))}
+                            {paymentMethodsStats.filter(m => m.type === 'online').reduce((acc, x) => acc + x.count, 0) === 0 && (
+                              <tr>
+                                <td colSpan={3} className="px-4 py-6 text-center text-slate-450 text-[11px] font-bold uppercase">Nenhuma recarga online registrada</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Cashier/Physical Methods */}
+                    <div className="space-y-3">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-indigo-800 bg-indigo-50 px-2.5 py-1 rounded-lg w-max">
+                        Presencial (Caixa / PDV)
+                      </div>
+                      <div className="border border-slate-100 rounded-2xl overflow-hidden bg-slate-50/20">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-50/85 text-[10px] font-black text-slate-450 uppercase tracking-wider border-b border-slate-150">
+                              <th className="px-4 py-2.5 font-bold">Meio</th>
+                              <th className="px-4 py-2.5 font-bold text-right">Qtd</th>
+                              <th className="px-4 py-2.5 font-bold text-right">Valor Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paymentMethodsStats
+                              .filter(m => m.type === 'physical')
+                              .map(method => (
+                                <tr key={method.name} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/55 transition-colors">
+                                  <td className="px-4 py-3 flex items-center gap-2">
+                                    <div className={`h-2.5 w-2.5 rounded-full ${method.color}`} />
+                                    <span className="font-bold text-slate-700">{method.label}</span>
+                                  </td>
+                                  <td className="px-4 py-3 font-semibold text-slate-550 text-right tabular-nums">{method.count} recargas</td>
+                                  <td className="px-4 py-3 font-black text-slate-800 text-right tabular-nums">{formatCurrency(method.amount)}</td>
+                                </tr>
+                              ))}
+                            {paymentMethodsStats.filter(m => m.type === 'physical').reduce((acc, x) => acc + x.count, 0) === 0 && (
+                              <tr>
+                                <td colSpan={3} className="px-4 py-6 text-center text-slate-450 text-[11px] font-bold uppercase">Nenhuma recarga presencial registrada</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Dynamic Detail Modal for displaying contributing logs/records under the active filters */}
+      {(() => {
+        // Evaluate contributing logs matching active date filters
+        const contributingRecords = selectedDetail ? (() => {
+          if (selectedDetail.type === 'product') {
+            return transactionsLog.filter(t => {
+              if (t.type === 'COMPRA' && t.status === 'completed') {
+                const hasItem = t.desc.toLowerCase().includes(selectedDetail.title.toLowerCase()) || 
+                                (t.desc === '' && products.some(p => p.name === selectedDetail.title));
+                const hasStall = t.stall.toLowerCase() === selectedDetail.subtitle.toLowerCase();
+                return hasItem && hasStall;
+              }
+              return false;
+            });
+          }
+          if (selectedDetail.type === 'user' || selectedDetail.type === 'card') {
+            return transactionsLog.filter(t => {
+              const cleanedId = selectedDetail.id.replace(/\s+/g, '');
+              const cleanedCard = t.cardNumber ? t.cardNumber.replace(/\s+/g, '') : '';
+              const userMatches = t.user.toLowerCase() === selectedDetail.title.toLowerCase() ||
+                                  (cleanedCard && cleanedCard === formatCardNumber(selectedDetail.id).replace(/\s+/g, '')) ||
+                                  (cleanedCard && cleanedCard === formatCardNumber(cleanedId).replace(/\s+/g, ''));
+              return userMatches;
+            });
+          }
+          return [];
+        })() : [];
+
+        if (!selectedDetail) return null;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedDetail(null)} />
+            
+            <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-hidden shadow-2xl border border-slate-105 flex flex-col z-10 animate-in fade-in zoom-in-95 duration-200">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-blue-600 tracking-widest block font-sans">
+                    {selectedDetail.type === 'product' && 'Detalhamento de Vendas do Produto'}
+                    {selectedDetail.type === 'user' && 'Histórico do Cliente / Titular'}
+                    {selectedDetail.type === 'card' && 'Logs de Ativação / Recargas de Cartão'}
+                  </span>
+                  <h3 className="text-lg font-black text-slate-950 tracking-tight mt-0.5 font-sans">{selectedDetail.title}</h3>
+                  <p className="text-xs text-slate-500 font-semibold font-sans">{selectedDetail.subtitle}</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedDetail(null)}
+                  className="p-1 px-3 rounded-xl bg-white border border-slate-100 text-slate-400 hover:text-slate-700 hover:bg-slate-50 text-xs font-black uppercase transition-all shadow-sm font-sans"
+                >
+                  Fechar ✕
+                </button>
+              </div>
+
+              <div className="p-6 bg-slate-50 border-b border-slate-100">
+                <p className="text-xs font-black uppercase tracking-wider text-slate-500 font-sans">Filtro de Período Ativo:</p>
+                <div className="grid grid-cols-2 gap-4 mt-2.5">
+                  <div className="bg-white p-3.5 rounded-2xl border border-slate-205 shadow-sm border-slate-200/60">
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block font-sans">Período de Análise</span>
+                    <span className="text-xs font-bold text-slate-700 block mt-1 font-sans">
+                      {startDate ? format(new Date(startDate + 'T00:00:00'), 'dd/MM/yyyy') : 'Todo o Histórico'} 
+                      {endDate ? ` até ${format(new Date(endDate + 'T23:59:59'), 'dd/MM/yyyy')}` : ''}
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-3.5 rounded-2xl border border-slate-205 shadow-sm border-slate-200/60">
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block font-sans">Registros Capturados</span>
+                    <span className="text-xs font-extrabold text-blue-600 block mt-1 font-sans">{contributingRecords.length} lançamentos</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                {selectedDetail.type === 'product' && (
+                  <div className="bg-emerald-50/50 border border-emerald-100/80 rounded-2xl p-4 flex justify-between items-center">
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-emerald-600 tracking-wider font-sans">Desempenho Geral</span>
+                      <p className="text-xs text-emerald-800 font-medium leading-relaxed mt-0.5 font-sans">
+                        Vendas ativas de <strong>{selectedDetail.title}</strong> na <strong>{selectedDetail.subtitle}</strong>.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 font-sans font-sans">Transações e Vendas Contribuintes</h4>
+                  </div>
+
+                  {contributingRecords.length === 0 ? (
+                    <div className="py-12 border border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 text-xs">
+                      <History className="h-8 w-8 opacity-20 mb-2.5" />
+                      <p className="font-bold uppercase tracking-wider text-[10px] text-slate-400 font-sans">Nenhuma compra ou recarga registrada para este item/titular</p>
+                      <p className="text-[10px] text-slate-400 mt-1 font-sans">Com os filtros selecionados, não há atividade correspondente.</p>
+                    </div>
+                  ) : (
+                    <div className="border border-slate-100 rounded-2xl overflow-hidden divide-y divide-slate-100 shadow-sm bg-white">
+                      {contributingRecords.slice(0, 45).map((log, logIdx) => (
+                        <div key={logIdx} className="p-4 flex justify-between items-center gap-4 text-xs hover:bg-slate-50/50 transition-colors">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-800 truncate font-sans">{log.user}</span>
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase ${
+                                log.type === 'CARGA' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {log.type}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[10px] text-slate-400 font-bold leading-normal font-sans">
+                              <span>{log.date}</span>
+                              {log.stall && (
+                                <>
+                                  <span>•</span>
+                                  <span>{log.stall}</span>
+                                </>
+                              )}
+                              <span>•</span>
+                              <span className="font-mono text-[9px] uppercase tracking-wider bg-slate-100 px-1.5 py-0.5 rounded truncate max-w-[120px]">{log.paymentMethod}</span>
+                            </div>
+                            {log.desc && (
+                              <p className="text-[10px] text-slate-500 mt-1 italic line-clamp-1 font-sans">{log.desc}</p>
+                            )}
+                          </div>
+                          <div className={`font-black font-mono shrink-0 text-right ${log.type === 'CARGA' ? 'text-green-600' : 'text-slate-900'}`}>
+                            {log.type === 'CARGA' ? '+' : '-'}{formatCurrency(log.amount)}
+                          </div>
+                        </div>
+                      ))}
+                      {contributingRecords.length > 45 && (
+                        <p className="p-3 text-center text-[10px] font-bold text-slate-400 bg-slate-50/50 font-sans">E mais {contributingRecords.length - 45} transações correspondentes...</p>
+                      )}
                     </div>
                   )}
                 </div>
-
-                {statusModal.type === 'success' && statusModal.items && statusModal.items.length > 0 && (
-                  <div className="w-full bg-slate-950/60 rounded-3xl border border-white/5 p-4 text-left space-y-3.5 max-h-56 overflow-y-auto">
-                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider border-b border-white/5 pb-2">
-                      Resumo da Venda
-                    </p>
-                    <div className="space-y-2.5">
-                      {statusModal.items.map((item, idx) => (
-                        <div key={idx} className="flex justify-between items-start gap-2 text-xs">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-emerald-400 font-extrabold font-mono text-xs">
-                              {item.quantity}x
-                            </span>
-                            <span className="text-slate-300 font-bold truncate">
-                              {item.name}
-                            </span>
-                          </div>
-                          <span className="text-slate-400 font-mono text-xs shrink-0">
-                            R$ {(item.price * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="pt-2.5 border-t border-white/5 flex justify-between items-center text-xs font-black">
-                      <span className="text-slate-400 uppercase tracking-widest text-[9px]">Total Geral</span>
-                      <span className="text-emerald-400 font-mono text-sm font-black">
-                        R$ {statusModal.items.reduce((sum, item) => sum + (item.price * item.quantity), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                <Button 
-                  onClick={() => setStatusModal(prev => ({ ...prev, show: false }))}
-                  className={`w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${
-                    statusModal.type === 'success' ? 'bg-green-600 hover:bg-green-500 shadow-xl shadow-green-600/20' :
-                    statusModal.type === 'error' ? 'bg-red-600 hover:bg-red-500 shadow-xl shadow-red-600/20' :
-                    'bg-blue-600 hover:bg-blue-500'
-                  }`}
-                >
-                  {statusModal.type === 'success' ? 'Continuar (Auto)' : 'Continuar'}
-                </Button>
               </div>
-            </motion.div>
+            </div>
           </div>
-        )}
-      </AnimatePresence>
+        );
+      })()}
     </div>
   );
 }
-
-
