@@ -124,6 +124,22 @@ function MainApp() {
       let retryCount = 0;
       const MAX_RETRIES = 3;
 
+      const sanitizeEmailForComparison = (emailStr: string) => {
+        const clean = emailStr.trim().toLowerCase();
+        if (clean.endsWith('@gmail.com')) {
+          const [local, domain] = clean.split('@');
+          const localWithoutPlus = local.split('+')[0];
+          const localWithoutDots = localWithoutPlus.replace(/\./g, '');
+          return localWithoutDots + '@' + domain;
+        }
+        return clean;
+      };
+
+      const userEmail = authUser.email || '';
+      const sanitizedUserEmail = sanitizeEmailForComparison(userEmail);
+      const targetAdminEmail = sanitizeEmailForComparison('financeiro@modeloalpha.com.br');
+      const targetStudentEmail = sanitizeEmailForComparison('denisandrews@gmail.com');
+
       const startProfileListener = () => {
         console.log("[AUTH] Starting profile listener for:", authUser.uid);
         return onSnapshot(userRef, async (snap) => {
@@ -132,13 +148,12 @@ function MainApp() {
               const data = snap.data() as UserProfile;
               console.log("[AUTH] Profile found, role:", data.role);
 
-              const userEmail = authUser.email?.toLowerCase();
-              if (userEmail === 'financeiro@modeloalpha.com.br') {
+              if (sanitizedUserEmail === targetAdminEmail) {
                 if (data.role !== 'admin') {
                   await updateDoc(userRef, { role: 'admin' });
                   data.role = 'admin';
                 }
-              } else if (userEmail === 'denisandrews@gmail.com') {
+              } else if (sanitizedUserEmail === targetStudentEmail) {
                 if (data.role !== 'student') {
                   await updateDoc(userRef, { role: 'student' });
                   data.role = 'student';
@@ -180,7 +195,7 @@ function MainApp() {
                   qrCode: existingData.qrCode || authUser.uid,
                   name: existingData.name || authUser.displayName || 'Usuário',
                   email: authUser.email?.toLowerCase() || existingData.email,
-                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : (existingData.role || 'student')
+                  role: sanitizedUserEmail === targetAdminEmail ? 'admin' : (sanitizedUserEmail === targetStudentEmail ? 'student' : (existingData.role || 'student'))
                 };
                 await setDoc(userRef, newProfile);
                 if (existingDoc.id !== authUser.uid) await deleteDoc(existingDoc.ref);
@@ -191,7 +206,7 @@ function MainApp() {
                   name: authUser.displayName || 'Usuário',
                   email: authUser.email || '',
                   balance: 0,
-                  role: authUser.email === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student',
+                  role: sanitizedUserEmail === targetAdminEmail ? 'admin' : 'student',
                   qrCode: authUser.uid
                 };
                 await setDoc(userRef, newProfile);
