@@ -14,9 +14,10 @@ import {
   query, 
   where, 
   getDocs, 
-  writeBatch 
+  writeBatch,
+  limit
 } from 'firebase/firestore';
-import { UserProfile } from '../types';
+import { UserProfile, UserRole } from '../types';
 
 /**
  * Service to handle Firebase Authentication & LGPD-compliant operations.
@@ -41,18 +42,39 @@ export const authService = {
       throw new Error('A senha deve ter pelo menos 6 caracteres.');
     }
 
-    // 1. Create the Auth User
+    // 1. Look for existing pre-registered document in Firestore before creating Auth user to get their role and balance
+    const qSnap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanEmail), limit(1)));
+    
+    let role: UserRole = 'student';
+    let balance = 0;
+    let qrCode = '';
+    let vendorIds: string[] | undefined = undefined;
+    let existingDocIdToClean: string | null = null;
+
+    if (!qSnap.empty) {
+      const existingDoc = qSnap.docs[0];
+      const existingData = existingDoc.data();
+      role = (existingData.role as UserRole) || 'student';
+      balance = existingData.balance || 0;
+      qrCode = existingData.qrCode || '';
+      vendorIds = existingData.vendorIds;
+      if (existingDoc.id !== cleanEmail) { // Or whatever random generated doc ID
+        existingDocIdToClean = existingDoc.id;
+      }
+    }
+
+    // 2. Create the Auth User
     const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
     const user = userCredential.user;
 
-    // 2. Send validation / verification email
+    // 3. Send validation / verification email
     try {
       await sendEmailVerification(user);
     } catch (err) {
       console.warn('Erro ao enviar e-mail de verificação automático:', err);
     }
 
-    // 3. Create initial Firestore profile document (starting with zero balance and student role)
+    // 4. Create initial Firestore profile document (migrating role and balance if pre-registered)
     const userProfile: UserProfile & { 
       consentedToTerms: boolean; 
       consentedToTermsAt: string;
@@ -62,17 +84,31 @@ export const authService = {
       uid: user.uid,
       name: name.trim(),
       email: cleanEmail,
-      balance: 0,
-      role: 'student',
-      qrCode: user.uid,
+      balance: balance,
+      role: role,
+      qrCode: qrCode || user.uid,
       consentedToTerms: true,
       consentedToTermsAt: new Date().toISOString(),
       emailVerified: false,
       purposeOfDataCollection: 'Os dados coletados (como e-mail) servem estritamente para a sua autenticação, login seguro e recuperação de conta, em conformidade com as regras de transparência da LGPD.'
     };
 
+    if (vendorIds) {
+      userProfile.vendorIds = vendorIds;
+    }
+
     const userRef = doc(db, 'users', user.uid);
     await setDoc(userRef, userProfile);
+
+    // 5. Clean up old document if we migrated from an auto-generated random ID doc
+    if (existingDocIdToClean && existingDocIdToClean !== user.uid) {
+      try {
+        await deleteDoc(doc(db, 'users', existingDocIdToClean));
+        console.log(`[AUTH] Migrated existing pre-registration document ${existingDocIdToClean} to ${user.uid}`);
+      } catch (err) {
+        console.warn('Erro ao deletar documento pré-cadastrado temporário:', err);
+      }
+    }
 
     return user;
   },
