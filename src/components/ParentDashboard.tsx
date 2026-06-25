@@ -101,32 +101,12 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
   // Formata uma string para formato de cartão (XXXX XXXX XXXX XXXX)
   const formatCardNumber = (str: string) => {
-    if (!str) return '0000 0000 0000 0000';
-    
-    const cleanDigits = str.replace(/\D/g, '');
-    const isPurelyNumeric = /^\d+$/.test(cleanDigits);
-    const isSystemCode = str.includes('PENDING') || str.includes('VIRTUAL');
-    
-    if (isPurelyNumeric && !isSystemCode && cleanDigits.length > 0) {
-      const padded = cleanDigits.padEnd(16, '0').substring(0, 16);
-      return padded.replace(/(.{4})/g, '$1 ').trim();
-    }
-    
-    let hash1 = 0;
-    let hash2 = 0;
+    if (!str) return '';
+    let hash = 0;
     for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash1 = char + ((hash1 << 5) - hash1);
-      hash2 = char + ((hash2 << 7) - hash2) + hash1;
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
-    
-    let seed = Math.abs(hash1 ^ hash2);
-    let numeric = '';
-    for (let i = 0; i < 16; i++) {
-      seed = (seed * 9301 + 49297) % 233280;
-      numeric += (seed % 10).toString();
-    }
-    
+    const numeric = Math.abs(hash).toString().padEnd(16, '0').substring(0, 16);
     return numeric.replace(/(.{4})/g, '$1 ').trim();
   };
 
@@ -1249,7 +1229,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
         {/* Dialog 1: Privacy and Data details - LGPD Transparency */}
         <Dialog open={showPrivacyDialog} onOpenChange={setShowPrivacyDialog}>
-          <DialogContent className="sm:max-w-md bg-slate-900 border-white/10 rounded-[32px] p-6 text-white overflow-hidden">
+          <DialogContent className="sm:max-w-md bg-slate-900 border-white/10 rounded-[32px] p-6 text-white overflow-y-auto max-h-[85vh]">
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-blue-500/10 text-blue-400 rounded-2xl">
@@ -1298,7 +1278,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
         {/* Dialog 2: LGPD Account Eraser Confirmation (Secure Self-Deletion and Anonymization) */}
         <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-          <DialogContent className="sm:max-w-md bg-slate-900 border border-red-500/30 rounded-[32px] p-6 text-white overflow-hidden">
+          <DialogContent className="sm:max-w-md bg-slate-900 border border-red-500/30 rounded-[32px] p-6 text-white overflow-y-auto max-h-[85vh]">
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-red-500/10 text-red-400 rounded-2xl animate-pulse">
@@ -1575,7 +1555,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       </AnimatePresence>
 
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
-        <DialogContent className="sm:max-w-md bg-slate-900 border-white/5 rounded-[32px] p-0 overflow-hidden outline-none">
+        <DialogContent className="sm:max-w-md bg-slate-900 border-white/5 rounded-[32px] p-0 overflow-y-auto max-h-[85vh] outline-none">
           <div className="p-8">
             <RedePaymentForm 
               amount={selectedAmount} 
@@ -1590,7 +1570,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
       </Dialog>
 
       <Dialog open={editingChildProfile !== null} onOpenChange={(open) => { if (!open) setEditingChildProfile(null); }}>
-        <DialogContent className="sm:max-w-md bg-slate-950 border border-white/5 rounded-[32px] p-0 overflow-hidden outline-none text-white font-sans text-center">
+        <DialogContent className="sm:max-w-md bg-slate-950 border border-white/5 rounded-[32px] p-0 overflow-y-auto max-h-[85vh] outline-none text-white font-sans text-center">
           {editingChildProfile && (
             <div className="p-8 space-y-6">
               {/* Header */}
@@ -1829,7 +1809,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
       {/* Custom Unlink Dialog with Balance Handling Option */}
       <Dialog open={unlinkProfile !== null} onOpenChange={(open) => { if (!open) setUnlinkProfile(null); }}>
-        <DialogContent className="sm:max-w-md bg-slate-950 border border-white/5 rounded-[32px] p-0 overflow-hidden outline-none text-white font-sans text-center">
+        <DialogContent className="sm:max-w-md bg-slate-950 border border-white/5 rounded-[32px] p-0 overflow-y-auto max-h-[85vh] outline-none text-white font-sans text-center">
           {unlinkProfile && (
             <div className="p-8 space-y-6">
               {/* Header */}
@@ -1988,4 +1968,3 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
     </div>
   );
 }
-
