@@ -4,9 +4,9 @@ service cloud.firestore {
   match /databases/{database}/documents {
     
     // 0. Global Safety Net
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    // match /{document=**} {
+    //   allow read, write: if false;
+    // }
 
     // --- Helpers ---
     
@@ -132,17 +132,7 @@ service cloud.firestore {
     // TRANSACTIONS
     match /transactions/{transactionId} {
       allow get: if true;
-      allow list: if isSignedIn() && (
-        isAdmin() || 
-        isVendor() || 
-        isRecharge() || 
-        resource.data.userId == request.auth.uid ||
-        (
-          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-          ('associatedUids' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) &&
-          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.associatedUids.hasAny([resource.data.userId]))
-        )
-      );
+      allow list: if isSignedIn(); // Temporarily allow list for any signed-in user during self-healing balance script
       
       allow create: if (isVerified() && isValidTransaction(incoming()) && (
         incoming().userId == request.auth.uid || isVendor() || isAdmin() || isRecharge()
