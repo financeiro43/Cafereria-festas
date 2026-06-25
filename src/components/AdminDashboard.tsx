@@ -5159,10 +5159,11 @@ function RechargePortal({
                     placeholder="OU PASSE O CARTÃO FÍSICO (LEITOR USB/RFID)"
                     onKeyDown={async (e) => {
                       if (e.key === 'Enter') {
-                        const text = e.currentTarget.value.trim();
+                        const inputEl = e.currentTarget;
+                        const text = inputEl.value.trim();
                         if (text) {
+                          inputEl.value = '';
                           await onScanSuccess(text);
-                          e.currentTarget.value = '';
                         }
                       }
                     }}
