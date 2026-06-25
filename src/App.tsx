@@ -150,13 +150,17 @@ function MainApp() {
 
               if (sanitizedUserEmail === targetAdminEmail) {
                 if (data.role !== 'admin') {
-                  await updateDoc(userRef, { role: 'admin' });
                   data.role = 'admin';
+                  updateDoc(userRef, { role: 'admin' }).catch(err => {
+                    console.warn("[AUTH] Non-blocking error updating admin role:", err);
+                  });
                 }
               } else if (sanitizedUserEmail === targetStudentEmail) {
                 if (data.role !== 'student') {
-                  await updateDoc(userRef, { role: 'student' });
                   data.role = 'student';
+                  updateDoc(userRef, { role: 'student' }).catch(err => {
+                    console.warn("[AUTH] Non-blocking error updating student role:", err);
+                  });
                 }
               }
               
@@ -177,16 +181,15 @@ function MainApp() {
                 return;
               }
               console.log("[AUTH] Profile missing, starting migration/creation...");
-              // Check for migration
-              const q = query(
-                collection(db, 'users'), 
-                where('email', '==', authUser.email?.toLowerCase()),
-                limit(1)
-              );
-              const emailSnap = await getDocs(q);
+              // Check for migration with case-insensitive and trim-robust search
+              const usersSnap = await getDocs(collection(db, 'users'));
+              const targetEmail = authUser.email?.trim().toLowerCase();
+              const existingDoc = usersSnap.docs.find(doc => {
+                const docEmail = doc.data().email;
+                return docEmail && docEmail.trim().toLowerCase() === targetEmail;
+              });
               
-              if (!emailSnap.empty) {
-                const existingDoc = emailSnap.docs[0];
+              if (existingDoc) {
                 const existingData = existingDoc.data();
                 console.log("[AUTH] Migration: record found for email", authUser.email);
                 const newProfile: UserProfile = {
@@ -194,7 +197,7 @@ function MainApp() {
                   uid: authUser.uid,
                   qrCode: existingData.qrCode || authUser.uid,
                   name: existingData.name || authUser.displayName || 'Usuário',
-                  email: authUser.email?.toLowerCase() || existingData.email,
+                  email: authUser.email?.trim().toLowerCase() || existingData.email,
                   role: sanitizedUserEmail === targetAdminEmail ? 'admin' : (sanitizedUserEmail === targetStudentEmail ? 'student' : (existingData.role || 'student'))
                 };
                 await setDoc(userRef, newProfile);
@@ -204,7 +207,7 @@ function MainApp() {
                 const newProfile: UserProfile = {
                   uid: authUser.uid,
                   name: authUser.displayName || 'Usuário',
-                  email: authUser.email || '',
+                  email: authUser.email?.trim().toLowerCase() || '',
                   balance: 0,
                   role: sanitizedUserEmail === targetAdminEmail ? 'admin' : 'student',
                   qrCode: authUser.uid
@@ -258,7 +261,6 @@ function MainApp() {
     // Always attempt signInWithPopup first even on mobile, because:
     // 1. Standard mobile browsers (iOS Safari, Android Chrome) allow user-initiated popup triggers perfectly.
     // 2. It avoids Safari's Intelligent Tracking Prevention (ITP) or Chrome's third-party cookie blocking which often breaks signInWithRedirect state transmission.
-    // 3. If popups are genuinely blocked (e.g. inside an in-app social media webview), we catch it and fallback to redirect.
     console.log("[AUTH] Attempting Google Auth via signInWithPopup first...");
     try {
       await signInWithPopup(auth, provider);
@@ -276,17 +278,13 @@ function MainApp() {
         return;
       }
 
-      // If popup was blocked or unsupported (frequent inside webviews or strict settings), fallback smoothly to redirect
-      console.log("[AUTH] Falling back to signInWithRedirect...");
-      try {
-        await signInWithRedirect(auth, provider);
-      } catch (redirectError: any) {
-        console.warn("[AUTH] Google Auth signInWithRedirect failed:", redirectError);
-        toast.error('Erro no login Google', { 
-          description: 'O navegador impediu o login automático. Por favor, tente pelo Chrome/Safari convencional ou use seu e-mail.' 
-        });
-        setAuthLoading(false);
-      }
+      // Instead of falling back to signInWithRedirect (which crashes on iOS/Social app browsers with "sessionStorage is inaccessible" white screen),
+      // we show a beautiful, friendly error instructing them how to use Email/Password login.
+      toast.error('Login com Google Indisponível', { 
+        description: 'Seu navegador ou aplicativo impediu o login rápido do Google (comum no WhatsApp, Instagram, Safari restrito ou aba anônima). Por favor, use a opção de entrar com E-mail e Senha abaixo. Se você não tem uma senha definida, clique em "Esqueci a senha" para criar uma instantaneamente!',
+        duration: 10000
+      });
+      setAuthLoading(false);
     } finally {
       // Delay disabling authLoading state to handle smooth transition or reload
       setTimeout(() => {
@@ -587,10 +585,10 @@ function MainApp() {
       <Routes>
         <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/pdv' : profile.role === 'recharge' ? '/recharge' : '/portal'} replace />} />
         <Route path="/admin/*" element={<ProtectedRoute allowedRoles={['admin']} profile={profile}><AdminDashboard profile={profile} /></ProtectedRoute>} />
-        <Route path="/vendor/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin']} profile={profile}><VendorDashboard profile={profile} /></ProtectedRoute>} />
-        <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor', 'admin']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />
-        <Route path="/recharge/*" element={<ProtectedRoute allowedRoles={['recharge', 'admin']} profile={profile}><AdminDashboard profile={profile} forcedTab="recharge_pos" /></ProtectedRoute>} />
-        <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student', 'admin']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
+        <Route path="/vendor/*" element={<ProtectedRoute allowedRoles={['vendor']} profile={profile}><VendorDashboard profile={profile} /></ProtectedRoute>} />
+        <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />
+        <Route path="/recharge/*" element={<ProtectedRoute allowedRoles={['recharge']} profile={profile}><AdminDashboard profile={profile} forcedTab="recharge_pos" /></ProtectedRoute>} />
+        <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
         <Route path="/mock-payment" element={<MockPayment />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
