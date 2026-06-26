@@ -100,6 +100,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [recentSales, setRecentSales] = useState<any[]>([]);
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [isReconciling, setIsReconciling] = useState(false);
   
   const [newStallName, setNewStallName] = useState('');
   const [editingStall, setEditingStall] = useState<Stall | null>(null);
@@ -1448,17 +1449,62 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   };
 
   const handleCompletePendingTransaction = async (txId: string) => {
-    if (!confirm('Deseja realmente confirmar o pagamento/recebimento desta recarga pendente?')) {
+    if (!confirm('Deseja realmente confirmar o pagamento/recebimento desta recarga pendente? Isso adicionará automaticamente o saldo correspondente à conta do cliente.')) {
       return;
     }
+    const loadingToast = toast.loading('Processando e creditando saldo...');
     try {
-      await updateDoc(doc(db, 'transactions', txId), {
-        status: 'completed'
+      const response = await fetch('/api/rede/admin/complete-transaction', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          txId,
+          requesterEmail: auth.currentUser?.email
+        })
       });
-      toast.success('Pagamento recebido e baixado com sucesso!');
-    } catch (e) {
+      const data = await response.json();
+      toast.dismiss(loadingToast);
+      if (response.ok && data.success) {
+        toast.success('Pagamento baixado e saldo creditado com sucesso!');
+      } else {
+        throw new Error(data.error || 'Erro ao confirmar pagamento.');
+      }
+    } catch (e: any) {
+      toast.dismiss(loadingToast);
       console.error(e);
-      toast.error('Erro ao confirmar pagamento.');
+      toast.error(e.message || 'Erro ao confirmar pagamento.');
+    }
+  };
+
+  const handleTriggerReconciliation = async () => {
+    if (isReconciling) return;
+    setIsReconciling(true);
+    const loadingToast = toast.loading('Sincronizando transações pendentes com o banco Rede...');
+    try {
+      const response = await fetch('/api/rede/admin/trigger-reconciliation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          requesterEmail: auth.currentUser?.email
+        })
+      });
+      const data = await response.json();
+      toast.dismiss(loadingToast);
+      if (response.ok && data.success) {
+        toast.success(data.message || 'Sincronização concluída com sucesso!');
+      } else {
+        throw new Error(data.error || 'Erro na sincronização.');
+      }
+    } catch (e: any) {
+      toast.dismiss(loadingToast);
+      console.error(e);
+      toast.error(e.message || 'Erro ao sincronizar transações.');
+    } finally {
+      setIsReconciling(false);
     }
   };
 
@@ -3304,13 +3350,23 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
         {activeTab === 'transactions' && (
           <div className="space-y-8 animate-in fade-in duration-500">
-            <header>
-              <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-3">
-                <FileText className="h-8 w-8 text-blue-600" />
-                Histórico de Vendas
-              </h2>
-              <p className="text-slate-500 mt-1">Lista completa de transações financeiras registradas no sistema.</p>
-            </header>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <header>
+                <h2 className="text-3xl font-black text-slate-900 uppercase tracking-tight flex items-center gap-3">
+                  <FileText className="h-8 w-8 text-blue-600" />
+                  Histórico de Vendas
+                </h2>
+                <p className="text-slate-500 mt-1">Lista completa de transações financeiras registradas no sistema.</p>
+              </header>
+              <Button
+                onClick={handleTriggerReconciliation}
+                disabled={isReconciling}
+                className="h-11 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl px-6 font-black uppercase tracking-wider text-xs border-none flex items-center gap-2 self-start sm:self-auto transition-all shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${isReconciling ? 'animate-spin' : ''}`} />
+                {isReconciling ? 'Sincronizando...' : 'Sincronizar com o Banco'}
+              </Button>
+            </div>
 
             <Card className="shadow-sm border-none bg-white rounded-3xl overflow-hidden">
               <CardContent className="p-0">
@@ -4901,66 +4957,77 @@ function RechargePortal({
   const onScanSuccess = async (decodedText: string) => {
     try {
       const cleanText = extractCardCode(decodedText);
-      if (!cleanText) return;
+      const rawText = decodedText.trim();
+      if (!cleanText && !rawText) return;
 
       // 1. Instant Local Memory Search (0ms response)
       const foundLocal = users.find(u => 
-        u.qrCode === cleanText || 
-        (u.linkedCards && u.linkedCards.includes(cleanText))
+        (cleanText && (u.qrCode === cleanText || (u.linkedCards && u.linkedCards.includes(cleanText)))) ||
+        (rawText && (u.qrCode === rawText || (u.linkedCards && u.linkedCards.includes(rawText))))
       );
 
       if (foundLocal) {
-        const resolvedLocal = { ...foundLocal, scannedCardCode: cleanText };
+        const resolvedLocal = { ...foundLocal, scannedCardCode: cleanText || rawText };
         setScannedUser(resolvedLocal);
         setIsScanning(false);
         setStatusModal({
           show: true,
           type: 'success',
           title: 'Cliente Identificado',
-          message: `Cliente: ${foundLocal.name}\nCartão: ${cleanText}\n\nO cartão foi validado com sucesso.\nSaldo Atual: R$ ${foundLocal.balance.toFixed(2)}`
+          message: `Cliente: ${foundLocal.name}\nCartão: ${cleanText || rawText}\n\nO cartão foi validado com sucesso.\nSaldo Atual: R$ ${foundLocal.balance.toFixed(2)}`
         });
         return;
       }
 
       // 2. Fast parallel query fallback if not in current local state
-      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
-      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
+      const qMain = cleanText ? query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1)) : null;
+      const qCards = cleanText ? query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1)) : null;
+
+      const qMainRaw = (rawText && rawText !== cleanText) ? query(collection(db, 'users'), where('qrCode', '==', rawText), limit(1)) : null;
+      const qCardsRaw = (rawText && rawText !== cleanText) ? query(collection(db, 'users'), where('linkedCards', 'array-contains', rawText), limit(1)) : null;
       
       let snapMain: any = null;
       let snapCards: any = null;
       
       try {
         // Try local offline cache first (extremely fast, ~0ms latency!)
-        [snapMain, snapCards] = await Promise.all([
-          getDocsFromCache(qMain),
-          getDocsFromCache(qCards)
-        ]);
+        const cachePromises = [
+          qMain ? getDocsFromCache(qMain) : Promise.resolve({ empty: true } as any),
+          qCards ? getDocsFromCache(qCards) : Promise.resolve({ empty: true } as any),
+          qMainRaw ? getDocsFromCache(qMainRaw) : Promise.resolve({ empty: true } as any),
+          qCardsRaw ? getDocsFromCache(qCardsRaw) : Promise.resolve({ empty: true } as any)
+        ];
+        const [cMain, cCards, cMainRaw, cCardsRaw] = await Promise.all(cachePromises);
+        snapMain = (cMain && !cMain.empty) ? cMain : ((cMainRaw && !cMainRaw.empty) ? cMainRaw : null);
+        snapCards = (cCards && !cCards.empty) ? cCards : ((cCardsRaw && !cCardsRaw.empty) ? cCardsRaw : null);
       } catch (cacheErr) {
         console.warn("[CACHE] Cache lookup failed, searching server...", cacheErr);
       }
       
       // Fallback to fetch from server if cache was empty or failed
-      if (!snapMain || (snapMain.empty && (!snapCards || snapCards.empty))) {
-        const [serverMain, serverCards] = await Promise.all([
-          getDocs(qMain),
-          getDocs(qCards)
+      if (!snapMain && !snapCards) {
+        const [serverMain, serverCards, serverMainRaw, serverCardsRaw] = await Promise.all([
+          qMain ? getDocs(qMain) : Promise.resolve({ empty: true } as any),
+          qCards ? getDocs(qCards) : Promise.resolve({ empty: true } as any),
+          qMainRaw ? getDocs(qMainRaw) : Promise.resolve({ empty: true } as any),
+          qCardsRaw ? getDocs(qCardsRaw) : Promise.resolve({ empty: true } as any)
         ]);
-        snapMain = serverMain;
-        snapCards = serverCards;
+        snapMain = (serverMain && !serverMain.empty) ? serverMain : ((serverMainRaw && !serverMainRaw.empty) ? serverMainRaw : null);
+        snapCards = (serverCards && !serverCards.empty) ? serverCards : ((serverCardsRaw && !serverCardsRaw.empty) ? serverCardsRaw : null);
       }
       
       const snap = (snapMain && !snapMain.empty) ? snapMain : (snapCards || { empty: true });
  
       if (!snap.empty) {
         const userData = snap.docs[0].data() as UserProfile;
-        const resolvedUser = { ...userData, uid: snap.docs[0].id, scannedCardCode: cleanText };
+        const resolvedUser = { ...userData, uid: snap.docs[0].id, scannedCardCode: cleanText || rawText };
         setScannedUser(resolvedUser);
         setIsScanning(false);
         setStatusModal({
           show: true,
           type: 'success',
           title: 'Cliente Identificado',
-          message: `Cliente: ${userData.name}\nCartão: ${cleanText}\n\nO cartão foi validado com sucesso.\nSaldo Atual: R$ ${userData.balance.toFixed(2)}`
+          message: `Cliente: ${userData.name}\nCartão: ${cleanText || rawText}\n\nO cartão foi validado com sucesso.\nSaldo Atual: R$ ${userData.balance.toFixed(2)}`
         });
       } else {
         setStatusModal({
