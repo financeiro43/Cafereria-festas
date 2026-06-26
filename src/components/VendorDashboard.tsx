@@ -473,7 +473,8 @@ export default function VendorDashboard({
   const onScanSuccess = async (decodedText: string) => {
     try {
       const cleanText = extractCardCode(decodedText);
-      if (!cleanText) return;
+      const rawText = decodedText.trim();
+      if (!cleanText && !rawText) return;
 
       setIsScanning(false);
       setIsSearchingClient(true);
@@ -491,8 +492,20 @@ export default function VendorDashboard({
         }
       }
 
-      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
-      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
+      let userRefRaw: any = null;
+      if (rawText && !rawText.includes('/') && rawText.length < 100 && rawText !== cleanText) {
+        try {
+          userRefRaw = doc(db, 'users', rawText);
+        } catch (e) {
+          console.warn("[LOOKUP] ID de documento inválido:", rawText, e);
+        }
+      }
+
+      const qMain = cleanText ? query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1)) : null;
+      const qCards = cleanText ? query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1)) : null;
+
+      const qMainRaw = (rawText && rawText !== cleanText) ? query(collection(db, 'users'), where('qrCode', '==', rawText), limit(1)) : null;
+      const qCardsRaw = (rawText && rawText !== cleanText) ? query(collection(db, 'users'), where('linkedCards', 'array-contains', rawText), limit(1)) : null;
 
       // Função auxiliar para resolver com o primeiro documento válido encontrado
       const getFirstExistingDoc = async (promises: Promise<any>[]) => {
@@ -532,12 +545,19 @@ export default function VendorDashboard({
       try {
         const cachePromises = [
           userRef ? getDocFromCache(userRef).catch(() => null) : Promise.resolve(null),
-          getDocsFromCache(qMain)
+          userRefRaw ? getDocFromCache(userRefRaw).catch(() => null) : Promise.resolve(null),
+          qMain ? getDocsFromCache(qMain)
             .then(snap => (!snap.empty ? snap.docs[0] : null))
-            .catch(() => null),
-          getDocsFromCache(qCards)
+            .catch(() => null) : Promise.resolve(null),
+          qMainRaw ? getDocsFromCache(qMainRaw)
             .then(snap => (!snap.empty ? snap.docs[0] : null))
-            .catch(() => null)
+            .catch(() => null) : Promise.resolve(null),
+          qCards ? getDocsFromCache(qCards)
+            .then(snap => (!snap.empty ? snap.docs[0] : null))
+            .catch(() => null) : Promise.resolve(null),
+          qCardsRaw ? getDocsFromCache(qCardsRaw)
+            .then(snap => (!snap.empty ? snap.docs[0] : null))
+            .catch(() => null) : Promise.resolve(null)
         ];
         
         userDoc = await getFirstExistingDoc(cachePromises);
@@ -550,12 +570,19 @@ export default function VendorDashboard({
         try {
           const serverPromises = [
             userRef ? getDoc(userRef).catch(() => null) : Promise.resolve(null),
-            getDocs(qMain)
+            userRefRaw ? getDoc(userRefRaw).catch(() => null) : Promise.resolve(null),
+            qMain ? getDocs(qMain)
               .then(snap => (!snap.empty ? snap.docs[0] : null))
-              .catch(() => null),
-            getDocs(qCards)
+              .catch(() => null) : Promise.resolve(null),
+            qMainRaw ? getDocs(qMainRaw)
               .then(snap => (!snap.empty ? snap.docs[0] : null))
-              .catch(() => null)
+              .catch(() => null) : Promise.resolve(null),
+            qCards ? getDocs(qCards)
+              .then(snap => (!snap.empty ? snap.docs[0] : null))
+              .catch(() => null) : Promise.resolve(null),
+            qCardsRaw ? getDocs(qCardsRaw)
+              .then(snap => (!snap.empty ? snap.docs[0] : null))
+              .catch(() => null) : Promise.resolve(null)
           ];
           
           // Corrida de promessas com resolução instantânea assim que o primeiro documento for encontrado
