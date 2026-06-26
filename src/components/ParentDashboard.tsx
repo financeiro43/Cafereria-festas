@@ -153,37 +153,80 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
     }
   };
 
+  const extractCardCode = (text: string): string => {
+    let clean = text.trim();
+    if (!clean) return '';
+    
+    if (clean.includes('/') && (clean.startsWith('http://') || clean.startsWith('https://') || clean.includes('.app') || clean.includes('.br'))) {
+      try {
+        const parts = clean.split('/');
+        const lastPart = parts[parts.length - 1] || parts[parts.length - 2];
+        if (lastPart) {
+          clean = lastPart.trim();
+        }
+      } catch (e) {
+        console.warn('Error parsing URL in card code:', e);
+      }
+    }
+    
+    if (clean.includes('@')) {
+      clean = clean.split('@')[0];
+    }
+    
+    while (clean.toLowerCase().startsWith('card-')) {
+      clean = clean.substring(5);
+    }
+    
+    clean = clean.toUpperCase();
+    if (clean && !clean.startsWith('CARD-') && !clean.startsWith('FV-') && !clean.startsWith('PENDING-')) {
+      clean = 'CARD-' + clean;
+    }
+    
+    return clean;
+  };
+
   const onScanSuccess = async (decodedText: string) => {
     try {
       setIsScanning(false);
-      const cleanText = decodedText.trim();
-      if (!cleanText) return;
+      const cleanText = extractCardCode(decodedText);
+      const rawText = decodedText.trim();
+      if (!cleanText && !rawText) return;
 
       // Run queries in parallel to make dynamic identification twice as fast!
-      const qMain = query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1));
-      const qCards = query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1));
+      const qMain = cleanText ? query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1)) : null;
+      const qCards = cleanText ? query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1)) : null;
+
+      const qMainRaw = (rawText && rawText !== cleanText) ? query(collection(db, 'users'), where('qrCode', '==', rawText), limit(1)) : null;
+      const qCardsRaw = (rawText && rawText !== cleanText) ? query(collection(db, 'users'), where('linkedCards', 'array-contains', rawText), limit(1)) : null;
       
       let snapMain: any = null;
       let snapCards: any = null;
       
       try {
         // Try local offline cache first (extremely fast, ~0ms latency!)
-        [snapMain, snapCards] = await Promise.all([
-          getDocsFromCache(qMain),
-          getDocsFromCache(qCards)
-        ]);
+        const cachePromises = [
+          qMain ? getDocsFromCache(qMain) : Promise.resolve({ empty: true } as any),
+          qCards ? getDocsFromCache(qCards) : Promise.resolve({ empty: true } as any),
+          qMainRaw ? getDocsFromCache(qMainRaw) : Promise.resolve({ empty: true } as any),
+          qCardsRaw ? getDocsFromCache(qCardsRaw) : Promise.resolve({ empty: true } as any)
+        ];
+        const [cMain, cCards, cMainRaw, cCardsRaw] = await Promise.all(cachePromises);
+        snapMain = (cMain && !cMain.empty) ? cMain : ((cMainRaw && !cMainRaw.empty) ? cMainRaw : null);
+        snapCards = (cCards && !cCards.empty) ? cCards : ((cCardsRaw && !cCardsRaw.empty) ? cCardsRaw : null);
       } catch (cacheErr) {
         console.warn("[CACHE] Cache lookup failed, searching server...", cacheErr);
       }
       
       // Fallback to fetch from server if cache was empty or failed
-      if (!snapMain || (snapMain.empty && (!snapCards || snapCards.empty))) {
-        const [serverMain, serverCards] = await Promise.all([
-          getDocs(qMain),
-          getDocs(qCards)
+      if (!snapMain && !snapCards) {
+        const [serverMain, serverCards, serverMainRaw, serverCardsRaw] = await Promise.all([
+          qMain ? getDocs(qMain) : Promise.resolve({ empty: true } as any),
+          qCards ? getDocs(qCards) : Promise.resolve({ empty: true } as any),
+          qMainRaw ? getDocs(qMainRaw) : Promise.resolve({ empty: true } as any),
+          qCardsRaw ? getDocs(qCardsRaw) : Promise.resolve({ empty: true } as any)
         ]);
-        snapMain = serverMain;
-        snapCards = serverCards;
+        snapMain = (serverMain && !serverMain.empty) ? serverMain : ((serverMainRaw && !serverMainRaw.empty) ? serverMainRaw : null);
+        snapCards = (serverCards && !serverCards.empty) ? serverCards : ((serverCardsRaw && !serverCardsRaw.empty) ? serverCardsRaw : null);
       }
       
       const querySnapshot = (snapMain && !snapMain.empty) ? snapMain : (snapCards || { empty: true });
