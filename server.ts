@@ -4,19 +4,32 @@
 import express from "express";
 import path from "path";
 import cors from "cors";
-import { initializeApp, getApps, FirebaseApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 import { 
   getFirestore, 
-  Firestore, 
+  collection, 
   doc, 
   getDoc, 
+  getDocs, 
+  setDoc, 
   updateDoc, 
-  increment, 
+  query as firestoreQuery, 
+  where as firestoreWhere, 
+  limit as firestoreLimit, 
+  runTransaction as firestoreRunTransaction, 
   serverTimestamp, 
-  collection, 
-  addDoc, 
-  runTransaction 
+  increment 
 } from "firebase/firestore";
+import { getAuth, signInAnonymously } from "firebase/auth";
+
+const FieldValue = {
+  serverTimestamp() {
+    return serverTimestamp();
+  },
+  increment(val: number) {
+    return increment(val);
+  }
+};
 import fs from "fs";
 import dotenv from "dotenv";
 import axios from "axios";
@@ -28,14 +41,16 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Initialize Firebase (Client SDK)
-  let db: Firestore | null = null;
+  // Initialize Firebase (Client SDK with Admin/Server Compatibility Wrapper)
+  let db: any = null;
+  let auth: any = null;
+  let rawDb: any = null;
   try {
     const configPath = path.resolve(process.cwd(), "firebase-applet-config.json");
-    const apps = getApps();
+    const existingApps = getApps();
     
-    let firebaseApp: FirebaseApp;
-    if (apps.length === 0) {
+    let firebaseApp;
+    if (existingApps.length === 0) {
       if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
         firebaseApp = initializeApp(config);
@@ -43,12 +58,116 @@ async function startServer() {
         throw new Error("firebase-applet-config.json not found");
       }
     } else {
-      firebaseApp = apps[0] as FirebaseApp;
+      firebaseApp = existingApps[0];
     }
     
-    db = getFirestore(firebaseApp);
+    rawDb = getFirestore(firebaseApp);
+    auth = getAuth(firebaseApp);
+    
+    // Sign in anonymously to authenticate server-side reads and writes
+    signInAnonymously(auth)
+      .then((userCred) => {
+        console.log(`[FIREBASE-CLIENT] Server logged in anonymously (UID: ${userCred.user.uid})`);
+      })
+      .catch((authErr) => {
+        console.error("[FIREBASE-CLIENT] Anonymous login error:", authErr.message);
+      });
+
+    // COMPATIBILITY LAYER
+    db = {
+      collection(colName: string) {
+        let constraints: any[] = [];
+        
+        const queryBuilder = {
+          where(field: string, op: string, val: any) {
+            constraints.push(firestoreWhere(field, op as any, val));
+            return queryBuilder;
+          },
+          limit(n: number) {
+            constraints.push(firestoreLimit(n));
+            return queryBuilder;
+          },
+          async get() {
+            const colRef = collection(rawDb, colName);
+            const q = firestoreQuery(colRef, ...constraints);
+            const snap = await getDocs(q);
+            
+            // Wrap snapshot for compatibility
+            const docs = snap.docs.map(d => ({
+              id: d.id,
+              ref: d.ref,
+              data: () => d.data()
+            }));
+            
+            return {
+              empty: snap.empty,
+              size: snap.size,
+              docs
+            };
+          },
+          doc(docId: string) {
+            const docRef = doc(rawDb, colName, docId);
+            return {
+              id: docId,
+              ref: docRef,
+              async get() {
+                const snap = await getDoc(docRef);
+                return {
+                  id: snap.id,
+                  exists: snap.exists(),
+                  data: () => snap.data()
+                };
+              },
+              async set(data: any) {
+                return setDoc(docRef, data);
+              },
+              async update(data: any) {
+                return updateDoc(docRef, data);
+              }
+            };
+          }
+        };
+        
+        return queryBuilder;
+      },
+      
+      async runTransaction(callback: (t: any) => Promise<any>) {
+        return firestoreRunTransaction(rawDb, async (t) => {
+          // Wrap transaction object 't'
+          const wrappedT = {
+            async get(refOrWrapper: any) {
+              const actualRef = refOrWrapper.ref ? refOrWrapper.ref : refOrWrapper;
+              const snap = await t.get(actualRef);
+              return {
+                id: snap.id,
+                exists: snap.exists(),
+                data: () => snap.data()
+              };
+            },
+            set(refOrWrapper: any, data: any) {
+              const actualRef = refOrWrapper.ref ? refOrWrapper.ref : refOrWrapper;
+              t.set(actualRef, data);
+              return wrappedT;
+            },
+            update(refOrWrapper: any, data: any) {
+              const actualRef = refOrWrapper.ref ? refOrWrapper.ref : refOrWrapper;
+              t.update(actualRef, data);
+              return wrappedT;
+            },
+            delete(refOrWrapper: any) {
+              const actualRef = refOrWrapper.ref ? refOrWrapper.ref : refOrWrapper;
+              t.delete(actualRef);
+              return wrappedT;
+            }
+          };
+          return callback(wrappedT);
+        });
+      }
+    };
+
+    console.log("Firebase Client SDK initialized with compatibility wrapper");
   } catch (error: any) {
-    console.error("Firebase initialization failed:", error?.message);
+    console.error("Firebase Client initialization failed:", error?.message);
   }
 
   // IMPORTANT: Middleware and API Routes FIRST
@@ -393,33 +512,32 @@ async function startServer() {
       if (isSuccess) {
         if (db) {
           try {
-            const userRef = doc(db, "users", userId);
-            const userDoc = await getDoc(userRef);
+            const userRef = db.collection("users").doc(userId);
+            const userDoc = await userRef.get();
             
-            if (userDoc.exists()) {
-              const { setDoc } = await import("firebase/firestore");
+            if (userDoc.exists) {
               const txnId = redeData.tid;
-              const txnRef = doc(db, "transactions", txnId);
+              const txnRef = db.collection("transactions").doc(txnId);
 
               const userData = userDoc.data();
               const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
-              const targetUserRef = isShared ? doc(db, "users", userData.parentUid) : userRef;
+              const targetUserRef = isShared ? db.collection("users").doc(userData.parentUid) : userRef;
 
               if (paymentMethod !== 'pix') {
                 // For Credit/Debit, apply balance immediately and mark completed
-                await updateDoc(targetUserRef, {
-                  balance: increment(parsedAmount),
-                  lastRecharge: serverTimestamp(),
+                await targetUserRef.update({
+                  balance: FieldValue.increment(parsedAmount),
+                  lastRecharge: FieldValue.serverTimestamp(),
                   _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
                 });
 
-                await setDoc(txnRef, {
+                await txnRef.set({
                   userId,
                   amount: parsedAmount,
                   type: "credit",
                   status: "completed",
                   description: `Recarga via ${paymentMethod === 'debit' ? 'Débito' : 'Crédito'} Rede`,
-                  timestamp: serverTimestamp(),
+                  timestamp: FieldValue.serverTimestamp(),
                   redeTid: redeData.tid,
                   nsu: redeData.nsu,
                   _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
@@ -427,13 +545,13 @@ async function startServer() {
                 console.log(`[REDE-API] Saldo e transação (Cartão) atualizados: ${txnId}`);
               } else {
                 // For Pix, create a PENDING transaction
-                await setDoc(txnRef, {
+                await txnRef.set({
                   userId,
                   amount: parsedAmount,
                   type: "credit",
                   status: "pending",
                   description: `Recarga via Pix Rede`,
-                  timestamp: serverTimestamp(),
+                  timestamp: FieldValue.serverTimestamp(),
                   redeTid: redeData.tid,
                   _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
                 });
@@ -492,10 +610,10 @@ async function startServer() {
 
     try {
       // 1. Fetch transaction metadata from Firestore
-      const txnRef = doc(db, "transactions", tid);
-      const txnDoc = await getDoc(txnRef);
+      const txnRef = db.collection("transactions").doc(tid);
+      const txnDoc = await txnRef.get();
       
-      if (!txnDoc.exists()) {
+      if (!txnDoc.exists) {
         console.error(`[REDE-API] Transação ${tid} não encontrada no banco local.`);
         return res.status(404).json({ error: "Transação não encontrada", details: "ID inválido ou transação não iniciada." });
       }
@@ -577,18 +695,18 @@ async function startServer() {
         
         try {
           // Verify if UID exists before proceeding (Safety Check)
-          const userRef = doc(db, "users", userId);
-          const userDoc = await getDoc(userRef);
+          const userRef = db.collection("users").doc(userId);
+          const userDoc = await userRef.get();
           
-          if (!userDoc.exists()) {
+          if (!userDoc.exists) {
              console.error(`[REDE-API] ERRO CRÍTICO: Usuário ${userId} não existe no Firestore.`);
              return res.status(404).json({ success: false, error: "Usuário não encontrado no sistema local." });
           }
 
-          await runTransaction(db, async (t) => {
+          await db.runTransaction(async (t) => {
             // Read transaction document inside transaction to avoid race conditions!
             const currentTxnDoc = await t.get(txnRef);
-            if (!currentTxnDoc.exists()) {
+            if (!currentTxnDoc.exists) {
               throw new Error("Transação não encontrada no banco local dentro do bloco transacional.");
             }
             if (currentTxnDoc.data()?.status === "completed") {
@@ -597,24 +715,24 @@ async function startServer() {
             }
 
             const uDoc = await t.get(userRef);
-            if (uDoc.exists()) {
+            if (uDoc.exists) {
               const userData = uDoc.data();
               const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
-              const targetUserRef = isShared ? doc(db, "users", userData.parentUid) : userRef;
+              const targetUserRef = isShared ? db.collection("users").doc(userData.parentUid) : userRef;
               
               const targetDoc = isShared ? await t.get(targetUserRef) : uDoc;
               const currentBalance = targetDoc.data()?.balance || 0;
 
               t.update(targetUserRef, { 
                 balance: currentBalance + amount,
-                lastRecharge: serverTimestamp(),
-                updatedAt: serverTimestamp(),
+                lastRecharge: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
               
               t.update(txnRef, { 
                 status: "completed", 
-                updatedAt: serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
                 redeData: redeData,
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
@@ -626,7 +744,7 @@ async function startServer() {
             success: true, 
             status: "completed", 
             pago: true,
-            message: "Pagamento confirmado e saldo creditado!",
+            message: "Pagamento confirmado and saldo creditado!",
             redeStatus: rawStatus,
             redeCode: rawCode
           });
@@ -671,23 +789,23 @@ async function startServer() {
       const { transactionId, status } = req.body;
       if (!db) return res.status(500).json({ error: "DB error" });
       if (status === "approved") {
-        const txnRef = doc(db, "transactions", transactionId);
-        const txnDoc = await getDoc(txnRef);
-        if (txnDoc.exists()) {
+        const txnRef = db.collection("transactions").doc(transactionId);
+        const txnDoc = await txnRef.get();
+        if (txnDoc.exists) {
           const { userId, amount } = txnDoc.data()!;
-          await runTransaction(db, async (t) => {
+          await db.runTransaction(async (t) => {
             const currentTxnDoc = await t.get(txnRef);
-            if (!currentTxnDoc.exists() || currentTxnDoc.data()?.status === "completed") {
+            if (!currentTxnDoc.exists || currentTxnDoc.data()?.status === "completed") {
               console.log("[REDE-API Webhook] Transação já concluída ou inexistente. Ignorando crédito.");
               return;
             }
 
-            const userRef = doc(db, "users", userId);
+            const userRef = db.collection("users").doc(userId);
             const userDoc = await t.get(userRef);
-            if (userDoc.exists()) {
+            if (userDoc.exists) {
               const userData = userDoc.data();
               const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
-              const targetUserRef = isShared ? doc(db, "users", userData.parentUid) : userRef;
+              const targetUserRef = isShared ? db.collection("users").doc(userData.parentUid) : userRef;
               
               const targetDoc = isShared ? await t.get(targetUserRef) : userDoc;
               const currentBalance = targetDoc.data()?.balance || 0;
@@ -698,7 +816,7 @@ async function startServer() {
               });
               t.update(txnRef, { 
                 status: "completed", 
-                updatedAt: serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
             }
@@ -728,10 +846,10 @@ async function startServer() {
 
       if (!db) return res.status(500).json({ error: "Banco de dados não disponível" });
 
-      const userRef = doc(db, "users", targetUserId);
-      const userDoc = await getDoc(userRef);
+      const userRef = db.collection("users").doc(targetUserId);
+      const userDoc = await userRef.get();
 
-      if (!userDoc.exists()) {
+      if (!userDoc.exists) {
         return res.status(404).json({ error: "Usuário não encontrado." });
       }
 
@@ -739,7 +857,7 @@ async function startServer() {
 
       console.log(`[ADMIN-SET] User ${userData.name} (UID: ${targetUserId}) current: R$ ${userData.balance}, setting to: R$ ${newBalance}`);
 
-      await updateDoc(userRef, {
+      await userRef.update({
         balance: parseFloat(newBalance),
         _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
       });
@@ -756,6 +874,285 @@ async function startServer() {
       return res.status(500).json({ error: "Erro interno", details: error.message });
     }
   });
+
+  // Admin Manual Complete Transaction (Baixar) Endpoint
+  app.post(`${API_BASE}/admin/complete-transaction`, async (req, res) => {
+    try {
+      const { txId, requesterEmail } = req.body;
+      
+      // Safety/Security check: Only allow if the requester is the authorized admin email
+      if (requesterEmail !== 'financeiro@modeloalpha.com.br' && requesterEmail !== 'admin@modeloalpha.com.br') {
+        return res.status(403).json({ error: "Acesso Negado: Apenas o administrador financeiro pode realizar esta operação." });
+      }
+
+      if (!txId) {
+        return res.status(400).json({ error: "O campo txId é obrigatório." });
+      }
+
+      if (!db) return res.status(500).json({ error: "Banco de dados não disponível" });
+
+      const txnRef = db.collection("transactions").doc(txId);
+      const txnDoc = await txnRef.get();
+
+      if (!txnDoc.exists) {
+        return res.status(404).json({ error: "Transação não encontrada." });
+      }
+
+      const txnData = txnDoc.data()!;
+      if (txnData.status === "completed") {
+        return res.status(400).json({ error: "Esta transação já foi dada como concluída anteriormente." });
+      }
+
+      const { userId, amount } = txnData;
+      const userRef = db.collection("users").doc(userId);
+      const userDoc = await userRef.get();
+
+      if (!userDoc.exists) {
+        return res.status(404).json({ error: "Usuário/Cliente não encontrado." });
+      }
+
+      console.log(`[ADMIN-COMPLETE-TX] Baixando manualmente transação ${txId} para o usuário ${userId}. Valor: R$ ${amount}`);
+
+      await db.runTransaction(async (t) => {
+        const currentTxnDoc = await t.get(txnRef);
+        if (!currentTxnDoc.exists) {
+          throw new Error("Transação não encontrada no banco dentro do bloco transacional.");
+        }
+        if (currentTxnDoc.data()?.status === "completed") {
+          return;
+        }
+
+        const uDoc = await t.get(userRef);
+        if (uDoc.exists) {
+          const userData = uDoc.data();
+          const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
+          const targetUserRef = isShared ? db.collection("users").doc(userData.parentUid) : userRef;
+          
+          const targetDoc = isShared ? await t.get(targetUserRef) : uDoc;
+          const currentBalance = targetDoc.data()?.balance || 0;
+
+          t.update(targetUserRef, { 
+            balance: currentBalance + amount,
+            lastRecharge: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+          });
+          
+          t.update(txnRef, { 
+            status: "completed", 
+            updatedAt: FieldValue.serverTimestamp(),
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+          });
+        }
+      });
+
+      console.log(`[ADMIN-COMPLETE-TX] Sucesso ao baixar transação ${txId}.`);
+      return res.json({ success: true, message: "Transação baixada e crédito adicionado com sucesso." });
+
+    } catch (error: any) {
+      console.error("[ADMIN-COMPLETE-TX] Erro:", error);
+      return res.status(500).json({ error: "Erro interno ao processar transação", details: error.message });
+    }
+  });
+
+  // Admin Trigger Reconciliation (Sincronizar com o Banco) Endpoint
+  app.post(`${API_BASE}/admin/trigger-reconciliation`, async (req, res) => {
+    try {
+      const { requesterEmail } = req.body;
+      
+      // Safety/Security check: Only allow if the requester is the authorized admin email
+      if (requesterEmail !== 'financeiro@modeloalpha.com.br' && requesterEmail !== 'admin@modeloalpha.com.br') {
+        return res.status(403).json({ error: "Acesso Negado: Apenas o administrador financeiro pode realizar esta operação." });
+      }
+
+      if (!db) return res.status(500).json({ error: "Banco de dados não disponível" });
+
+      console.log(`[ADMIN-TRIGGER-RECONCILE] Sincronização manual acionada por ${requesterEmail}`);
+      const reconciledCount = await reconcilePendingTransactions();
+
+      return res.json({ 
+        success: true, 
+        message: `Sincronização concluída! ${reconciledCount} transações pendentes foram conciliadas com o banco e processadas com sucesso.`,
+        reconciledCount 
+      });
+
+    } catch (error: any) {
+      console.error("[ADMIN-TRIGGER-RECONCILE] Erro:", error);
+      return res.status(500).json({ error: "Erro interno na reconciliação", details: error.message });
+    }
+  });
+
+  // Automatic Background Reconciliation Job for Pix
+  async function reconcilePendingTransactions(): Promise<number> {
+    if (!db) {
+      console.log("[RECONCILIATION] DB não inicializado.");
+      return 0;
+    }
+    let reconciledCount = 0;
+    try {
+      console.log("[RECONCILIATION] Executando varredura em segundo plano de Pix pendentes...");
+      
+      // Fetch up to 20 pending credit (recharge) transactions using Admin SDK query
+      const snapshot = await db.collection("transactions")
+        .where("status", "==", "pending")
+        .where("type", "==", "credit")
+        .limit(20)
+        .get();
+      
+      if (snapshot.empty) {
+        console.log("[RECONCILIATION] Nenhuma transação de recarga pendente encontrada.");
+        return 0;
+      }
+
+      console.log(`[RECONCILIATION] Encontradas ${snapshot.size} transações pendentes para verificação.`);
+
+      const livePV = (process.env.REDE_PV || process.env.RESGATE_PV || "").trim();
+      const liveToken = (process.env.REDE_TOKEN || process.env.RESGATE_TOKEN || "").trim();
+      const isSandbox = String(process.env.REDE_SANDBOX || "").toLowerCase() === 'true';
+
+      if (!livePV || !liveToken) {
+        console.log("[RECONCILIATION] Credenciais da Rede não estão totalmente configuradas. Pulando verificação.");
+        return 0;
+      }
+
+      // Obtain OAuth Token
+      const accessToken = await getRedeAccessToken(livePV, liveToken, isSandbox);
+      const axiosConfig = { 
+        headers: { 
+          'Authorization': `Bearer ${accessToken}`,
+          'User-Agent': 'FestaPass/1.0 (Integration; e-Rede; Production-Proxy)'
+        },
+        timeout: 10000 
+      };
+
+      const successCodes = ["00", "0", "1", "000"];
+      const successStatuses = [
+        "Approved", "Confirmed", "Captured", "Paid", "Success", "Authorized", 
+        "captured", "approved", "paid", "confirmed", "success", "authorized",
+        "CONFIRMADO", "APROVADO", "PAGO", "CAPTURADO", "SUCESSO", "AUTORIZADO",
+        "Confirmed_Pix", "Paid_Pix", "Authenticated", "AUTHORIZED", "SUCCESS", "PAID",
+        "CAPTURED", "CONFIRMED", "APPROVED_PIX", "PAID_PIX", "CONFIRMED_PIX",
+        "CONCLUIDO", "TRANSACAO_CONCLUIDA", "LIQUIDADO"
+      ];
+
+      for (const txnDoc of snapshot.docs) {
+        const tid = txnDoc.id;
+        const txnData = txnDoc.data();
+        
+        // Skip check if the transaction is too old (e.g., more than 3 days old)
+        const timestampVal = txnData.timestamp;
+        let createdTime = Date.now();
+        if (timestampVal) {
+          if (typeof timestampVal.toDate === 'function') {
+            createdTime = timestampVal.toDate().getTime();
+          } else {
+            createdTime = new Date(timestampVal).getTime();
+          }
+        }
+        
+        const ageInMs = Date.now() - createdTime;
+        const maxAgeInMs = 3 * 24 * 60 * 60 * 1000; // 3 days
+        if (ageInMs > maxAgeInMs) {
+          console.log(`[RECONCILIATION] Transação ${tid} é antiga demais (${Math.round(ageInMs / 3600000)}h). Pulando reconciliação.`);
+          continue;
+        }
+
+        const queryId = txnData.redeTid || tid;
+        const isFirestoreId = typeof queryId === 'string' && queryId.length === 20 && /^[a-zA-Z0-9]+$/.test(queryId) && !/^\d+$/.test(queryId);
+        
+        if (!queryId || typeof queryId !== 'string' || queryId.trim() === '' || isFirestoreId) {
+          console.log(`[RECONCILIATION] Transação ${tid} não possui um ID de transação Rede (redeTid) válido para consulta. Pulando.`);
+          continue;
+        }
+
+        const redeUrl = isSandbox 
+          ? `https://sandbox-erede.useredecloud.com.br/erede/v2/transactions/${queryId}` 
+          : `https://api.userede.com.br/erede/v2/transactions/${queryId}`;
+
+        console.log(`[RECONCILIATION] Consultando API Rede para transação ${tid} (queryId: ${queryId})...`);
+
+        try {
+          const response = await axios.get(redeUrl, axiosConfig);
+          const redeData = response.data;
+          
+          const authData = redeData.authorization || {};
+          const rawStatus = String(redeData.status || authData.status || redeData.returnMessage || "").trim();
+          const rawCode = String(redeData.returnCode || authData.returnCode || "").trim();
+
+          const isStandardSuccess = successCodes.includes(rawCode) && 
+                                   (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
+          const isCodeSuccess = successCodes.includes(rawCode) && (!rawStatus || rawStatus === "undefined" || rawStatus === "null" || rawStatus === "Processando");
+          const isStatusSuccess = rawStatus && (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
+
+          const isApproved = isStandardSuccess || isCodeSuccess || isStatusSuccess;
+
+          if (isApproved) {
+            const { userId, amount } = txnData;
+            console.log(`[RECONCILIATION] PAGO DETECTADO! Creditando automaticamente txn ${tid} para o usuário ${userId} no valor de R$ ${amount}`);
+            
+            const userRef = db.collection("users").doc(userId);
+            const userDocVal = await userRef.get();
+            
+            if (!userDocVal.exists) {
+              console.log(`[RECONCILIATION] Usuário ${userId} não encontrado no Firestore.`);
+              continue;
+            }
+
+            await db.runTransaction(async (t) => {
+              const currentTxnDoc = await t.get(txnDoc.ref);
+              if (!currentTxnDoc.exists || currentTxnDoc.data()?.status === "completed") {
+                return;
+              }
+
+              const uDoc = await t.get(userRef);
+              if (uDoc.exists) {
+                const userData = uDoc.data();
+                const isShared = userData && (!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid;
+                const targetUserRef = isShared ? db.collection("users").doc(userData.parentUid) : userRef;
+                
+                const targetDoc = isShared ? await t.get(targetUserRef) : uDoc;
+                const currentBalance = targetDoc.data()?.balance || 0;
+
+                t.update(targetUserRef, { 
+                   balance: currentBalance + amount,
+                   lastRecharge: FieldValue.serverTimestamp(),
+                   updatedAt: FieldValue.serverTimestamp(),
+                   _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+                });
+                
+                t.update(txnDoc.ref, { 
+                  status: "completed", 
+                  updatedAt: FieldValue.serverTimestamp(),
+                  redeData: redeData,
+                  _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+                });
+              }
+            });
+            console.log(`[RECONCILIATION] Crédito automático realizado com sucesso para txn ${tid}.`);
+            reconciledCount++;
+          } else {
+            console.log(`[RECONCILIATION] Transação ${tid} ainda consta como pendente na Rede (status: ${rawStatus}, código: ${rawCode}).`);
+          }
+        } catch (apiErr: any) {
+          const status = apiErr.response?.status;
+          if (status === 400 || status === 404) {
+            console.log(`[RECONCILIATION] Transação ${tid} (queryId: ${queryId}) não foi encontrada na Rede ou está pendente (link de pagamento gerado, mas não pago). Status HTTP: ${status}`);
+          } else {
+            console.log(`[RECONCILIATION] Erro na API Rede ao verificar transação ${tid}: ${apiErr.message}`);
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error("[RECONCILIATION] Erro crítico no worker de segundo plano:", error);
+    }
+    return reconciledCount;
+  }
+
+  // Configura varredura automática a cada 2 minutos
+  setInterval(reconcilePendingTransactions, 120000);
+  
+  // Executa uma varredura inicial 15 segundos após a inicialização do servidor
+  setTimeout(reconcilePendingTransactions, 15000);
 
   // --- Static Assets & Development Middleware ---
 
