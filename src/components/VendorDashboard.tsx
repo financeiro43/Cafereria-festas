@@ -158,6 +158,11 @@ export default function VendorDashboard({
   const [isScanning, setIsScanning] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [autoConfirm, setAutoConfirm] = useState(true);
+  const [showBalanceInquiry, setShowBalanceInquiry] = useState(false);
+  const [balanceInquiryCode, setBalanceInquiryCode] = useState('');
+  const [balanceInquiryUser, setBalanceInquiryUser] = useState<UserProfile | null>(null);
+  const [isSearchingInquiry, setIsSearchingInquiry] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(true);
@@ -628,10 +633,10 @@ export default function VendorDashboard({
       }
 
       setScannedUser(userData);
-      toast.success(`Cliente ${userData.name} identificado com sucesso!`);
+      toast.success(`Cliente ${userData.name} identified successfully!`);
 
-      // Auto-confirm the sale if there are items in the cart
-      if (cart.length > 0 && cartTotal > 0) {
+      // Auto-confirm the sale if there are items in the cart and autoConfirm is active
+      if (cart.length > 0 && cartTotal > 0 && autoConfirm) {
         toast.info("Processando venda automaticamente...");
         await handleSale(userData);
       }
@@ -801,6 +806,145 @@ export default function VendorDashboard({
     } finally {
       clearTimeout(failsafe);
       setProcessing(false);
+    }
+  };
+
+  const handleBalanceInquiry = async (code: string) => {
+    if (!code) return;
+    try {
+      setIsSearchingInquiry(true);
+      setBalanceInquiryUser(null);
+      
+      const cleanText = extractCardCode(code);
+      const rawText = code.trim();
+      if (!cleanText && !rawText) return;
+
+      const toastId = toast.loading('Buscando saldo...', { id: 'v-balance' });
+      let userDoc: any = null;
+
+      let userRef: any = null;
+      if (cleanText && !cleanText.includes('/') && cleanText.length < 100) {
+        try {
+          userRef = doc(db, 'users', cleanText);
+        } catch (e) {
+          console.warn("[LOOKUP] ID de documento inválido:", cleanText, e);
+        }
+      }
+
+      let userRefRaw: any = null;
+      if (rawText && !rawText.includes('/') && rawText.length < 100 && rawText !== cleanText) {
+        try {
+          userRefRaw = doc(db, 'users', rawText);
+        } catch (e) {
+          console.warn("[LOOKUP] ID de documento inválido:", rawText, e);
+        }
+      }
+
+      const qMain = cleanText ? query(collection(db, 'users'), where('qrCode', '==', cleanText), limit(1)) : null;
+      const qCards = cleanText ? query(collection(db, 'users'), where('linkedCards', 'array-contains', cleanText), limit(1)) : null;
+
+      const qMainRaw = (rawText && rawText !== cleanText) ? query(collection(db, 'users'), where('qrCode', '==', rawText), limit(1)) : null;
+      const qCardsRaw = (rawText && rawText !== cleanText) ? query(collection(db, 'users'), where('linkedCards', 'array-contains', rawText), limit(1)) : null;
+
+      const getFirstExistingDoc = async (promises: Promise<any>[]) => {
+        return new Promise<any>((resolve) => {
+          let resolved = false;
+          let pending = promises.length;
+          
+          if (pending === 0) {
+            resolve(null);
+            return;
+          }
+
+          promises.forEach(p => {
+            p.then(doc => {
+              if (resolved) return;
+              if (doc && typeof doc.exists === 'function' && doc.exists()) {
+                resolved = true;
+                resolve(doc);
+              } else {
+                pending--;
+                if (pending === 0) {
+                  resolve(null);
+                }
+              }
+            }).catch(() => {
+              if (resolved) return;
+              pending--;
+              if (pending === 0) {
+                resolve(null);
+              }
+            });
+          });
+        });
+      };
+
+      // 1. Local Cache
+      try {
+        const cachePromises = [
+          userRef ? getDocFromCache(userRef).catch(() => null) : Promise.resolve(null),
+          userRefRaw ? getDocFromCache(userRefRaw).catch(() => null) : Promise.resolve(null),
+          qMain ? getDocsFromCache(qMain).then(snap => (!snap.empty ? snap.docs[0] : null)).catch(() => null) : Promise.resolve(null),
+          qMainRaw ? getDocsFromCache(qMainRaw).then(snap => (!snap.empty ? snap.docs[0] : null)).catch(() => null) : Promise.resolve(null),
+          qCards ? getDocsFromCache(qCards).then(snap => (!snap.empty ? snap.docs[0] : null)).catch(() => null) : Promise.resolve(null),
+          qCardsRaw ? getDocsFromCache(qCardsRaw).then(snap => (!snap.empty ? snap.docs[0] : null)).catch(() => null) : Promise.resolve(null)
+        ];
+        userDoc = await getFirstExistingDoc(cachePromises);
+      } catch (cacheErr) {
+        console.warn("[CACHE] Erro cache:", cacheErr);
+      }
+
+      // 2. Server
+      if (!userDoc) {
+        try {
+          const serverPromises = [
+            userRef ? getDoc(userRef).catch(() => null) : Promise.resolve(null),
+            userRefRaw ? getDoc(userRefRaw).catch(() => null) : Promise.resolve(null),
+            qMain ? getDocs(qMain).then(snap => (!snap.empty ? snap.docs[0] : null)).catch(() => null) : Promise.resolve(null),
+            qMainRaw ? getDocs(qMainRaw).then(snap => (!snap.empty ? snap.docs[0] : null)).catch(() => null) : Promise.resolve(null),
+            qCards ? getDocs(qCards).then(snap => (!snap.empty ? snap.docs[0] : null)).catch(() => null) : Promise.resolve(null),
+            qCardsRaw ? getDocs(qCardsRaw).then(snap => (!snap.empty ? snap.docs[0] : null)).catch(() => null) : Promise.resolve(null)
+          ];
+          const serverResultPromise = getFirstExistingDoc(serverPromises);
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
+          userDoc = await Promise.race([serverResultPromise, timeoutPromise]);
+        } catch (serverErr) {
+          console.error("[SERVER] Erro servidor:", serverErr);
+        }
+      }
+
+      toast.dismiss(toastId);
+      setIsSearchingInquiry(false);
+
+      if (!userDoc) {
+        toast.error('Cartão não encontrado.');
+        return;
+      }
+
+      let userData = { ...userDoc.data(), uid: userDoc.id, scannedCardCode: cleanText } as UserProfile & { scannedCardCode?: string };
+
+      if ((!userData.balanceType || userData.balanceType === 'shared') && userData.parentUid) {
+        try {
+          const parentRef = doc(db, 'users', userData.parentUid);
+          let parentDoc = await getDocFromCache(parentRef).catch(() => null);
+          if (!parentDoc || !parentDoc.exists()) {
+            parentDoc = await getDoc(parentRef).catch(() => null);
+          }
+          if (parentDoc && parentDoc.exists()) {
+            const parentData = parentDoc.data() as UserProfile;
+            userData.balance = parentData.balance || 0;
+          }
+        } catch (parentErr) {
+          console.error("Erro ao buscar saldo compartilhado:", parentErr);
+        }
+      }
+
+      setBalanceInquiryUser(userData);
+      toast.success('Saldo consultado com sucesso!');
+    } catch (error) {
+      console.error(error);
+      setIsSearchingInquiry(false);
+      toast.dismiss('v-balance');
     }
   };
 
@@ -1154,14 +1298,29 @@ export default function VendorDashboard({
 
                       {!scannedUser ? (
                         <div className="space-y-3">
-                          <Button 
-                            onClick={() => setIsScanning(true)}
-                            disabled={cart.length === 0}
-                            className="w-full h-16 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-[0.3em] rounded-2xl shadow-[0_20px_40px_rgba(37,99,235,0.3)] border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all group overflow-hidden relative"
-                          >
-                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
-                            <QrCode className="mr-3 h-6 w-6" /> Escanear Carteira
-                          </Button>
+                          <div className="grid grid-cols-2 gap-3">
+                            <Button 
+                              onClick={() => setIsScanning(true)}
+                              disabled={false}
+                              className="h-16 bg-blue-600 hover:bg-blue-500 text-white font-black uppercase text-xs tracking-wider rounded-2xl shadow-xl active:translate-y-1 transition-all flex flex-col justify-center items-center gap-1 group overflow-hidden relative"
+                            >
+                              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
+                              <QrCode className="h-5 w-5" />
+                              <span>Escanear</span>
+                            </Button>
+
+                            <Button 
+                              onClick={() => {
+                                setBalanceInquiryCode('');
+                                setBalanceInquiryUser(null);
+                                setShowBalanceInquiry(true);
+                              }}
+                              className="h-16 bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-200 font-black uppercase text-xs tracking-wider rounded-2xl shadow-xl active:translate-y-1 transition-all flex flex-col justify-center items-center gap-1 border border-white/5"
+                            >
+                              <Search className="h-5 w-5 text-blue-400" />
+                              <span>Consultar Saldo</span>
+                            </Button>
+                          </div>
                           
                           <div className="relative">
                             <Input
@@ -1176,13 +1335,34 @@ export default function VendorDashboard({
                                   }
                                 }
                               }}
-                              disabled={cart.length === 0}
+                              disabled={false}
                               className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 font-bold uppercase text-[11px] tracking-wider text-center h-12 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none w-full"
-                              autoFocus={cart.length > 0}
+                              autoFocus={true}
                             />
                             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
                               <span className="text-[8px] font-black uppercase text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">Leitor USB</span>
                             </div>
+                          </div>
+
+                          {/* Auto confirm Toggle */}
+                          <div className="flex items-center justify-between p-3 bg-white/[0.02] border border-white/5 rounded-xl text-xs text-slate-300">
+                            <div className="space-y-0.5">
+                              <span className="font-extrabold uppercase tracking-wider text-[9px] text-slate-400 block">Venda Rápida</span>
+                              <span className="text-[10px] font-medium text-slate-500">Auto-concluir ao ler cartão</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setAutoConfirm(!autoConfirm)}
+                              className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                autoConfirm ? 'bg-blue-600' : 'bg-slate-700'
+                              }`}
+                            >
+                              <span
+                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                                  autoConfirm ? 'translate-x-5' : 'translate-x-0'
+                                }`}
+                              />
+                            </button>
                           </div>
                         </div>
                       ) : (
@@ -1822,13 +2002,23 @@ export default function VendorDashboard({
                   key="empty-scan"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="flex-1"
+                  className="flex-1 flex gap-3"
                 >
                   <Button 
                     onClick={() => setIsScanning(true)}
-                    className="w-full h-full bg-white/5 hover:bg-white/10 text-slate-400 font-extrabold uppercase text-[10px] tracking-widest rounded-[20px] border border-white/10"
+                    className="flex-1 h-full bg-white/5 hover:bg-white/10 text-slate-400 font-extrabold uppercase text-[10px] tracking-widest rounded-[20px] border border-white/10 flex items-center justify-center"
                   >
-                    <QrCode className="h-5 w-5 mr-3 opacity-50" /> QR CODE
+                    <QrCode className="h-4 w-4 mr-2 opacity-50" /> QR CODE
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      setBalanceInquiryCode('');
+                      setBalanceInquiryUser(null);
+                      setShowBalanceInquiry(true);
+                    }}
+                    className="flex-1 h-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-extrabold uppercase text-[10px] tracking-widest rounded-[20px] border border-blue-500/20 flex items-center justify-center"
+                  >
+                    <Search className="h-4 w-4 mr-2" /> CONSULTAR
                   </Button>
                 </motion.div>
               )}
@@ -2167,6 +2357,157 @@ export default function VendorDashboard({
                   }`}
                 >
                   {statusModal.type === 'success' ? 'Continuar (Auto)' : 'Continuar'}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showBalanceInquiry && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowBalanceInquiry(false)}
+              className="absolute inset-0 bg-slate-950/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-slate-900 border border-white/10 rounded-[36px] shadow-2xl overflow-hidden p-6 md:p-8 space-y-6"
+            >
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Search className="h-5 w-5 text-blue-500" />
+                  <h3 className="text-lg font-black text-white uppercase tracking-wider">Consultar Saldo</h3>
+                </div>
+                <button 
+                  onClick={() => setShowBalanceInquiry(false)}
+                  className="h-8 w-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-all"
+                >
+                  <XCircle className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs text-slate-400 font-medium">
+                  Aproxime o cartão do leitor (RFID) ou digite o código/nome abaixo para consultar o saldo.
+                </p>
+
+                <div className="space-y-3">
+                  <div className="relative">
+                    <Input
+                      id="balance-inquiry-input"
+                      placeholder="LEITOR RFID / DIGITE O CÓDIGO"
+                      value={balanceInquiryCode}
+                      onChange={(e) => setBalanceInquiryCode(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter') {
+                          await handleBalanceInquiry(balanceInquiryCode);
+                        }
+                      }}
+                      className="h-12 bg-white/5 border-white/10 text-white placeholder:text-slate-500 font-black uppercase text-xs tracking-wider text-center rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none w-full"
+                      autoFocus
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+                      <span className="text-[8px] font-black uppercase text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20">Leitor RFID</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => handleBalanceInquiry(balanceInquiryCode)}
+                      disabled={isSearchingInquiry || !balanceInquiryCode.trim()}
+                      className="flex-1 h-11 bg-blue-600 hover:bg-blue-500 font-bold uppercase text-xs tracking-wider rounded-xl transition-all"
+                    >
+                      {isSearchingInquiry ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Consultar'}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShowBalanceInquiry(false);
+                        setIsScanning(true);
+                      }}
+                      variant="outline"
+                      className="h-11 border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold uppercase text-xs tracking-wider rounded-xl"
+                    >
+                      <QrCode className="h-4 w-4 mr-2" /> QR Code
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Inquiry result */}
+              <AnimatePresence mode="wait">
+                {balanceInquiryUser ? (
+                  <motion.div
+                    key="inquiry-result"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="bg-white/5 p-5 rounded-2xl border border-white/10 space-y-4"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="h-12 w-12 bg-blue-600 rounded-xl flex items-center justify-center font-black text-lg text-white">
+                        {balanceInquiryUser.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="font-black text-sm uppercase text-white truncate leading-none mb-1">
+                          {balanceInquiryUser.name}
+                        </h4>
+                        <p className="text-[10px] font-black text-blue-400 font-mono tracking-wide">
+                          {formatCardNumber(balanceInquiryUser.uid || (balanceInquiryUser as any).scannedCardCode || balanceInquiryUser.qrCode || '')}
+                        </p>
+                        <p className="text-[8px] font-bold text-slate-500 font-mono leading-none tracking-tight mt-0.5">
+                          ID: {(balanceInquiryUser as any).scannedCardCode || balanceInquiryUser.qrCode || balanceInquiryUser.uid}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950/60 p-4 rounded-xl border border-white/5 flex flex-col items-center justify-center text-center">
+                      <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider mb-1">Saldo Disponível</span>
+                      <span className="text-3xl font-black text-emerald-400 tracking-tight font-mono">
+                        R$ {balanceInquiryUser.balance.toFixed(2)}
+                      </span>
+                      {balanceInquiryUser.balanceType === 'shared' && balanceInquiryUser.parentUid && (
+                        <span className="text-[9px] text-amber-400 font-bold mt-2 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/10 uppercase tracking-wide">
+                          Saldo Compartilhado (Responsável)
+                        </span>
+                      )}
+                    </div>
+                  </motion.div>
+                ) : (
+                  !isSearchingInquiry && (
+                    <div className="h-32 bg-white/[0.01] border-2 border-dashed border-white/5 rounded-2xl flex flex-col items-center justify-center text-slate-600 text-center p-4">
+                      <Search className="h-8 w-8 opacity-20 mb-2" />
+                      <p className="text-[10px] font-black uppercase tracking-widest opacity-30">Aguardando leitura do cartão</p>
+                    </div>
+                  )
+                )}
+              </AnimatePresence>
+
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => {
+                    setBalanceInquiryCode('');
+                    setBalanceInquiryUser(null);
+                    setTimeout(() => {
+                      document.getElementById('balance-inquiry-input')?.focus();
+                    }, 50);
+                  }}
+                  variant="ghost"
+                  className="flex-1 h-12 bg-white/5 hover:bg-white/10 text-white font-bold uppercase text-xs tracking-wider rounded-xl border border-white/5"
+                >
+                  Limpar
+                </Button>
+                <Button
+                  onClick={() => setShowBalanceInquiry(false)}
+                  className="flex-1 h-12 bg-slate-800 hover:bg-slate-700 text-white font-bold uppercase text-xs tracking-wider rounded-xl border border-white/5"
+                >
+                  Fechar
                 </Button>
               </div>
             </motion.div>
