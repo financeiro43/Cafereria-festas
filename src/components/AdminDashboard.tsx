@@ -4897,6 +4897,48 @@ function RechargePortal({
   const [showCalcModal, setShowCalcModal] = useState(false);
   const [calcSearch, setCalcSearch] = useState('');
   const [calcQuantities, setCalcQuantities] = useState<{[productId: string]: number}>({});
+  const [selectedStallTab, setSelectedStallTab] = useState<string>('all');
+
+  // Bidirectional synchronizer for extra products between calcQuantities and extraQuantities
+  useEffect(() => {
+    const newExtraQuantities = { ...extraQuantities };
+    let changed = false;
+    extrasProducts.forEach(p => {
+      const calcQty = calcQuantities[p.id] || 0;
+      const extraQty = extraQuantities[p.id] || 0;
+      if (calcQty !== extraQty) {
+        if (calcQty === 0) {
+          delete newExtraQuantities[p.id];
+        } else {
+          newExtraQuantities[p.id] = calcQty;
+        }
+        changed = true;
+      }
+    });
+    if (changed) {
+      setExtraQuantities(newExtraQuantities);
+    }
+  }, [calcQuantities, extrasProducts]);
+
+  useEffect(() => {
+    const newCalcQuantities = { ...calcQuantities };
+    let changed = false;
+    extrasProducts.forEach(p => {
+      const extraQty = extraQuantities[p.id] || 0;
+      const calcQty = calcQuantities[p.id] || 0;
+      if (extraQty !== calcQty) {
+        if (extraQty === 0) {
+          delete newCalcQuantities[p.id];
+        } else {
+          newCalcQuantities[p.id] = extraQty;
+        }
+        changed = true;
+      }
+    });
+    if (changed) {
+      setCalcQuantities(newCalcQuantities);
+    }
+  }, [extraQuantities, extrasProducts]);
 
   const calcTotal = useMemo(() => {
     let sum = 0;
@@ -4913,9 +4955,13 @@ function RechargePortal({
   const groupedProducts = useMemo(() => {
     const activeProducts = products.filter(p => p.active !== false);
     const searchLower = calcSearch.toLowerCase().trim();
-    const filtered = searchLower
+    let filtered = searchLower
       ? activeProducts.filter(p => p.name.toLowerCase().includes(searchLower) || (p.category && p.category.toLowerCase().includes(searchLower)))
       : activeProducts;
+
+    if (selectedStallTab !== 'all') {
+      filtered = filtered.filter(p => (p.vendorId || 'other') === selectedStallTab);
+    }
 
     const groups: { [stallId: string]: { stallName: string; items: Product[] } } = {};
 
@@ -4932,7 +4978,7 @@ function RechargePortal({
     });
 
     return groups;
-  }, [products, stalls, calcSearch]);
+  }, [products, stalls, calcSearch, selectedStallTab]);
 
   const handleApplyCalc = () => {
     setAmount(calcTotal.toFixed(2));
@@ -4941,6 +4987,7 @@ function RechargePortal({
 
   const handleClearCalc = () => {
     setCalcQuantities({});
+    setExtraQuantities({});
   };
   const [statusModal, setStatusModal] = useState<{
     show: boolean;
@@ -5049,16 +5096,25 @@ function RechargePortal({
   };
 
   const handleRecharge = async () => {
-    const val = parseFloat(amount);
-    if (!scannedUser || isNaN(val) || val <= 0) return;
+    const val = amount ? parseFloat(amount) : 0;
+    const hasRecharge = !isNaN(val) && val > 0;
+    const hasExtras = extraItemsTotal > 0;
 
-    if (!paymentMethod) {
+    if (!scannedUser) return;
+    if (!hasRecharge && !hasExtras) {
+      toast.error('Informe um valor de recarga ou selecione itens extras para comprar.');
+      return;
+    }
+
+    const finalMethod = hasRecharge ? paymentMethod : 'Saldo do Cartão';
+    if (hasRecharge && !paymentMethod) {
       toast.error('Selecione a forma de pagamento');
       return;
     }
 
-    if (val < extraItemsTotal) {
-      toast.error('O valor da recarga deve ser maior ou igual ao total dos itens extras adicionais!');
+    const finalBalanceEstimated = scannedUser.balance + (hasRecharge ? val : 0) - extraItemsTotal;
+    if (finalBalanceEstimated < 0) {
+      toast.error(`Saldo insuficiente! Saldo atual + Recarga: R$ ${(scannedUser.balance + (hasRecharge ? val : 0)).toFixed(2)}, Compra: R$ ${extraItemsTotal.toFixed(2)}`);
       return;
     }
 
@@ -5067,32 +5123,36 @@ function RechargePortal({
       
       const rCardNum = (scannedUser as any).scannedCardCode || scannedUser.qrCode || scannedUser.uid || '';
       
-      const netAddition = val - extraItemsTotal;
+      const netAddition = (hasRecharge ? val : 0) - extraItemsTotal;
       const dbPromises: Promise<any>[] = [];
 
       const isShared = scannedUser && (!scannedUser.balanceType || scannedUser.balanceType === 'shared') && scannedUser.parentUid;
       const targetUserId = isShared ? scannedUser.parentUid! : scannedUser.uid;
 
       // 1. Update user balance with the net addition
-      dbPromises.push(updateDoc(doc(db, 'users', targetUserId), {
-        balance: increment(netAddition)
-      }));
+      if (netAddition !== 0) {
+        dbPromises.push(updateDoc(doc(db, 'users', targetUserId), {
+          balance: increment(netAddition)
+        }));
+      }
 
-      // 2. Record full recharge credit transaction
-      dbPromises.push(addDoc(collection(db, 'transactions'), {
-        userId: scannedUser.uid,
-        userName: scannedUser.name,
-        clientName: scannedUser.name,
-        cardNumber: rCardNum,
-        amount: val,
-        type: 'credit',
-        description: `Recarga Ponto de Venda (${paymentMethod})`,
-        paymentMethod,
-        status: paymentMethod === 'Conta' ? 'pending' : 'completed',
-        timestamp: serverTimestamp(),
-        operatorId: auth.currentUser?.uid || '',
-        operatorName: (users?.find(u => u.uid === auth.currentUser?.uid)?.name) || auth.currentUser?.displayName || auth.currentUser?.email || 'Operador'
-      }));
+      // 2. Record full recharge credit transaction (only if hasRecharge is true)
+      if (hasRecharge) {
+        dbPromises.push(addDoc(collection(db, 'transactions'), {
+          userId: scannedUser.uid,
+          userName: scannedUser.name,
+          clientName: scannedUser.name,
+          cardNumber: rCardNum,
+          amount: val,
+          type: 'credit',
+          description: `Recarga Ponto de Venda (${finalMethod})`,
+          paymentMethod: finalMethod,
+          status: finalMethod === 'Conta' ? 'pending' : 'completed',
+          timestamp: serverTimestamp(),
+          operatorId: auth.currentUser?.uid || '',
+          operatorName: (users?.find(u => u.uid === auth.currentUser?.uid)?.name) || auth.currentUser?.displayName || auth.currentUser?.email || 'Operador'
+        }));
+      }
 
       // 3. Group selected extra items by vendor
       const itemsByVendor: { [vendorId: string]: { product: Product, qty: number }[] } = {};
@@ -5125,7 +5185,9 @@ function RechargePortal({
           cardNumber: rCardNum,
           amount: -subTotal,
           type: 'debit',
-          description: `Compra de Extras na recarga (${stallName}): ${itemNamesString}`,
+          description: hasRecharge 
+            ? `Compra de Extras na recarga (${stallName}): ${itemNamesString}`
+            : `Compra de Extras diretamente pelo saldo (${stallName}): ${itemNamesString}`,
           stallName,
           items: itemsList.map(item => `${item.qty}x ${item.product.name}`),
           vendorId: vId,
@@ -5170,7 +5232,9 @@ function RechargePortal({
         }).join(', ');
 
       let successMsg = `Cliente: ${scannedUser.name}\nCartão: ${rCardNum}\n\n`;
-      successMsg += `A recarga de R$ ${val.toFixed(2)} (${paymentMethod}) foi adicionada ao saldo.\n`;
+      if (hasRecharge) {
+        successMsg += `A recarga de R$ ${val.toFixed(2)} (${finalMethod}) foi adicionada ao saldo.\n`;
+      }
       if (extraItemsTotal > 0) {
         successMsg += `Descontado compra de extras: R$ ${extraItemsTotal.toFixed(2)} (${itemsSummary})\n`;
       }
@@ -5486,39 +5550,53 @@ function RechargePortal({
               </div>
             </div>
 
-            <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] px-2 block">Forma de Pagamento</label>
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                {['Dinheiro', 'Pix', 'Débito', 'Crédito', 'Conta'].map(method => (
-                  <button
-                    key={method}
-                    disabled={!scannedUser}
-                    onClick={() => setPaymentMethod(method)}
-                    className={`h-14 rounded-2xl text-[9px] font-black uppercase tracking-tight border-2 transition-all active:scale-95 ${
-                      paymentMethod === method
-                        ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/40'
-                        : 'bg-white/[0.03] border-white/5 hover:border-white/10 text-slate-400 disabled:opacity-20'
-                    }`}
-                  >
-                    {method}
-                  </button>
-                ))}
+            {scannedUser && (!amount || parseFloat(amount) <= 0) && extraItemsTotal > 0 ? (
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-black uppercase text-emerald-400 tracking-wider">Forma de Pagamento</p>
+                  <p className="text-xs text-slate-300 font-bold mt-1">Compra debitada diretamente do saldo</p>
+                </div>
+                <div className="px-3 py-1 bg-emerald-500/20 rounded-lg text-emerald-400 text-[10px] font-black uppercase tracking-wider font-mono">
+                  Saldo do Cartão
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] px-2 block">Forma de Pagamento</label>
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                  {['Dinheiro', 'Pix', 'Débito', 'Crédito', 'Conta'].map(method => (
+                    <button
+                      key={method}
+                      disabled={!scannedUser}
+                      onClick={() => setPaymentMethod(method)}
+                      className={`h-14 rounded-2xl text-[9px] font-black uppercase tracking-tight border-2 transition-all active:scale-95 ${
+                        paymentMethod === method
+                          ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/40'
+                          : 'bg-white/[0.03] border-white/5 hover:border-white/10 text-slate-400 disabled:opacity-20'
+                      }`}
+                    >
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-            {scannedUser && amount && parseFloat(amount) > 0 && (
+            {scannedUser && (amount && parseFloat(amount) > 0 || extraItemsTotal > 0) && (
               <div className="p-5 bg-slate-900 border border-white/10 rounded-2xl space-y-3 animate-in fade-in duration-300">
                 <p className="text-[10px] font-black uppercase text-indigo-400 tracking-wider">Resumo da Operação</p>
                 <div className="space-y-1.5 text-xs">
-                  <div className="flex justify-between text-slate-400">
-                    <span>Recarga Recebida:</span>
-                    <span className="font-mono font-bold text-white">R$ {parseFloat(amount).toFixed(2)}</span>
-                  </div>
+                  {amount && parseFloat(amount) > 0 && (
+                    <div className="flex justify-between text-slate-400">
+                      <span>Recarga Recebida:</span>
+                      <span className="font-mono font-bold text-white">R$ {parseFloat(amount).toFixed(2)}</span>
+                    </div>
+                  )}
                   {extraItemsTotal > 0 && (
                     <>
                       <div className="flex justify-between text-indigo-400 font-semibold items-center">
                         <span className="flex items-center gap-1">Compra de Extras:</span>
-                        <span className="font-mono font-black">- R$ {extraItemsTotal.toFixed(2)}</span>
+                        <span className="font-mono font-black text-red-400">- R$ {extraItemsTotal.toFixed(2)}</span>
                       </div>
                       <div className="pl-3 py-1 space-y-1 text-[10px] text-slate-450 border-l border-indigo-500/20 bg-indigo-500/[0.02] rounded-r-md">
                         {Object.keys(extraQuantities).map(pId => {
@@ -5536,12 +5614,16 @@ function RechargePortal({
                     </>
                   )}
                   <div className="border-t border-white/5 pt-2 flex justify-between font-bold text-sm">
-                    <span className="text-slate-300">Crédito Líquido no Cartão:</span>
-                    <span className="font-mono text-green-400">R$ {(parseFloat(amount) - extraItemsTotal).toFixed(2)}</span>
+                    <span className="text-slate-300">
+                      {amount && parseFloat(amount) > 0 ? 'Crédito Líquido no Cartão:' : 'Total a Debitar:'}
+                    </span>
+                    <span className={`font-mono ${amount && parseFloat(amount) > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      R$ {amount && parseFloat(amount) > 0 ? (parseFloat(amount) - extraItemsTotal).toFixed(2) : extraItemsTotal.toFixed(2)}
+                    </span>
                   </div>
                   <div className="flex justify-between text-[11px] text-slate-500 font-semibold">
                     <span>Saldo Final Estimado:</span>
-                    <span className="font-mono">R$ {(scannedUser.balance + parseFloat(amount) - extraItemsTotal).toFixed(2)}</span>
+                    <span className="font-mono text-white">R$ {(scannedUser.balance + (amount ? parseFloat(amount) : 0) - extraItemsTotal).toFixed(2)}</span>
                   </div>
                 </div>
               </div>
@@ -5552,17 +5634,17 @@ function RechargePortal({
                 <Button disabled className="w-full h-24 bg-slate-800 text-slate-600 font-black text-2xl rounded-[32px] border border-white/5">
                   <Loader2 className="h-8 w-8 animate-spin mr-3" /> PROCESSANDO
                 </Button>
-              ) : scannedUser && amount && parseFloat(amount) > 0 ? (
+              ) : scannedUser && (amount && parseFloat(amount) > 0 || extraItemsTotal > 0) ? (
                 <Button 
                   onClick={handleRecharge}
                   className="w-full h-24 bg-blue-600 hover:bg-blue-500 text-white font-black text-2xl shadow-2xl shadow-blue-900/40 rounded-[32px] transition-all hover:-translate-y-1 active:translate-y-0"
                 >
-                  CONFIRMAR CARGA
+                  {amount && parseFloat(amount) > 0 ? 'CONFIRMAR CARGA' : 'DEBITAR EXTRAS DO SALDO'}
                 </Button>
               ) : (
                 <div className="h-24 w-full bg-white/[0.02] border-2 border-dashed border-white/5 rounded-[32px] flex items-center justify-center px-8 text-center">
                    <p className="text-slate-500 font-black text-xs uppercase tracking-[0.2em] leading-relaxed">
-                      {!scannedUser ? 'ESCANEAR CLIENTE PARA CONTINUAR' : 'SELECIONE OU DIGITE UM VALOR'}
+                      {!scannedUser ? 'ESCANEAR CLIENTE PARA CONTINUAR' : 'DIGITE UM VALOR OU ADICIONE EXTRAS'}
                    </p>
                 </div>
               )}
@@ -5641,10 +5723,10 @@ function RechargePortal({
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-xl bg-slate-900 border border-white/10 rounded-[32px] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] text-white"
+              className="relative w-full max-w-3xl bg-slate-900 border border-white/10 rounded-[32px] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] text-white"
             >
-              <div className="p-6 border-b border-white/10 text-left">
-                <div className="flex items-center justify-between mb-2">
+              <div className="p-6 border-b border-white/10 text-left space-y-4">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-blue-500/10 rounded-xl text-blue-400">
                       <Calculator className="h-5 w-5" />
@@ -5662,7 +5744,7 @@ function RechargePortal({
                   </button>
                 </div>
 
-                <div className="relative mt-4">
+                <div className="relative">
                   <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
                   <input
                     type="text"
@@ -5679,6 +5761,39 @@ function RechargePortal({
                       Limpar
                     </button>
                   )}
+                </div>
+
+                {/* Horizontally scrollable Stall Tabs */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 scrollbar-none select-none">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedStallTab('all')}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider whitespace-nowrap transition-all duration-150 border cursor-pointer ${
+                      selectedStallTab === 'all'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-900/40 border-blue-500'
+                        : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    Todas ({products.filter(p => p.active !== false).length})
+                  </button>
+                  {stalls.map(s => {
+                    const count = products.filter(p => p.active !== false && p.vendorId === s.id).length;
+                    if (count === 0) return null;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setSelectedStallTab(s.id)}
+                        className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider whitespace-nowrap transition-all duration-150 border cursor-pointer ${
+                          selectedStallTab === s.id
+                            ? 'bg-blue-600 text-white shadow-md shadow-blue-900/40 border-blue-500'
+                            : 'bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        {s.name} ({count})
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -5700,7 +5815,7 @@ function RechargePortal({
                         <span className="text-[9px] font-bold text-slate-500 font-mono">({group.items.length})</span>
                       </div>
                       
-                      <div className="grid grid-cols-1 gap-2.5">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                         {group.items.map(p => {
                           const qty = calcQuantities[p.id] || 0;
                           return (
