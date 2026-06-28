@@ -371,7 +371,7 @@ async function startServer() {
         const expDate = new Date(Date.now() + expirationSeconds * 1000);
         
         redePayload = {
-          capture: false, // Pix is never captured automatically in the same sense as cards
+          capture: true, // MUST be true so e-Rede auto-captures and approves the transaction once paid
           kind: "pix",
           reference: secureRef,
           amount: redeAmount,
@@ -671,8 +671,9 @@ async function startServer() {
       ];
       
       const authData = redeData.authorization || {};
-      const rawStatus = String(redeData.status || authData.status || redeData.returnMessage || "").trim();
-      const rawCode = String(redeData.returnCode || authData.returnCode || "").trim();
+      const qrData = redeData.qrCodeResponse || {};
+      const rawStatus = String(redeData.status || authData.status || qrData.status || redeData.returnMessage || "").trim();
+      const rawCode = String(redeData.returnCode || authData.returnCode || qrData.returnCode || "").trim();
       
       console.log(`[REDE-API] Analisando Status: "${rawStatus}" | Code: "${rawCode}" | Nest: ${authData.status ? 'AuthObj' : 'Root'}`);
 
@@ -786,9 +787,31 @@ async function startServer() {
   // Webhook
   app.post(`${API_BASE}/webhook`, async (req, res) => {
     try {
-      const { transactionId, status } = req.body;
+      console.log("[REDE-API Webhook] Recebida notificação:", JSON.stringify(req.body));
       if (!db) return res.status(500).json({ error: "DB error" });
-      if (status === "approved") {
+      
+      const body = req.body || {};
+      const transactionId = body.transactionId || body.tid || body.id || body.reference || (body.qrCodeResponse && body.qrCodeResponse.tid) || (body.authorization && body.authorization.tid);
+      const rawStatus = body.status || (body.qrCodeResponse && body.qrCodeResponse.status) || (body.authorization && body.authorization.status) || body.returnMessage;
+      
+      if (!transactionId) {
+        console.warn("[REDE-API Webhook] Recebida notificação sem ID de transação válido.");
+        return res.status(400).json({ error: "ID de transação não encontrado" });
+      }
+
+      const successStatuses = [
+        "approved", "confirmed", "captured", "paid", "success", "authorized", 
+        "confirmado", "aprovado", "pago", "capturado", "sucesso", "autorizado",
+        "confirmed_pix", "paid_pix", "authenticated", "authorized_pix", "approved_pix",
+        "concluido", "transacao_concluida", "liquidado"
+      ];
+
+      const statusStr = String(rawStatus || "").toLowerCase().trim();
+      const isApproved = successStatuses.includes(statusStr);
+
+      console.log(`[REDE-API Webhook] Analisando Transação: ${transactionId} | Status: ${rawStatus} | Aprovado: ${isApproved}`);
+
+      if (isApproved) {
         const txnRef = db.collection("transactions").doc(transactionId);
         const txnDoc = await txnRef.get();
         if (txnDoc.exists) {
@@ -812,21 +835,27 @@ async function startServer() {
 
               t.update(targetUserRef, { 
                 balance: currentBalance + amount,
+                lastRecharge: FieldValue.serverTimestamp(),
+                updatedAt: FieldValue.serverTimestamp(),
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
               t.update(txnRef, { 
                 status: "completed", 
                 updatedAt: FieldValue.serverTimestamp(),
+                redeData: body,
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
             }
           });
           return res.json({ success: true });
+        } else {
+          console.log(`[REDE-API Webhook] Transação ${transactionId} não encontrada no banco local.`);
         }
       }
       res.json({ success: false });
-    } catch (error) {
-      res.status(500).json({ error: "Webhook error" });
+    } catch (error: any) {
+      console.error("[REDE-API Webhook] Erro:", error);
+      res.status(500).json({ error: "Webhook error", details: error.message });
     }
   });
 
@@ -1076,8 +1105,9 @@ async function startServer() {
           const redeData = response.data;
           
           const authData = redeData.authorization || {};
-          const rawStatus = String(redeData.status || authData.status || redeData.returnMessage || "").trim();
-          const rawCode = String(redeData.returnCode || authData.returnCode || "").trim();
+          const qrData = redeData.qrCodeResponse || {};
+          const rawStatus = String(redeData.status || authData.status || qrData.status || redeData.returnMessage || "").trim();
+          const rawCode = String(redeData.returnCode || authData.returnCode || qrData.returnCode || "").trim();
 
           const isStandardSuccess = successCodes.includes(rawCode) && 
                                    (successStatuses.includes(rawStatus) || successStatuses.includes(rawStatus.toUpperCase()));
