@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole, CartItem } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette, Download, Calculator, Calendar, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette, Download, Calculator, Calendar, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown, ArrowRight } from 'lucide-react';
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -118,6 +118,14 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [dashboardStartDate, setDashboardStartDate] = useState('');
   const [dashboardEndDate, setDashboardEndDate] = useState('');
 
+  // Transactions (Sales History) Filters & Sorting
+  const [txStatusFilter, setTxStatusFilter] = useState<'all' | 'pending' | 'completed' | 'failed'>('all');
+  const [txSearchCardNumber, setTxSearchCardNumber] = useState('');
+  const [txSearchClient, setTxSearchClient] = useState('');
+  const [txSearchCode, setTxSearchCode] = useState('');
+  const [txSortField, setTxSortField] = useState<'timestamp' | 'client' | 'card' | 'amount' | 'type' | 'description' | 'status'>('timestamp');
+  const [txSortOrder, setTxSortOrder] = useState<'asc' | 'desc'>('desc');
+
   // Helper to parse multiple timestamp formats (Firestore/ISO/Milliseconds) to Date
   const getParsedDate = (timestampField: any): Date | null => {
     if (!timestampField) return null;
@@ -186,6 +194,94 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       return filterByDateRange(d);
     });
   }, [transactions, dashboardFilterPreset, dashboardStartDate, dashboardEndDate]);
+
+  const filteredTxList = useMemo(() => {
+    // 1. Filter by status
+    let list = filteredTransactions;
+    if (txStatusFilter !== 'all') {
+      list = list.filter(t => t.status === txStatusFilter);
+    }
+
+    // 2. Filter by Search terms
+    // Client Name or Client ID
+    if (txSearchClient.trim() !== '') {
+      const searchLower = txSearchClient.toLowerCase().trim();
+      list = list.filter(t => {
+        const name = (t.userName || t.clientName || '').toLowerCase();
+        const uId = (t.userId || '').toLowerCase();
+        // Lookup user to search by additional user fields
+        const userObj = users.find(u => u.uid === t.userId);
+        const uName = userObj ? (userObj.name || '').toLowerCase() : '';
+        const studentId = userObj ? (userObj.studentId || '').toLowerCase() : '';
+
+        return name.includes(searchLower) || uId.includes(searchLower) || uName.includes(searchLower) || studentId.includes(searchLower);
+      });
+    }
+
+    // Card Number or Card
+    if (txSearchCardNumber.trim() !== '') {
+      const searchLower = txSearchCardNumber.replace(/\s+/g, '').toLowerCase().trim();
+      list = list.filter(t => {
+        const cardNum = (t.cardNumber || '').replace(/\s+/g, '').toLowerCase();
+        const userObj = users.find(u => u.uid === t.userId);
+        const userQr = userObj ? (userObj.qrCode || '').replace(/\s+/g, '').toLowerCase() : '';
+        return cardNum.includes(searchLower) || userQr.includes(searchLower);
+      });
+    }
+
+    // Code (ID / code)
+    if (txSearchCode.trim() !== '') {
+      const searchLower = txSearchCode.toLowerCase().trim();
+      list = list.filter(t => {
+        return t.id.toLowerCase().includes(searchLower);
+      });
+    }
+
+    // 3. Sort
+    if (txSortField) {
+      list = [...list].sort((a, b) => {
+        let valA: any = '';
+        let valB: any = '';
+
+        if (txSortField === 'timestamp') {
+          valA = getParsedDate(a.timestamp)?.getTime() || 0;
+          valB = getParsedDate(b.timestamp)?.getTime() || 0;
+        } else if (txSortField === 'client') {
+          const userA = users.find(u => u.uid === a.userId);
+          const nameA = a.userName || a.clientName || userA?.name || '';
+          const userB = users.find(u => u.uid === b.userId);
+          const nameB = b.userName || b.clientName || userB?.name || '';
+          valA = nameA.toLowerCase();
+          valB = nameB.toLowerCase();
+        } else if (txSortField === 'card') {
+          const userA = users.find(u => u.uid === a.userId);
+          const cardA = a.cardNumber || userA?.qrCode || '';
+          const userB = users.find(u => u.uid === b.userId);
+          const cardB = b.cardNumber || userB?.qrCode || '';
+          valA = cardA.replace(/\s+/g, '').toLowerCase();
+          valB = cardB.replace(/\s+/g, '').toLowerCase();
+        } else if (txSortField === 'amount') {
+          valA = a.amount || 0;
+          valB = b.amount || 0;
+        } else if (txSortField === 'type') {
+          valA = a.type || '';
+          valB = b.type || '';
+        } else if (txSortField === 'description') {
+          valA = (a.description || '').toLowerCase();
+          valB = (b.description || '').toLowerCase();
+        } else if (txSortField === 'status') {
+          valA = a.status || '';
+          valB = b.status || '';
+        }
+
+        if (valA < valB) return txSortOrder === 'asc' ? -1 : 1;
+        if (valA > valB) return txSortOrder === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return list;
+  }, [filteredTransactions, txStatusFilter, txSearchClient, txSearchCardNumber, txSearchCode, txSortField, txSortOrder, users]);
 
   const filteredWithdrawals = useMemo(() => {
     return withdrawals.filter(w => {
@@ -1478,6 +1574,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     }
   };
 
+  const handleToggleTxSort = (field: 'timestamp' | 'client' | 'card' | 'amount' | 'type' | 'description' | 'status') => {
+    if (txSortField === field) {
+      setTxSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setTxSortField(field);
+      setTxSortOrder('asc');
+    }
+  };
+
   const handleTriggerReconciliation = async () => {
     if (isReconciling) return;
     setIsReconciling(true);
@@ -1975,19 +2080,30 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
               {/* Accounts Receivable Banner */}
               {stats.totalPending > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-[28px] p-5 px-6 flex flex-col sm:flex-row items-center justify-between gap-4 mx-2 md:mx-0 animate-pulse mb-6">
+                <div 
+                  onClick={() => {
+                    setTxStatusFilter('pending');
+                    setActiveTab('transactions');
+                  }}
+                  className="bg-amber-50 border border-amber-200 rounded-[28px] p-5 px-6 flex flex-col md:flex-row items-center justify-between gap-4 mx-2 md:mx-0 animate-pulse mb-6 cursor-pointer hover:bg-amber-100/50 transition-all active:scale-[0.99] group shadow-sm shadow-amber-900/5"
+                >
                   <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                    <div className="h-10 w-10 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600 shrink-0 group-hover:bg-amber-200 transition-colors">
                       <AlertTriangle className="h-5 w-5" />
                     </div>
                     <div className="text-center sm:text-left">
                       <p className="text-[10px] font-black uppercase text-amber-800 tracking-wider">Atenção: Cobranças "Em Conta" Pendentes</p>
                       <p className="text-sm font-semibold text-amber-700">Há recargas na modalidade pós-paga ("Em Conta") pendentes para recebimento / liquidação.</p>
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 mt-1 uppercase tracking-wider group-hover:text-amber-800 transition-colors">
+                        Clique aqui para verificar e dar baixa <ArrowRight className="h-3 w-3" />
+                      </span>
                     </div>
                   </div>
-                  <div className="text-center sm:text-right shrink-0">
-                    <p className="text-[10px] font-black uppercase text-amber-600 tracking-widest">A Receber</p>
-                    <p className="text-2xl font-black text-amber-800 tracking-tighter">R$ {stats.totalPending.toFixed(2)}</p>
+                  <div className="text-center md:text-right shrink-0 flex items-center md:flex-col gap-3 md:gap-0 justify-between w-full md:w-auto border-t md:border-none border-amber-200 pt-3 md:pt-0">
+                    <div>
+                      <p className="text-[10px] font-black uppercase text-amber-600 tracking-widest">A Receber</p>
+                      <p className="text-2xl font-black text-amber-800 tracking-tighter">R$ {stats.totalPending.toFixed(2)}</p>
+                    </div>
                   </div>
                 </div>
               )}
@@ -3358,14 +3474,171 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 </h2>
                 <p className="text-slate-500 mt-1">Lista completa de transações financeiras registradas no sistema.</p>
               </header>
-              <Button
-                onClick={handleTriggerReconciliation}
-                disabled={isReconciling}
-                className="h-11 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl px-6 font-black uppercase tracking-wider text-xs border-none flex items-center gap-2 self-start sm:self-auto transition-all shadow-sm cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`h-4 w-4 ${isReconciling ? 'animate-spin' : ''}`} />
-                {isReconciling ? 'Sincronizando...' : 'Sincronizar com o Banco'}
-              </Button>
+              <div className="flex flex-wrap gap-3">
+                {/* Clear Filters Button (only if any filter is active) */}
+                {(txStatusFilter !== 'all' || txSearchCardNumber !== '' || txSearchClient !== '' || txSearchCode !== '') && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setTxStatusFilter('all');
+                      setTxSearchCardNumber('');
+                      setTxSearchClient('');
+                      setTxSearchCode('');
+                    }}
+                    className="h-11 rounded-2xl px-5 text-slate-500 hover:text-slate-700 hover:bg-slate-50 font-bold text-xs uppercase tracking-wider flex items-center gap-2 border-slate-200"
+                  >
+                    <X className="h-4 w-4" />
+                    Limpar Filtros
+                  </Button>
+                )}
+                <Button
+                  onClick={handleTriggerReconciliation}
+                  disabled={isReconciling}
+                  className="h-11 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl px-6 font-black uppercase tracking-wider text-xs border-none flex items-center gap-2 self-start sm:self-auto transition-all shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${isReconciling ? 'animate-spin' : ''}`} />
+                  {isReconciling ? 'Sincronizando...' : 'Sincronizar com o Banco'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Sync Period Filter inside Transactions page too! */}
+            <div className="bg-slate-50 border border-slate-100/80 rounded-[32px] p-5 md:p-6 space-y-5 shadow-sm">
+              <div className="flex flex-col lg:flex-row gap-5 items-stretch lg:items-center justify-between">
+                <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4 flex-1">
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-slate-500 shrink-0" />
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-500 whitespace-nowrap">Filtrar Período:</span>
+                  </div>
+                  
+                  <div className="bg-slate-200/60 p-1 rounded-2xl flex flex-wrap gap-1">
+                    {(['all', 'today', 'this_month', 'custom'] as const).map((preset) => {
+                      const labels: Record<string, string> = {
+                        all: 'Todo o Tempo',
+                        today: 'Hoje',
+                        this_month: 'Este Mês',
+                        custom: 'Personalizado'
+                      };
+                      const isActive = dashboardFilterPreset === preset;
+                      return (
+                        <Button
+                          key={preset}
+                          onClick={() => setDashboardFilterPreset(preset)}
+                          variant="ghost"
+                          className={`h-10 px-4 rounded-xl text-xs font-bold uppercase transition-all ${
+                            isActive 
+                              ? 'bg-white text-slate-900 shadow-md shadow-slate-900/5' 
+                              : 'text-slate-500 hover:text-slate-900 hover:bg-white/40'
+                          }`}
+                        >
+                          {labels[preset]}
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  {dashboardFilterPreset === 'custom' && (
+                    <div className="flex flex-wrap items-center gap-2 animate-in slide-in-from-left duration-300">
+                      <Input
+                        type="date"
+                        value={dashboardStartDate}
+                        onChange={(e) => setDashboardStartDate(e.target.value)}
+                        className="h-11 rounded-xl bg-white border-slate-200 text-xs font-semibold text-slate-700 w-36 px-3"
+                        title="Data Inicial"
+                      />
+                      <span className="text-slate-400 text-xs font-medium">até</span>
+                      <Input
+                        type="date"
+                        value={dashboardEndDate}
+                        onChange={(e) => setDashboardEndDate(e.target.value)}
+                        className="h-11 rounded-xl bg-white border-slate-200 text-xs font-semibold text-slate-700 w-36 px-3"
+                        title="Data Final"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Status Quick Filters */}
+                <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+                  <span className="text-xs font-black uppercase tracking-wider text-slate-500 whitespace-nowrap">Status:</span>
+                  <div className="bg-slate-200/60 p-1 rounded-2xl flex flex-wrap gap-1">
+                    {(['all', 'completed', 'pending', 'failed'] as const).map((st) => {
+                      const labels: Record<string, string> = {
+                        all: 'Todos',
+                        completed: 'Pago',
+                        pending: 'Pendente',
+                        failed: 'Erro'
+                      };
+                      const isActive = txStatusFilter === st;
+                      return (
+                        <Button
+                          key={st}
+                          onClick={() => setTxStatusFilter(st)}
+                          variant="ghost"
+                          className={`h-9 px-3.5 rounded-xl text-[10px] font-black uppercase transition-all ${
+                            isActive 
+                              ? st === 'completed' ? 'bg-emerald-600 text-white shadow-md' :
+                                st === 'pending' ? 'bg-amber-500 text-white shadow-md' :
+                                st === 'failed' ? 'bg-rose-600 text-white shadow-md' :
+                                'bg-white text-slate-900 shadow-md shadow-slate-900/5'
+                              : 'text-slate-500 hover:text-slate-900 hover:bg-white/40'
+                          }`}
+                        >
+                          {labels[st]}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Specific Filter Inputs */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-slate-200/50 pt-5">
+                {/* Search by Client */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Cliente (Nome ou ID)</label>
+                  <div className="relative">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Input
+                      type="text"
+                      placeholder="Pesquisar por nome ou ID..."
+                      value={txSearchClient}
+                      onChange={(e) => setTxSearchClient(e.target.value)}
+                      className="h-11 rounded-xl pl-10 bg-white border-slate-200 text-xs font-semibold text-slate-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Search by Card Number / Card */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Cartão / Código</label>
+                  <div className="relative">
+                    <CreditCard className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Input
+                      type="text"
+                      placeholder="Número do cartão..."
+                      value={txSearchCardNumber}
+                      onChange={(e) => setTxSearchCardNumber(e.target.value)}
+                      className="h-11 rounded-xl pl-10 bg-white border-slate-200 text-xs font-semibold text-slate-700"
+                    />
+                  </div>
+                </div>
+
+                {/* Search by Transaction Code */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Código Transação</label>
+                  <div className="relative">
+                    <QrCode className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <Input
+                      type="text"
+                      placeholder="Código da transação (ID)..."
+                      value={txSearchCode}
+                      onChange={(e) => setTxSearchCode(e.target.value)}
+                      className="h-11 rounded-xl pl-10 bg-white border-slate-200 text-xs font-semibold text-slate-700"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <Card className="shadow-sm border-none bg-white rounded-3xl overflow-hidden">
@@ -3373,24 +3646,59 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 <Table>
                   <TableHeader className="bg-slate-50">
                     <TableRow>
-                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest pl-8">Início / Data</TableHead>
-                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest">Cliente / ID</TableHead>
-                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest">Cartão / Código</TableHead>
-                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-right">Valor</TableHead>
-                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-center">Tipo</TableHead>
-                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest">Descrição</TableHead>
-                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-right pr-8">Status</TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest pl-8 cursor-pointer select-none hover:bg-slate-100" onClick={() => handleToggleTxSort('timestamp')}>
+                        <div className="flex items-center gap-1.5">
+                          Início / Data
+                          {txSortField === 'timestamp' ? (txSortOrder === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-blue-600 shrink-0" /> : <ArrowDown className="h-3.5 w-3.5 text-blue-600 shrink-0" />) : <ArrowUpDown className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
+                        </div>
+                      </TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest cursor-pointer select-none hover:bg-slate-100" onClick={() => handleToggleTxSort('client')}>
+                        <div className="flex items-center gap-1.5">
+                          Cliente / ID
+                          {txSortField === 'client' ? (txSortOrder === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-blue-600 shrink-0" /> : <ArrowDown className="h-3.5 w-3.5 text-blue-600 shrink-0" />) : <ArrowUpDown className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
+                        </div>
+                      </TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest cursor-pointer select-none hover:bg-slate-100" onClick={() => handleToggleTxSort('card')}>
+                        <div className="flex items-center gap-1.5">
+                          Cartão / Código
+                          {txSortField === 'card' ? (txSortOrder === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-blue-600 shrink-0" /> : <ArrowDown className="h-3.5 w-3.5 text-blue-600 shrink-0" />) : <ArrowUpDown className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
+                        </div>
+                      </TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-right cursor-pointer select-none hover:bg-slate-100" onClick={() => handleToggleTxSort('amount')}>
+                        <div className="flex items-center justify-end gap-1.5">
+                          Valor
+                          {txSortField === 'amount' ? (txSortOrder === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-blue-600 shrink-0" /> : <ArrowDown className="h-3.5 w-3.5 text-blue-600 shrink-0" />) : <ArrowUpDown className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
+                        </div>
+                      </TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-center cursor-pointer select-none hover:bg-slate-100" onClick={() => handleToggleTxSort('type')}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          Tipo
+                          {txSortField === 'type' ? (txSortOrder === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-blue-600 shrink-0" /> : <ArrowDown className="h-3.5 w-3.5 text-blue-600 shrink-0" />) : <ArrowUpDown className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
+                        </div>
+                      </TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest text-center cursor-pointer select-none hover:bg-slate-100" onClick={() => handleToggleTxSort('status')}>
+                        <div className="flex items-center justify-center gap-1.5">
+                          Status
+                          {txSortField === 'status' ? (txSortOrder === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-blue-600 shrink-0" /> : <ArrowDown className="h-3.5 w-3.5 text-blue-600 shrink-0" />) : <ArrowUpDown className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
+                        </div>
+                      </TableHead>
+                      <TableHead className="font-bold text-slate-900 py-4 uppercase text-[10px] tracking-widest cursor-pointer select-none hover:bg-slate-100" onClick={() => handleToggleTxSort('description')}>
+                        <div className="flex items-center gap-1.5">
+                          Descrição
+                          {txSortField === 'description' ? (txSortOrder === 'asc' ? <ArrowUp className="h-3.5 w-3.5 text-blue-600 shrink-0" /> : <ArrowDown className="h-3.5 w-3.5 text-blue-600 shrink-0" />) : <ArrowUpDown className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
+                        </div>
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {transactions.length === 0 ? (
+                    {filteredTxList.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center py-12 text-slate-400 italic">
-                          Nenhuma transação encontrada.
+                          Nenhuma transação encontrada para os filtros ativos.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      transactions.map((tx) => (
+                      filteredTxList.map((tx) => (
                         <TableRow key={tx.id} className="hover:bg-slate-50/50 border-slate-100">
                           <TableCell className="py-4 pl-8">
                             <div className="flex flex-col">
@@ -3407,7 +3715,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                               <span className="font-bold text-slate-700 text-xs truncate max-w-[150px]">
                                 {users.find(u => u.uid === tx.userId)?.name || tx.userName || tx.userId}
                               </span>
-                              <span className="text-[9px] text-slate-400 font-medium">#{tx.id.slice(0, 8)}</span>
+                              <span className="text-[9px] text-slate-400 font-medium font-mono">#{tx.id.slice(0, 8)}</span>
                             </div>
                           </TableCell>
                           <TableCell className="py-4">
@@ -3427,11 +3735,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                               {tx.type === 'credit' ? 'Recarga' : 'Gasto'}
                             </span>
                           </TableCell>
-                          <TableCell className="py-4">
-                            <span className="text-sm text-slate-600">{tx.description}</span>
-                          </TableCell>
-                          <TableCell className="py-4 text-right pr-8">
-                            <div className="flex items-center justify-end gap-2">
+                          <TableCell className="py-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
                               <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
                                 tx.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 
                                 tx.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
@@ -3449,6 +3754,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                 </Button>
                               )}
                             </div>
+                          </TableCell>
+                          <TableCell className="py-4">
+                            <span className="text-sm text-slate-600">{tx.description}</span>
                           </TableCell>
                         </TableRow>
                       ))
