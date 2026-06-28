@@ -5143,7 +5143,20 @@ function RechargePortal({
   const scannedUser = useMemo(() => {
     if (!baseScannedUser) return null;
     const live = users.find(u => u.uid === baseScannedUser.uid);
-    return live ? live : baseScannedUser;
+    const userToUse = live ? live : baseScannedUser;
+
+    // Resolve shared balance if applicable
+    const isShared = userToUse && (!userToUse.balanceType || userToUse.balanceType === 'shared') && userToUse.parentUid;
+    if (isShared) {
+      const parentUser = users.find(u => u.uid === userToUse.parentUid);
+      if (parentUser) {
+        return {
+          ...userToUse,
+          balance: parentUser.balance || 0
+        };
+      }
+    }
+    return userToUse;
   }, [baseScannedUser, users]);
   const setScannedUser = setExternalScannedUser !== undefined ? setExternalScannedUser : setInternalScannedUser;
 
