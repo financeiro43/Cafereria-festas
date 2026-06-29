@@ -363,8 +363,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   }, [profile.role]);
 
   const stats = useMemo(() => {
-    const totalTransactions = filteredTransactions.filter(t => t.type === 'debit');
-    const totalRevenue = totalTransactions.reduce((acc, t) => acc + (t.amount || 0), 0);
+    const totalTransactions = filteredTransactions.filter(t => t.type === 'debit' && t.status === 'completed');
+    const totalRevenue = Math.abs(totalTransactions.reduce((acc, t) => acc + (t.amount || 0), 0));
     
     // Identificar usuários que já colocaram valores (pelo menos um crédito)
     const rechargedUserIds = new Set(filteredTransactions.filter(t => t.type === 'credit' && t.status === 'completed').map(t => t.userId));
@@ -395,11 +395,20 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
   const statsByStall = useMemo(() => {
     return stalls.map(stall => {
-      const stallTransactions = filteredTransactions.filter(t => t.type === 'debit' && t.description?.includes(stall.name));
-      const totalSales = stallTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0);
+      const stallTransactions = filteredTransactions.filter(t => 
+        t.type === 'debit' && 
+        t.status === 'completed' && 
+        (t.stallName?.toLowerCase().trim() === stall.name.toLowerCase().trim() ||
+         t.vendorId === stall.id ||
+         t.description?.toLowerCase().includes(`na barraca ${stall.name.toLowerCase()}`) ||
+         t.description?.includes(stall.name))
+      );
+      const totalSales = Math.abs(stallTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0));
       
       // Contagem de produtos vendidos usando a collection consumption
-      const stallConsumption = filteredRecentSales.filter(s => s.stallId === stall.id);
+      const stallConsumption = filteredRecentSales.filter(s => 
+        s.stallId === stall.id || s.vendorId === stall.id
+      );
       let productsSold = 0;
       stallConsumption.forEach(sale => {
         if (sale.detailedItems && Array.isArray(sale.detailedItems)) {
