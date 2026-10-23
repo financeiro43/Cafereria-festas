@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { authService } from '@/services/authService';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff, Sparkles, Ticket, ShieldAlert, Trash2, Lock, Sliders, SlidersHorizontal, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff, Sparkles, Ticket, ShieldAlert, Trash2, Lock, Sliders, SlidersHorizontal, CheckCircle2, XCircle, AlertCircle, Clock } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -55,6 +55,27 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
   const [unlinkDestination, setUnlinkDestination] = useState<'card' | 'parent'>('parent');
   const [unlinkSharedAmount, setUnlinkSharedAmount] = useState<string>('0');
   const [unlinkingLoading, setUnlinkingLoading] = useState(false);
+
+  // Track notified expired PIX transactions to notify user on dashboard without duplicate toasts
+  const notifiedExpiredTxRef = useRef<Set<string>>(new Set());
+
+  // Real-time alert when PIX payment exceeds 30 minutes and expires
+  useEffect(() => {
+    transactions.forEach(tx => {
+      const date = tx.timestamp ? new Date(tx.timestamp.toDate ? tx.timestamp.toDate() : tx.timestamp) : null;
+      const ageInMs = date ? (Date.now() - date.getTime()) : 0;
+      const isPix = tx.paymentMethod === 'pix' || tx.paymentMethod === 'Pix' || (tx.description && tx.description.toLowerCase().includes('pix'));
+      const isExpired = tx.status === 'expirado' || (isPix && tx.status === 'pending' && ageInMs > 30 * 60 * 1000);
+
+      if (isExpired && !notifiedExpiredTxRef.current.has(tx.id)) {
+        notifiedExpiredTxRef.current.add(tx.id);
+        toast.error("Pagamento Pix Expirado", {
+          description: `O tempo limite de 30 minutos para o pagamento Pix de R$ ${Math.abs(tx.amount).toFixed(2)} encerrou. O pagamento foi cancelado automaticamente sem cobrança.`,
+          duration: 8000
+        });
+      }
+    });
+  }, [transactions]);
 
   // Monitor connection status
   useEffect(() => {
@@ -851,52 +872,119 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           </div>
         </header>
 
-        {/* Banner de Aviso: Aguardando Pagamento */}
+        {/* Banner de Aviso: Aguardando Pagamento ou Pix Expirado */}
         {(() => {
-          const pendingTx = transactions.find(t => t.status === 'pending');
-          if (!pendingTx) return null;
-          return (
-            <motion.div 
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-amber-500/10 border border-amber-500/30 rounded-3xl p-4.5 backdrop-blur-xl relative overflow-hidden ring-1 ring-amber-500/20"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  </div>
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-black uppercase tracking-wider text-amber-400">Aguardando Pagamento</span>
-                      <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full uppercase">Pendente</span>
+          const now = Date.now();
+          const pendingTx = transactions.find(t => {
+            if (t.status !== 'pending') return false;
+            const date = t.timestamp ? new Date(t.timestamp.toDate ? t.timestamp.toDate() : t.timestamp) : new Date();
+            const ageInMs = date ? (now - date.getTime()) : 0;
+            const isPix = t.paymentMethod === 'pix' || t.paymentMethod === 'Pix' || (t.description && t.description.toLowerCase().includes('pix'));
+            return !(isPix && ageInMs > 30 * 60 * 1000);
+          });
+
+          if (pendingTx) {
+            return (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-amber-500/10 border border-amber-500/30 rounded-3xl p-4.5 backdrop-blur-xl relative overflow-hidden ring-1 ring-amber-500/20"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                      <Loader2 className="h-5 w-5 animate-spin" />
                     </div>
-                    <p className="text-[11px] text-slate-300 font-medium">
-                      Recarga de <strong className="text-white font-mono">R$ {Math.abs(pendingTx.amount).toFixed(2)}</strong> aguardando confirmação do banco ou pagamento via Pix.
-                    </p>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black uppercase tracking-wider text-amber-400">Aguardando Pagamento</span>
+                        <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full uppercase">Pix</span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 font-medium">
+                        Recarga de <strong className="text-white font-mono">R$ {Math.abs(pendingTx.amount).toFixed(2)}</strong> aguardando confirmação do banco ou leitura do Pix.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 sm:shrink-0">
+                    <Button
+                      onClick={() => {
+                        setSelectedAmount(Math.abs(pendingTx.amount));
+                        setShowPaymentModal(true);
+                      }}
+                      className="h-9 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-xl cursor-pointer shadow-md"
+                    >
+                      Ver / Concluir
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setActiveTab(ParentTab.HISTORY)}
+                      className="h-9 px-3 text-slate-400 hover:text-white font-bold text-[10px] uppercase tracking-wider rounded-xl cursor-pointer"
+                    >
+                      Ver no Histórico
+                    </Button>
                   </div>
                 </div>
-                <div className="flex gap-2 sm:shrink-0">
-                  <Button
-                    onClick={() => {
-                      setSelectedAmount(Math.abs(pendingTx.amount));
-                      setShowPaymentModal(true);
-                    }}
-                    className="h-9 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-xl cursor-pointer shadow-md"
-                  >
-                    Ver / Concluir
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setActiveTab(ParentTab.HISTORY)}
-                    className="h-9 px-3 text-slate-400 hover:text-white font-bold text-[10px] uppercase tracking-wider rounded-xl cursor-pointer"
-                  >
-                    Ver no Histórico
-                  </Button>
+              </motion.div>
+            );
+          }
+
+          // If no pending, check for recently expired PIX (within last 3 hours)
+          const recentExpiredTx = transactions.find(t => {
+            const date = t.timestamp ? new Date(t.timestamp.toDate ? t.timestamp.toDate() : t.timestamp) : null;
+            if (!date) return false;
+            const ageInMs = now - date.getTime();
+            const isPix = t.paymentMethod === 'pix' || t.paymentMethod === 'Pix' || (t.description && t.description.toLowerCase().includes('pix'));
+            const isExpired = t.status === 'expirado' || (isPix && t.status === 'pending' && ageInMs > 30 * 60 * 1000);
+            return isExpired && ageInMs < 3 * 60 * 60 * 1000;
+          });
+
+          if (recentExpiredTx) {
+            return (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-rose-500/10 border border-rose-500/30 rounded-3xl p-4.5 backdrop-blur-xl relative overflow-hidden ring-1 ring-rose-500/20"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+                      <Clock className="h-5 w-5" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black uppercase tracking-wider text-rose-400">Pix Expirado</span>
+                        <span className="text-[9px] font-bold bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded-full uppercase">&gt; 30 minutos</span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 font-medium">
+                        A recarga de <strong className="text-white font-mono">R$ {Math.abs(recentExpiredTx.amount).toFixed(2)}</strong> expirou após 30 minutos sem confirmação bancária. Nenhuma cobrança foi efetuada.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 sm:shrink-0">
+                    <Button
+                      onClick={() => {
+                        setRechargeAmount(Math.abs(recentExpiredTx.amount).toString());
+                        setSelectedAmount(Math.abs(recentExpiredTx.amount));
+                        setShowPaymentModal(true);
+                      }}
+                      className="h-9 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] uppercase tracking-wider rounded-xl cursor-pointer shadow-md"
+                    >
+                      Nova Recarga
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setActiveTab(ParentTab.HISTORY)}
+                      className="h-9 px-3 text-slate-400 hover:text-white font-bold text-[10px] uppercase tracking-wider rounded-xl cursor-pointer"
+                    >
+                      Ver no Histórico
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          );
+              </motion.div>
+            );
+          }
+
+          return null;
         })()}
 
         <AnimatePresence mode="wait">
@@ -1211,10 +1299,10 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
 
                         const isPix = tx.paymentMethod === 'pix' || tx.paymentMethod === 'Pix' || (tx.description && tx.description.toLowerCase().includes('pix'));
                         const ageInMs = date ? (Date.now() - date.getTime()) : 0;
-                        const isPixExpired = isPix && tx.status === 'pending' && ageInMs > 20 * 60 * 1000;
+                        const isPixExpired = tx.status === 'expirado' || (isPix && tx.status === 'pending' && ageInMs > 30 * 60 * 1000);
 
                         const isPending = tx.status === 'pending' && !isPixExpired;
-                        const isFailed = tx.status === 'cancelled' || tx.status === 'failed' || isPixExpired;
+                        const isFailed = tx.status === 'cancelled' || tx.status === 'failed' || tx.status === 'expirado' || isPixExpired;
 
                         return (
                           <div 
@@ -1266,7 +1354,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                                   </span>
                                 ) : isFailed ? (
                                   <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
-                                    <XCircle className="h-2.5 w-2.5" /> {isPixExpired ? 'Pagamento Expirado' : 'Pagamento Não Realizado'}
+                                    <XCircle className="h-2.5 w-2.5" /> {isPixExpired ? 'Pix Expirado (> 30 min)' : 'Pagamento Não Realizado'}
                                   </span>
                                 ) : (
                                   <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
@@ -1299,13 +1387,24 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                             {isPixExpired && (
                               <div className="mt-3 pl-14 flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl">
                                 <p className="text-[10px] text-rose-200/90 font-medium leading-tight">
-                                  O tempo limite de pagamento (20 minutos) expirou sem confirmação do banco. Nenhum valor foi cobrado.
+                                  O tempo limite de pagamento (30 minutos) expirou sem confirmação bancária. Nenhum valor foi cobrado.
                                 </p>
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setRechargeAmount(Math.abs(tx.amount).toString());
+                                    setSelectedAmount(Math.abs(tx.amount));
+                                    setShowPaymentModal(true);
+                                  }}
+                                  className="h-7 px-3 bg-white/10 hover:bg-white/20 text-white font-black text-[9px] uppercase tracking-wider rounded-lg shrink-0 cursor-pointer"
+                                >
+                                  Gerar Novo Pix
+                                </Button>
                               </div>
                             )}
 
-                            {/* Alert box when failed */}
-                            {isFailed && (
+                            {/* Alert box when failed (not expired) */}
+                            {isFailed && !isPixExpired && (
                               <div className="mt-3 pl-14 flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl">
                                 <p className="text-[10px] text-rose-200/90 font-medium leading-tight">
                                   Transação cancelada ou negada pela instituição. Nenhum valor foi debitado.

@@ -119,12 +119,15 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   const [dashboardEndDate, setDashboardEndDate] = useState('');
 
   // Transactions (Sales History) Filters & Sorting
-  const [txStatusFilter, setTxStatusFilter] = useState<'all' | 'pending' | 'completed' | 'failed'>('all');
+  const [txStatusFilter, setTxStatusFilter] = useState<'all' | 'pending' | 'completed' | 'failed' | 'expirado'>('all');
   const [txSearchCardNumber, setTxSearchCardNumber] = useState('');
   const [txSearchClient, setTxSearchClient] = useState('');
   const [txSearchCode, setTxSearchCode] = useState('');
   const [txSortField, setTxSortField] = useState<'timestamp' | 'client' | 'card' | 'amount' | 'type' | 'description' | 'status'>('timestamp');
   const [txSortOrder, setTxSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // Track expired PIX notifications to avoid duplicate alerts
+  const notifiedExpiredAdminRef = useRef<Set<string>>(new Set());
 
   // Helper to parse multiple timestamp formats (Firestore/ISO/Milliseconds) to Date
   const getParsedDate = (timestampField: any): Date | null => {
@@ -195,6 +198,27 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     });
   }, [transactions, dashboardFilterPreset, dashboardStartDate, dashboardEndDate]);
 
+  // Real-time notification for admin when PIX transactions expire (> 30 min)
+  useEffect(() => {
+    if (profile.role !== 'admin' || transactions.length === 0) return;
+
+    transactions.forEach(tx => {
+      const isPix = tx.paymentMethod === 'pix' || tx.paymentMethod === 'Pix' || (tx.description && tx.description.toLowerCase().includes('pix'));
+      const d = getParsedDate(tx.timestamp);
+      const ageInMs = d ? (Date.now() - d.getTime()) : 0;
+      const isExpired = tx.status === 'expirado' || (isPix && tx.status === 'pending' && ageInMs > 30 * 60 * 1000);
+
+      if (isExpired && !notifiedExpiredAdminRef.current.has(tx.id)) {
+        notifiedExpiredAdminRef.current.add(tx.id);
+        const clientName = tx.userName || tx.clientName || users.find(u => u.uid === tx.userId)?.name || 'Cliente';
+        toast.warning('Pagamento Pix Expirado', {
+          description: `Transação #${tx.id.slice(0, 8)} de R$ ${(tx.amount || 0).toFixed(2)} (${clientName}) expirou automaticamente após 30 minutos sem confirmação bancária.`,
+          duration: 7000
+        });
+      }
+    });
+  }, [transactions, profile.role, users]);
+
   const filteredTxList = useMemo(() => {
     // 1. Filter by status
     let list = filteredTransactions;
@@ -207,15 +231,23 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
           const isPix = t.paymentMethod === 'pix' || t.paymentMethod === 'Pix' || (t.description && t.description.toLowerCase().includes('pix'));
           const txDate = getParsedDate(t.timestamp);
           const ageInMs = txDate ? (Date.now() - txDate.getTime()) : 0;
-          return !(isPix && ageInMs > 20 * 60 * 1000);
+          return !(isPix && ageInMs > 30 * 60 * 1000);
         });
-      } else if (txStatusFilter === 'failed') {
+      } else if (txStatusFilter === 'expirado') {
         list = list.filter(t => {
-          if (t.status === 'failed' || t.status === 'cancelled') return true;
+          if (t.status === 'expirado') return true;
           const isPix = t.paymentMethod === 'pix' || t.paymentMethod === 'Pix' || (t.description && t.description.toLowerCase().includes('pix'));
           const txDate = getParsedDate(t.timestamp);
           const ageInMs = txDate ? (Date.now() - txDate.getTime()) : 0;
-          return isPix && t.status === 'pending' && ageInMs > 20 * 60 * 1000;
+          return isPix && t.status === 'pending' && ageInMs > 30 * 60 * 1000;
+        });
+      } else if (txStatusFilter === 'failed') {
+        list = list.filter(t => {
+          if (t.status === 'failed' || t.status === 'cancelled' || t.status === 'expirado') return true;
+          const isPix = t.paymentMethod === 'pix' || t.paymentMethod === 'Pix' || (t.description && t.description.toLowerCase().includes('pix'));
+          const txDate = getParsedDate(t.timestamp);
+          const ageInMs = txDate ? (Date.now() - txDate.getTime()) : 0;
+          return isPix && t.status === 'pending' && ageInMs > 30 * 60 * 1000;
         });
       }
     }
@@ -1614,8 +1646,10 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       toast.dismiss(loadingToast);
       if (data.success && data.pago) {
         toast.success('Pix confirmado pelo banco! Saldo creditado automaticamente.');
-      } else if (data.status === 'cancelled' || data.expired) {
-        toast.error('Pix Expirado / Cancelado', { description: data.message || 'Tempo limite excedido sem pagamento.' });
+      } else if (data.status === 'expirado' || data.expired) {
+        toast.error('Pix Expirado (> 30 min)', { description: data.message || 'Tempo limite de 30 minutos excedido sem pagamento.' });
+      } else if (data.status === 'cancelled') {
+        toast.error('Pix Cancelado', { description: data.message || 'Transação cancelada.' });
       } else {
         toast.info('Pix ainda não foi pago', { description: data.message || 'Aguardando o cliente efetuar a transferência.' });
       }
@@ -3614,12 +3648,13 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                 <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
                   <span className="text-xs font-black uppercase tracking-wider text-slate-500 whitespace-nowrap">Status:</span>
                   <div className="bg-slate-200/60 p-1 rounded-2xl flex flex-wrap gap-1">
-                    {(['all', 'completed', 'pending', 'failed'] as const).map((st) => {
+                    {(['all', 'completed', 'pending', 'expirado', 'failed'] as const).map((st) => {
                       const labels: Record<string, string> = {
                         all: 'Todos',
                         completed: 'Pago',
                         pending: 'Pendente / Em Aberto',
-                        failed: 'Não Realizado / Expirado'
+                        expirado: 'Pix Expirado (> 30 min)',
+                        failed: 'Não Realizado / Cancelado'
                       };
                       const isActive = txStatusFilter === st;
                       return (
@@ -3631,6 +3666,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                             isActive 
                               ? st === 'completed' ? 'bg-emerald-600 text-white shadow-md' :
                                 st === 'pending' ? 'bg-amber-500 text-white shadow-md' :
+                                st === 'expirado' ? 'bg-amber-700 text-white shadow-md' :
                                 st === 'failed' ? 'bg-rose-600 text-white shadow-md' :
                                 'bg-white text-slate-900 shadow-md shadow-slate-900/5'
                               : 'text-slate-500 hover:text-slate-900 hover:bg-white/40'
@@ -3793,8 +3829,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                               const ageInMs = txDate ? (Date.now() - txDate.getTime()) : 0;
                               const isPix = tx.paymentMethod === 'pix' || tx.paymentMethod === 'Pix' || (tx.description && tx.description.toLowerCase().includes('pix'));
                               const isConta = tx.paymentMethod === 'Conta' || (tx.description && tx.description.toLowerCase().includes('conta'));
-                              const isPixExpired = isPix && tx.status === 'pending' && ageInMs > 20 * 60 * 1000;
-                              const isFailedOrCancelled = tx.status === 'failed' || tx.status === 'cancelled' || isPixExpired;
+                              const isPixExpired = tx.status === 'expirado' || (isPix && tx.status === 'pending' && ageInMs > 30 * 60 * 1000);
+                              const isFailedOrCancelled = tx.status === 'failed' || tx.status === 'cancelled' || tx.status === 'expirado' || isPixExpired;
 
                               if (tx.status === 'completed') {
                                 return (
@@ -3812,7 +3848,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                   <div className="flex items-center justify-center">
                                     <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 bg-rose-50 text-rose-700 border-rose-200">
                                       <XCircle className="h-3 w-3 text-rose-600" />
-                                      {isPixExpired ? 'Pix Expirado' : (tx.status === 'cancelled' ? 'Cancelado' : 'Não Realizado')}
+                                      {isPixExpired ? 'Pix Expirado (> 30 min)' : (tx.status === 'cancelled' ? 'Cancelado' : 'Não Realizado')}
                                     </span>
                                   </div>
                                 );
@@ -3841,7 +3877,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                               }
 
                               if (isPix) {
-                                const remainingMin = Math.max(1, Math.round((20 * 60 * 1000 - ageInMs) / 60000));
+                                const remainingMin = Math.max(1, Math.round((30 * 60 * 1000 - ageInMs) / 60000));
                                 return (
                                   <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
                                     <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 bg-amber-50 text-amber-800 border-amber-300 animate-pulse">

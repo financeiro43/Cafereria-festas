@@ -64,15 +64,20 @@ export interface Order {
 export interface Transaction {
   id: string;
   userId: string;
+  userName?: string;
+  clientName?: string;
+  cardNumber?: string;
   amount: number;
   type: 'credit' | 'debit';
   description: string;
-  status: 'completed' | 'pending' | 'failed';
+  status: 'completed' | 'pending' | 'failed' | 'cancelled' | 'expirado';
   timestamp: any;
   items?: string[];
   stallName?: string;
   vendorId?: string;
   paymentMethod?: string;
+  failureReason?: string;
+  expiredAt?: any;
 }
 
 export interface ConsumptionRecord {

@@ -37,7 +37,7 @@ interface RedePaymentFormProps {
 type PaymentMethod = 'credit' | 'debit' | 'pix';
 
 export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: RedePaymentFormProps) {
-  const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_pix' | 'cancelled'>('idle');
+  const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_pix' | 'cancelled' | 'expired'>('idle');
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('credit');
   const [loading, setLoading] = useState(false);
@@ -45,7 +45,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
   const [pixData, setPixData] = useState<{ qrcode: string, tid: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [pendingStatusInfo, setPendingStatusInfo] = useState<string | null>(null);
-  const [pixTimeRemaining, setPixTimeRemaining] = useState<number>(15 * 60); // 15 minutos (900s)
+  const [pixTimeRemaining, setPixTimeRemaining] = useState<number>(30 * 60); // 30 minutos (1800s)
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [cardData, setCardData] = useState({
     number: '',
@@ -54,23 +54,25 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     cvv: ''
   });
 
-  const handleCancelPayment = async () => {
+  const handleCancelPayment = async (action: 'cancelled' | 'expirado' = 'cancelled') => {
     if (pixData?.tid) {
       try {
         await updateDoc(doc(db, 'transactions', pixData.tid), {
-          status: 'cancelled',
+          status: action === 'expirado' ? 'expirado' : 'cancelled',
+          failureReason: action === 'expirado' ? 'pix_expired' : 'user_cancelled',
           updatedAt: serverTimestamp(),
+          ...(action === 'expirado' ? { expiredAt: serverTimestamp() } : {}),
           _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
         });
       } catch (e) {
-        console.warn('Erro ao atualizar status para cancelado:', e);
+        console.warn('Erro ao atualizar status para cancelado/expirado:', e);
       }
     }
-    setStatus('cancelled');
+    setStatus(action === 'expirado' ? 'expired' : 'cancelled');
     setLoading(false);
   };
 
-  // Timer countdown for Pix expiration (15 minutes)
+  // Timer countdown for Pix expiration (30 minutes)
   React.useEffect(() => {
     if (status !== 'awaiting_pix') return;
 
@@ -78,9 +80,9 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       setPixTimeRemaining((prev) => {
         if (prev <= 1) {
           clearInterval(timerInterval);
-          handleCancelPayment();
+          handleCancelPayment('expirado');
           toast.error('Tempo limite de pagamento expirado!', {
-            description: 'O QR Code do Pix expirou após 15 minutos sem pagamento. A cobrança foi cancelada com segurança.'
+            description: 'O QR Code do Pix expirou após 30 minutos sem pagamento. A cobrança foi cancelada com segurança.'
           });
           return 0;
         }
@@ -103,8 +105,12 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
             setStatus('success');
             toast.success('Pagamento Confirmado!');
             onSuccess(pixData.tid);
+          } else if (data.status === 'expirado') {
+            console.log('[REDE-FORM] Snapshot informou transação expirada (> 30 min).');
+            setStatus('expired');
+            toast.error('Pagamento Pix Expirado', { description: 'O tempo limite de 30 minutos para pagamento encerrou.' });
           } else if (data.status === 'cancelled' || data.status === 'failed') {
-            console.log('[REDE-FORM] Snapshot informou transação cancelada/expirada.');
+            console.log('[REDE-FORM] Snapshot informou transação cancelada.');
             setStatus('cancelled');
             toast.info('Transação Cancelada', { description: 'O pagamento não foi realizado a tempo.' });
           }
@@ -129,10 +135,16 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
             });
             onSuccess(tid);
             clearInterval(pollInterval);
-          } else if (response.data.status === 'cancelled' || response.data.expired) {
+          } else if (response.data.status === 'expirado' || response.data.expired) {
+            setStatus('expired');
+            toast.error('Pagamento Pix Expirado', {
+              description: 'O tempo limite de 30 minutos para pagamento deste Pix expirou.'
+            });
+            clearInterval(pollInterval);
+          } else if (response.data.status === 'cancelled') {
             setStatus('cancelled');
-            toast.error('Pagamento Não Realizado', {
-              description: 'O tempo para pagamento deste Pix expirou.'
+            toast.info('Pagamento Não Realizado', {
+              description: 'Esta transação foi cancelada.'
             });
             clearInterval(pollInterval);
           } else {
@@ -437,6 +449,60 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
             className="w-full h-13 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-wider text-xs rounded-xl shadow-lg cursor-pointer"
           >
             Tentar Novamente
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={onCancel}
+            className="w-full h-11 text-slate-400 hover:text-white uppercase font-bold text-xs tracking-wider cursor-pointer"
+          >
+            Voltar para Carteira
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // SCREEN: PIX EXPIRADO (30 MINUTOS)
+  if (status === 'expired') {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 text-center">
+        <motion.div
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 20 }}
+          className="relative h-20 w-20 bg-amber-500/15 border border-amber-500/30 rounded-3xl flex items-center justify-center text-amber-400 shadow-[0_0_40px_rgba(245,158,11,0.25)] mb-6"
+        >
+          <Clock className="h-10 w-10" strokeWidth={2.5} />
+        </motion.div>
+
+        <div className="space-y-2 mb-6">
+          <span className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-400">Tempo Limite Excedido</span>
+          <h3 className="text-2xl font-black text-white tracking-tight">Pix Expirado</h3>
+          <p className="text-slate-400 text-xs font-medium max-w-[300px] leading-relaxed mx-auto">
+            O tempo de 30 minutos para o pagamento deste Pix encerrou. O QR Code não é mais válido e <strong>nenhum valor foi debitado</strong>.
+          </p>
+        </div>
+
+        <div className="w-full bg-white/5 border border-white/5 rounded-2xl p-4 mb-6 text-left space-y-1.5">
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-slate-400">Valor pretendido:</span>
+            <span className="text-white font-mono font-bold tabular-nums">R$ {amount.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-slate-400">Status atual:</span>
+            <span className="text-amber-400 font-bold uppercase text-[10px]">Expirado (&gt; 30 min)</span>
+          </div>
+        </div>
+
+        <div className="w-full flex flex-col gap-2.5">
+          <Button 
+            onClick={() => {
+              setPixTimeRemaining(30 * 60);
+              setStatus('idle');
+            }}
+            className="w-full h-13 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-wider text-xs rounded-xl shadow-lg cursor-pointer"
+          >
+            Gerar Novo Pix
           </Button>
           <Button 
             variant="ghost" 

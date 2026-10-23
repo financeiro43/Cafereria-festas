@@ -93,11 +93,31 @@ async function startServer() {
             const snap = await getDocs(q);
             
             // Wrap snapshot for compatibility
-            const docs = snap.docs.map(d => ({
-              id: d.id,
-              ref: d.ref,
-              data: () => d.data()
-            }));
+            const docs = snap.docs.map(d => {
+              const docRefWrapper = {
+                id: d.id,
+                ref: d.ref,
+                async get() {
+                  const snapVal = await getDoc(d.ref);
+                  return {
+                    id: snapVal.id,
+                    exists: snapVal.exists(),
+                    data: () => snapVal.data()
+                  };
+                },
+                async update(data: any) {
+                  return updateDoc(d.ref, data);
+                },
+                async set(data: any) {
+                  return setDoc(d.ref, data);
+                }
+              };
+              return {
+                id: d.id,
+                ref: docRefWrapper,
+                data: () => d.data()
+              };
+            });
             
             return {
               empty: snap.empty,
@@ -773,25 +793,26 @@ async function startServer() {
       const ageInMs = Date.now() - createdTime;
       const isPixTx = txnData.paymentMethod === 'pix' || txnData.paymentMethod === 'Pix' || (txnData.description && txnData.description.toLowerCase().includes('pix'));
 
-      if (isPixTx && ageInMs > 20 * 60 * 1000) {
+      if (isPixTx && ageInMs > 30 * 60 * 1000) {
         try {
           await txnRef.update({
-            status: "cancelled",
+            status: "expirado",
             failureReason: "pix_expired",
+            expiredAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
             _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
           });
-          console.log(`[REDE-API] Pix ${tid} expirado (> 20 min sem confirmação). Atualizado para 'cancelled'.`);
+          console.log(`[REDE-API] Pix ${tid} expirado (> 30 min sem confirmação). Atualizado para 'expirado'.`);
         } catch (e) {
-          console.error(`[REDE-API] Erro ao marcar Pix como cancelado:`, e);
+          console.error(`[REDE-API] Erro ao marcar Pix como expirado:`, e);
         }
 
         return res.json({
           success: false,
           pago: false,
-          status: "cancelled",
+          status: "expirado",
           expired: true,
-          message: "O tempo limite para pagamento deste Pix expirou (20 minutos). A transação foi cancelada."
+          message: "O tempo limite de 30 minutos para pagamento deste Pix expirou. A transação foi alterada para 'expirado' automaticamente."
         });
       }
 
@@ -1067,12 +1088,13 @@ async function startServer() {
       if (!db) return res.status(500).json({ error: "Banco de dados não disponível" });
 
       console.log(`[ADMIN-TRIGGER-RECONCILE] Sincronização manual acionada por ${requesterEmail}`);
-      const reconciledCount = await reconcilePendingTransactions();
+      const { reconciledCount, expiredCount } = await reconcilePendingTransactions();
 
       return res.json({ 
         success: true, 
-        message: `Sincronização concluída! ${reconciledCount} transações pendentes foram conciliadas com o banco e processadas com sucesso.`,
-        reconciledCount 
+        message: `Sincronização concluída! ${reconciledCount} pagamentos aprovados e ${expiredCount} transações Pix expiradas (> 30 min) atualizadas para 'expirado'.`,
+        reconciledCount,
+        expiredCount 
       });
 
     } catch (error: any) {
@@ -1082,12 +1104,13 @@ async function startServer() {
   });
 
   // Automatic Background Reconciliation Job for Pix
-  async function reconcilePendingTransactions(): Promise<number> {
+  async function reconcilePendingTransactions(): Promise<{ reconciledCount: number, expiredCount: number }> {
     if (!db) {
       console.log("[RECONCILIATION] DB não inicializado.");
-      return 0;
+      return { reconciledCount: 0, expiredCount: 0 };
     }
     let reconciledCount = 0;
+    let expiredCount = 0;
     try {
       console.log("[RECONCILIATION] Executando varredura em segundo plano de Pix pendentes...");
       
@@ -1100,7 +1123,7 @@ async function startServer() {
       
       if (snapshot.empty) {
         console.log("[RECONCILIATION] Nenhuma transação de recarga pendente encontrada.");
-        return 0;
+        return { reconciledCount: 0, expiredCount: 0 };
       }
 
       console.log(`[RECONCILIATION] Encontradas ${snapshot.size} transações pendentes para verificação.`);
@@ -1111,7 +1134,7 @@ async function startServer() {
 
       if (!livePV || !liveToken) {
         console.log("[RECONCILIATION] Credenciais da Rede não estão totalmente configuradas. Pulando verificação.");
-        return 0;
+        return { reconciledCount: 0, expiredCount: 0 };
       }
 
       // Obtain OAuth Token
@@ -1156,12 +1179,14 @@ async function startServer() {
         if (ageInMs > maxAgeInMs) {
           console.log(`[RECONCILIATION] Transação ${tid} é antiga demais (${Math.round(ageInMs / 3600000)}h).`);
           if (isPixTx) {
-            await txnDoc.ref.update({
-              status: 'cancelled',
+            await db.collection("transactions").doc(tid).update({
+              status: 'expirado',
               failureReason: 'pix_expired',
+              expiredAt: FieldValue.serverTimestamp(),
               updatedAt: FieldValue.serverTimestamp(),
               _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
+            expiredCount++;
           }
           continue;
         }
@@ -1170,14 +1195,16 @@ async function startServer() {
         const isFirestoreId = typeof queryId === 'string' && queryId.length === 20 && /^[a-zA-Z0-9]+$/.test(queryId) && !/^\d+$/.test(queryId);
         
         if (!queryId || typeof queryId !== 'string' || queryId.trim() === '' || isFirestoreId) {
-          if (isPixTx && ageInMs > 20 * 60 * 1000) {
-            console.log(`[RECONCILIATION] Transação Pix ${tid} sem ID Rede e expirada (> 20 min). Marcando como 'cancelled'.`);
-            await txnDoc.ref.update({
-              status: 'cancelled',
+          if (isPixTx && ageInMs > 30 * 60 * 1000) {
+            console.log(`[RECONCILIATION] Transação Pix ${tid} sem ID Rede e expirada (> 30 min). Marcando como 'expirado'.`);
+            await db.collection("transactions").doc(tid).update({
+              status: 'expirado',
               failureReason: 'pix_expired',
+              expiredAt: FieldValue.serverTimestamp(),
               updatedAt: FieldValue.serverTimestamp(),
               _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
             });
+            expiredCount++;
           } else {
             console.log(`[RECONCILIATION] Transação ${tid} não possui um ID de transação Rede (redeTid) válido para consulta. Pulando.`);
           }
@@ -1218,8 +1245,10 @@ async function startServer() {
               continue;
             }
 
+            const targetTxnDoc = db.collection("transactions").doc(tid);
+
             await db.runTransaction(async (t) => {
-              const currentTxnDoc = await t.get(txnDoc.ref);
+              const currentTxnDoc = await t.get(targetTxnDoc);
               if (!currentTxnDoc.exists || currentTxnDoc.data()?.status === "completed") {
                 return;
               }
@@ -1240,7 +1269,7 @@ async function startServer() {
                    _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
                 });
                 
-                t.update(txnDoc.ref, { 
+                t.update(targetTxnDoc, { 
                   status: "completed", 
                   updatedAt: FieldValue.serverTimestamp(),
                   redeData: redeData,
@@ -1252,28 +1281,32 @@ async function startServer() {
             reconciledCount++;
           } else {
             console.log(`[RECONCILIATION] Transação ${tid} ainda consta como pendente na Rede (status: ${rawStatus}, código: ${rawCode}).`);
-            if (isPixTx && ageInMs > 20 * 60 * 1000) {
-              console.log(`[RECONCILIATION] Pix ${tid} expirado (> 20 min sem confirmação). Marcando como 'cancelled'.`);
-              await txnDoc.ref.update({
-                status: 'cancelled',
+            if (isPixTx && ageInMs > 30 * 60 * 1000) {
+              console.log(`[RECONCILIATION] Pix ${tid} expirado (> 30 min sem confirmação). Marcando como 'expirado'.`);
+              await db.collection("transactions").doc(tid).update({
+                status: 'expirado',
                 failureReason: 'pix_expired',
+                expiredAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
+              expiredCount++;
             }
           }
         } catch (apiErr: any) {
           const status = apiErr.response?.status;
           if (status === 400 || status === 404) {
             console.log(`[RECONCILIATION] Transação ${tid} (queryId: ${queryId}) não foi encontrada na Rede ou está pendente. Status HTTP: ${status}`);
-            if (isPixTx && ageInMs > 20 * 60 * 1000) {
-              console.log(`[RECONCILIATION] Pix ${tid} não encontrado ou pendente expirado (> 20 min). Marcando como 'cancelled'.`);
-              await txnDoc.ref.update({
-                status: 'cancelled',
+            if (isPixTx && ageInMs > 30 * 60 * 1000) {
+              console.log(`[RECONCILIATION] Pix ${tid} não encontrado ou pendente expirado (> 30 min). Marcando como 'expirado'.`);
+              await db.collection("transactions").doc(tid).update({
+                status: 'expirado',
                 failureReason: 'pix_expired',
+                expiredAt: FieldValue.serverTimestamp(),
                 updatedAt: FieldValue.serverTimestamp(),
                 _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
               });
+              expiredCount++;
             }
           } else {
             console.log(`[RECONCILIATION] Erro na API Rede ao verificar transação ${tid}: ${apiErr.message}`);
@@ -1283,7 +1316,7 @@ async function startServer() {
     } catch (error: any) {
       console.error("[RECONCILIATION] Erro crítico no worker de segundo plano:", error);
     }
-    return reconciledCount;
+    return { reconciledCount, expiredCount };
   }
 
   // Configura varredura automática a cada 2 minutos
