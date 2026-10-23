@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { CheckCircle2, CreditCard, Loader2, ShieldCheck, Lock, XCircle, Smartphone, SmartphoneNfc, Wallet, Copy, Check, QrCode, ChevronLeft, Info } from 'lucide-react';
+import { CheckCircle2, CreditCard, Loader2, ShieldCheck, Lock, XCircle, Smartphone, SmartphoneNfc, Wallet, Copy, Check, QrCode, ChevronLeft, Info, Clock } from 'lucide-react';
 import { db } from '@/lib/firebase';
 import { doc, updateDoc, increment, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { toast } from 'sonner';
@@ -45,6 +45,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
   const [pixData, setPixData] = useState<{ qrcode: string, tid: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [pendingStatusInfo, setPendingStatusInfo] = useState<string | null>(null);
+  const [pixTimeRemaining, setPixTimeRemaining] = useState<number>(15 * 60); // 15 minutos (900s)
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [cardData, setCardData] = useState({
     number: '',
@@ -69,6 +70,27 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     setLoading(false);
   };
 
+  // Timer countdown for Pix expiration (15 minutes)
+  React.useEffect(() => {
+    if (status !== 'awaiting_pix') return;
+
+    const timerInterval = setInterval(() => {
+      setPixTimeRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(timerInterval);
+          handleCancelPayment();
+          toast.error('Tempo limite de pagamento expirado!', {
+            description: 'O QR Code do Pix expirou após 15 minutos sem pagamento. A cobrança foi cancelada com segurança.'
+          });
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timerInterval);
+  }, [status, pixData?.tid]);
+
   // Listen for Pix payment confirmation
   React.useEffect(() => {
     if (status === 'awaiting_pix' && pixData?.tid) {
@@ -81,6 +103,10 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
             setStatus('success');
             toast.success('Pagamento Confirmado!');
             onSuccess(pixData.tid);
+          } else if (data.status === 'cancelled' || data.status === 'failed') {
+            console.log('[REDE-FORM] Snapshot informou transação cancelada/expirada.');
+            setStatus('cancelled');
+            toast.info('Transação Cancelada', { description: 'O pagamento não foi realizado a tempo.' });
           }
         }
       }, (err) => {
@@ -102,6 +128,12 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
               description: 'Seu saldo já foi creditado automaticamente.' 
             });
             onSuccess(tid);
+            clearInterval(pollInterval);
+          } else if (response.data.status === 'cancelled' || response.data.expired) {
+            setStatus('cancelled');
+            toast.error('Pagamento Não Realizado', {
+              description: 'O tempo para pagamento deste Pix expirou.'
+            });
             clearInterval(pollInterval);
           } else {
             // Update UI with the current status from Rede if available
@@ -648,18 +680,28 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           <motion.div key="pix" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4">
              {status === 'awaiting_pix' ? (
                 <div className="flex flex-col items-center justify-center py-2 text-center space-y-5">
-                  {/* Status Banner: AGUARDANDO PAGAMENTO */}
+                  {/* Status Banner: AGUARDANDO PAGAMENTO COM TEMPO LIMITE */}
                   <div className="w-full bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 text-left flex items-start gap-3">
                     <div className="h-8 w-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
                       <Loader2 className="h-4 w-4 animate-spin" />
                     </div>
-                    <div className="space-y-0.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">Aguardando Pagamento</span>
-                        <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full uppercase">Pendente</span>
+                    <div className="space-y-1 flex-1">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">Aguardando Pagamento</span>
+                          <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full uppercase">Pix</span>
+                        </div>
+                        <div className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border font-mono text-[10px] font-black tracking-tight ${
+                          pixTimeRemaining < 120 
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse' 
+                            : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        }`}>
+                          <Clock className="h-3 w-3" />
+                          <span>Expira em {Math.floor(pixTimeRemaining / 60)}:{(pixTimeRemaining % 60).toString().padStart(2, '0')}</span>
+                        </div>
                       </div>
                       <p className="text-[11px] text-slate-300 leading-snug">
-                        Escaneie o QR Code ou copie o código Pix abaixo no app do seu banco para creditar <strong>R$ {amount.toFixed(2)}</strong>.
+                        Abra o app do seu banco, escaneie o QR Code ou copie o código Pix abaixo para creditar <strong>R$ {amount.toFixed(2)}</strong>.
                       </p>
                     </div>
                   </div>

@@ -760,7 +760,42 @@ async function startServer() {
         }
       }
 
-      // 6. If not approved, return current pending state with Rede context
+      // 6. Check for Pix timeout expiration if not approved
+      const timestampVal = txnData.timestamp;
+      let createdTime = Date.now();
+      if (timestampVal) {
+        if (typeof timestampVal.toDate === 'function') {
+          createdTime = timestampVal.toDate().getTime();
+        } else {
+          createdTime = new Date(timestampVal).getTime();
+        }
+      }
+      const ageInMs = Date.now() - createdTime;
+      const isPixTx = txnData.paymentMethod === 'pix' || txnData.paymentMethod === 'Pix' || (txnData.description && txnData.description.toLowerCase().includes('pix'));
+
+      if (isPixTx && ageInMs > 20 * 60 * 1000) {
+        try {
+          await txnRef.update({
+            status: "cancelled",
+            failureReason: "pix_expired",
+            updatedAt: FieldValue.serverTimestamp(),
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+          });
+          console.log(`[REDE-API] Pix ${tid} expirado (> 20 min sem confirmação). Atualizado para 'cancelled'.`);
+        } catch (e) {
+          console.error(`[REDE-API] Erro ao marcar Pix como cancelado:`, e);
+        }
+
+        return res.json({
+          success: false,
+          pago: false,
+          status: "cancelled",
+          expired: true,
+          message: "O tempo limite para pagamento deste Pix expirou (20 minutos). A transação foi cancelada."
+        });
+      }
+
+      // If not approved and not yet expired, return current pending state with Rede context
       console.log(`[REDE-API] Pagamento não confirmado na Rede ainda. Status Atual: ${rawStatus}`);
       return res.json({ 
         success: false, 
@@ -1116,8 +1151,18 @@ async function startServer() {
         
         const ageInMs = Date.now() - createdTime;
         const maxAgeInMs = 3 * 24 * 60 * 60 * 1000; // 3 days
+        const isPixTx = txnData.paymentMethod === 'pix' || txnData.paymentMethod === 'Pix' || (txnData.description && txnData.description.toLowerCase().includes('pix'));
+
         if (ageInMs > maxAgeInMs) {
-          console.log(`[RECONCILIATION] Transação ${tid} é antiga demais (${Math.round(ageInMs / 3600000)}h). Pulando reconciliação.`);
+          console.log(`[RECONCILIATION] Transação ${tid} é antiga demais (${Math.round(ageInMs / 3600000)}h).`);
+          if (isPixTx) {
+            await txnDoc.ref.update({
+              status: 'cancelled',
+              failureReason: 'pix_expired',
+              updatedAt: FieldValue.serverTimestamp(),
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+            });
+          }
           continue;
         }
 
@@ -1125,7 +1170,17 @@ async function startServer() {
         const isFirestoreId = typeof queryId === 'string' && queryId.length === 20 && /^[a-zA-Z0-9]+$/.test(queryId) && !/^\d+$/.test(queryId);
         
         if (!queryId || typeof queryId !== 'string' || queryId.trim() === '' || isFirestoreId) {
-          console.log(`[RECONCILIATION] Transação ${tid} não possui um ID de transação Rede (redeTid) válido para consulta. Pulando.`);
+          if (isPixTx && ageInMs > 20 * 60 * 1000) {
+            console.log(`[RECONCILIATION] Transação Pix ${tid} sem ID Rede e expirada (> 20 min). Marcando como 'cancelled'.`);
+            await txnDoc.ref.update({
+              status: 'cancelled',
+              failureReason: 'pix_expired',
+              updatedAt: FieldValue.serverTimestamp(),
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+            });
+          } else {
+            console.log(`[RECONCILIATION] Transação ${tid} não possui um ID de transação Rede (redeTid) válido para consulta. Pulando.`);
+          }
           continue;
         }
 
@@ -1197,11 +1252,29 @@ async function startServer() {
             reconciledCount++;
           } else {
             console.log(`[RECONCILIATION] Transação ${tid} ainda consta como pendente na Rede (status: ${rawStatus}, código: ${rawCode}).`);
+            if (isPixTx && ageInMs > 20 * 60 * 1000) {
+              console.log(`[RECONCILIATION] Pix ${tid} expirado (> 20 min sem confirmação). Marcando como 'cancelled'.`);
+              await txnDoc.ref.update({
+                status: 'cancelled',
+                failureReason: 'pix_expired',
+                updatedAt: FieldValue.serverTimestamp(),
+                _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+              });
+            }
           }
         } catch (apiErr: any) {
           const status = apiErr.response?.status;
           if (status === 400 || status === 404) {
-            console.log(`[RECONCILIATION] Transação ${tid} (queryId: ${queryId}) não foi encontrada na Rede ou está pendente (link de pagamento gerado, mas não pago). Status HTTP: ${status}`);
+            console.log(`[RECONCILIATION] Transação ${tid} (queryId: ${queryId}) não foi encontrada na Rede ou está pendente. Status HTTP: ${status}`);
+            if (isPixTx && ageInMs > 20 * 60 * 1000) {
+              console.log(`[RECONCILIATION] Pix ${tid} não encontrado ou pendente expirado (> 20 min). Marcando como 'cancelled'.`);
+              await txnDoc.ref.update({
+                status: 'cancelled',
+                failureReason: 'pix_expired',
+                updatedAt: FieldValue.serverTimestamp(),
+                _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+              });
+            }
           } else {
             console.log(`[RECONCILIATION] Erro na API Rede ao verificar transação ${tid}: ${apiErr.message}`);
           }

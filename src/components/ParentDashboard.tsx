@@ -1209,8 +1209,12 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                         const stall = tx.stallName || (tx.description.includes('barraca') ? tx.description.split(': ')[0].replace('Compra na barraca ', '') : tx.description);
                         const items = tx.items || (tx.description.includes(': ') ? tx.description.split(': ')[1].split(', ') : []);
 
-                        const isPending = tx.status === 'pending';
-                        const isFailed = tx.status === 'cancelled' || tx.status === 'failed';
+                        const isPix = tx.paymentMethod === 'pix' || tx.paymentMethod === 'Pix' || (tx.description && tx.description.toLowerCase().includes('pix'));
+                        const ageInMs = date ? (Date.now() - date.getTime()) : 0;
+                        const isPixExpired = isPix && tx.status === 'pending' && ageInMs > 20 * 60 * 1000;
+
+                        const isPending = tx.status === 'pending' && !isPixExpired;
+                        const isFailed = tx.status === 'cancelled' || tx.status === 'failed' || isPixExpired;
 
                         return (
                           <div 
@@ -1262,7 +1266,7 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                                   </span>
                                 ) : isFailed ? (
                                   <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
-                                    <XCircle className="h-2.5 w-2.5" /> Pagamento Não Realizado
+                                    <XCircle className="h-2.5 w-2.5" /> {isPixExpired ? 'Pagamento Expirado' : 'Pagamento Não Realizado'}
                                   </span>
                                 ) : (
                                   <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
@@ -1288,6 +1292,15 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                                 >
                                   Pagar / Verificar
                                 </Button>
+                              </div>
+                            )}
+
+                            {/* Alert box when expired */}
+                            {isPixExpired && (
+                              <div className="mt-3 pl-14 flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl">
+                                <p className="text-[10px] text-rose-200/90 font-medium leading-tight">
+                                  O tempo limite de pagamento (20 minutos) expirou sem confirmação do banco. Nenhum valor foi cobrado.
+                                </p>
                               </div>
                             )}
 

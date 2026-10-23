@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Stall, Product, UserProfile, Withdrawal, Order, Transaction, UserRole, CartItem } from '../types';
-import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette, Download, Calculator, Calendar, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown, ArrowRight } from 'lucide-react';
+import { Plus, Trash2, Store, Package, Users, TrendingUp, DollarSign, History, LayoutDashboard, Settings as SettingsIcon, FileText, ShoppingCart, Smartphone, LogOut, ArrowLeftRight, QrCode, Printer, Loader2, Menu, X, Search, CreditCard, ShieldCheck as ShieldCheckIcon, User as UserIcon, Edit2, Filter, Sparkles, Ticket, Zap, CheckSquare, Square, Copy, RefreshCw, Palette, Download, Calculator, Calendar, AlertTriangle, ArrowUp, ArrowDown, ArrowUpDown, ArrowRight, Clock } from 'lucide-react';
 import { QRCodeSVG, QRCodeCanvas } from 'qrcode.react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -199,7 +199,25 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
     // 1. Filter by status
     let list = filteredTransactions;
     if (txStatusFilter !== 'all') {
-      list = list.filter(t => t.status === txStatusFilter);
+      if (txStatusFilter === 'completed') {
+        list = list.filter(t => t.status === 'completed');
+      } else if (txStatusFilter === 'pending') {
+        list = list.filter(t => {
+          if (t.status !== 'pending') return false;
+          const isPix = t.paymentMethod === 'pix' || t.paymentMethod === 'Pix' || (t.description && t.description.toLowerCase().includes('pix'));
+          const txDate = getParsedDate(t.timestamp);
+          const ageInMs = txDate ? (Date.now() - txDate.getTime()) : 0;
+          return !(isPix && ageInMs > 20 * 60 * 1000);
+        });
+      } else if (txStatusFilter === 'failed') {
+        list = list.filter(t => {
+          if (t.status === 'failed' || t.status === 'cancelled') return true;
+          const isPix = t.paymentMethod === 'pix' || t.paymentMethod === 'Pix' || (t.description && t.description.toLowerCase().includes('pix'));
+          const txDate = getParsedDate(t.timestamp);
+          const ageInMs = txDate ? (Date.now() - txDate.getTime()) : 0;
+          return isPix && t.status === 'pending' && ageInMs > 20 * 60 * 1000;
+        });
+      }
     }
 
     // 2. Filter by Search terms
@@ -1559,10 +1577,10 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   };
 
   const handleCompletePendingTransaction = async (txId: string) => {
-    if (!confirm('Deseja realmente confirmar o pagamento/recebimento desta recarga pendente? Isso adicionará automaticamente o saldo correspondente à conta do cliente.')) {
+    if (!confirm('Deseja realmente confirmar o pagamento/recebimento desta conta pós-paga? Isso confirmará a liquidação do valor.')) {
       return;
     }
-    const loadingToast = toast.loading('Processando e creditando saldo...');
+    const loadingToast = toast.loading('Processando e confirmando baixa...');
     try {
       const response = await fetch('/api/rede/admin/complete-transaction', {
         method: 'POST',
@@ -1577,14 +1595,34 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       const data = await response.json();
       toast.dismiss(loadingToast);
       if (response.ok && data.success) {
-        toast.success('Pagamento baixado e saldo creditado com sucesso!');
+        toast.success('Baixa registrada com sucesso!');
       } else {
-        throw new Error(data.error || 'Erro ao confirmar pagamento.');
+        throw new Error(data.error || 'Erro ao confirmar baixa.');
       }
     } catch (e: any) {
       toast.dismiss(loadingToast);
       console.error(e);
       toast.error(e.message || 'Erro ao confirmar pagamento.');
+    }
+  };
+
+  const handleVerifyPixDirectly = async (txId: string) => {
+    const loadingToast = toast.loading('Consultando status do Pix no banco Rede...');
+    try {
+      const response = await fetch(`/api/rede/verify-pix/${txId}?t=${Date.now()}`);
+      const data = await response.json();
+      toast.dismiss(loadingToast);
+      if (data.success && data.pago) {
+        toast.success('Pix confirmado pelo banco! Saldo creditado automaticamente.');
+      } else if (data.status === 'cancelled' || data.expired) {
+        toast.error('Pix Expirado / Cancelado', { description: data.message || 'Tempo limite excedido sem pagamento.' });
+      } else {
+        toast.info('Pix ainda não foi pago', { description: data.message || 'Aguardando o cliente efetuar a transferência.' });
+      }
+    } catch (e: any) {
+      toast.dismiss(loadingToast);
+      console.error(e);
+      toast.error('Erro ao consultar status bancário do Pix.');
     }
   };
 
@@ -3175,7 +3213,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                   <option value="Pix">PIX</option>
                                   <option value="Débito">Débito</option>
                                   <option value="Crédito">Crédito</option>
-                                  <option value="Conta">Conta</option>
+                                  <option value="Conta">Em Conta (Pós-pago / Fiado)</option>
                                 </select>
                                 <Button 
                                   size="sm" 
@@ -3580,8 +3618,8 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                       const labels: Record<string, string> = {
                         all: 'Todos',
                         completed: 'Pago',
-                        pending: 'Pendente',
-                        failed: 'Erro'
+                        pending: 'Pendente / Em Aberto',
+                        failed: 'Não Realizado / Expirado'
                       };
                       const isActive = txStatusFilter === st;
                       return (
@@ -3750,27 +3788,97 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                             </span>
                           </TableCell>
                           <TableCell className="py-4 text-center">
-                            <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
-                              <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 ${
-                                tx.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
-                                tx.status === 'pending' ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse' : 
-                                'bg-rose-50 text-rose-700 border-rose-200'
-                              }`}>
-                                {tx.status === 'completed' ? 'Pago' : 
-                                 tx.status === 'pending' ? 'Aguardando Pagamento' : 
-                                 'Não Realizado'}
-                              </span>
-                              {tx.type === 'credit' && tx.status === 'pending' && (
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleCompletePendingTransaction(tx.id)}
-                                  className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2.5 text-[9px] font-black uppercase tracking-wider border-none shadow-sm cursor-pointer"
-                                  title="Confirmar recebimento / Baixa"
-                                >
-                                  Dar Baixa
-                                </Button>
-                              )}
-                            </div>
+                            {(() => {
+                              const txDate = getParsedDate(tx.timestamp);
+                              const ageInMs = txDate ? (Date.now() - txDate.getTime()) : 0;
+                              const isPix = tx.paymentMethod === 'pix' || tx.paymentMethod === 'Pix' || (tx.description && tx.description.toLowerCase().includes('pix'));
+                              const isConta = tx.paymentMethod === 'Conta' || (tx.description && tx.description.toLowerCase().includes('conta'));
+                              const isPixExpired = isPix && tx.status === 'pending' && ageInMs > 20 * 60 * 1000;
+                              const isFailedOrCancelled = tx.status === 'failed' || tx.status === 'cancelled' || isPixExpired;
+
+                              if (tx.status === 'completed') {
+                                return (
+                                  <div className="flex items-center justify-center">
+                                    <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 bg-emerald-50 text-emerald-700 border-emerald-200">
+                                      <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                      Pago
+                                    </span>
+                                  </div>
+                                );
+                              }
+
+                              if (isFailedOrCancelled) {
+                                return (
+                                  <div className="flex items-center justify-center">
+                                    <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 bg-rose-50 text-rose-700 border-rose-200">
+                                      <XCircle className="h-3 w-3 text-rose-600" />
+                                      {isPixExpired ? 'Pix Expirado' : (tx.status === 'cancelled' ? 'Cancelado' : 'Não Realizado')}
+                                    </span>
+                                  </div>
+                                );
+                              }
+
+                              // Pending transactions
+                              if (isConta) {
+                                return (
+                                  <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
+                                    <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 bg-amber-50 text-amber-800 border-amber-300">
+                                      <Clock className="h-3 w-3 text-amber-600" />
+                                      Em Aberto (Conta)
+                                    </span>
+                                    {tx.type === 'credit' && (
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handleCompletePendingTransaction(tx.id)}
+                                        className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2.5 text-[9px] font-black uppercase tracking-wider border-none shadow-sm cursor-pointer"
+                                        title="Confirmar recebimento do valor da conta pós-paga"
+                                      >
+                                        Dar Baixa
+                                      </Button>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              if (isPix) {
+                                const remainingMin = Math.max(1, Math.round((20 * 60 * 1000 - ageInMs) / 60000));
+                                return (
+                                  <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
+                                    <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 bg-amber-50 text-amber-800 border-amber-300 animate-pulse">
+                                      <Clock className="h-3 w-3 text-amber-600" />
+                                      Aguardando Pix ({remainingMin} min)
+                                    </span>
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleVerifyPixDirectly(tx.id)}
+                                      className="h-7 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-2.5 text-[9px] font-black uppercase tracking-wider border-none shadow-sm cursor-pointer"
+                                      title="Consultar confirmação do Pix no banco Rede"
+                                    >
+                                      Verificar no Banco
+                                    </Button>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
+                                  <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 bg-amber-50 text-amber-800 border-amber-300">
+                                    <Clock className="h-3 w-3 text-amber-600" />
+                                    Aguardando Pagamento
+                                  </span>
+                                  {tx.type === 'credit' && (
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleCompletePendingTransaction(tx.id)}
+                                      className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2.5 text-[9px] font-black uppercase tracking-wider border-none shadow-sm cursor-pointer"
+                                      title="Confirmar recebimento / Baixa"
+                                    >
+                                      Dar Baixa
+                                    </Button>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell className="py-4">
                             <span className="text-sm text-slate-600">{tx.description}</span>
@@ -5901,22 +6009,40 @@ function RechargePortal({
             ) : (
               <div className="space-y-3">
                 <label className="text-[10px] font-black uppercase text-slate-500 tracking-[0.2em] px-2 block">Forma de Pagamento</label>
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                  {['Dinheiro', 'Pix', 'Débito', 'Crédito', 'Conta'].map(method => (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {[
+                    { id: 'Dinheiro', label: 'Dinheiro', subtitle: 'À vista' },
+                    { id: 'Pix', label: 'PIX', subtitle: 'À vista' },
+                    { id: 'Débito', label: 'Débito', subtitle: 'Cartão' },
+                    { id: 'Crédito', label: 'Crédito', subtitle: 'Cartão' },
+                    { id: 'Conta', label: 'Em Conta', subtitle: 'Pós-pago' }
+                  ].map(method => (
                     <button
-                      key={method}
+                      key={method.id}
                       disabled={!scannedUser}
-                      onClick={() => setPaymentMethod(method)}
-                      className={`h-14 rounded-2xl text-[9px] font-black uppercase tracking-tight border-2 transition-all active:scale-95 ${
-                        paymentMethod === method
-                          ? 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/40'
+                      onClick={() => setPaymentMethod(method.id)}
+                      className={`h-16 flex flex-col items-center justify-center rounded-2xl text-[9px] font-black uppercase tracking-tight border-2 transition-all active:scale-95 cursor-pointer ${
+                        paymentMethod === method.id
+                          ? method.id === 'Conta'
+                            ? 'bg-amber-600 border-amber-400 text-white shadow-lg shadow-amber-900/40'
+                            : 'bg-emerald-600 border-emerald-500 text-white shadow-lg shadow-emerald-900/40'
                           : 'bg-white/[0.03] border-white/5 hover:border-white/10 text-slate-400 disabled:opacity-20'
                       }`}
                     >
-                      {method}
+                      <span>{method.label}</span>
+                      <span className="text-[8px] opacity-75 font-normal tracking-normal lowercase">{method.subtitle}</span>
                     </button>
                   ))}
                 </div>
+                {paymentMethod === 'Conta' ? (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-[10px] text-amber-300 leading-tight">
+                    ⚠️ <strong>Modo Pós-pago (Em Conta):</strong> O cliente recebe o saldo agora e a transação ficará como <strong>"Aguardando Pagamento"</strong> para o financeiro dar baixa após receber o acerto.
+                  </div>
+                ) : (
+                  <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-[10px] text-emerald-300 leading-tight">
+                    ✅ <strong>Pagamento Direto:</strong> O valor foi recebido na hora no caixa e será registrado imediatamente como <strong>"Pago" (Concluído)</strong>.
+                  </div>
+                )}
               </div>
             )}
 
