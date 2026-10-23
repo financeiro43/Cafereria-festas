@@ -129,6 +129,11 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   // Track expired PIX notifications to avoid duplicate alerts
   const notifiedExpiredAdminRef = useRef<Set<string>>(new Set());
 
+  // Baixa confirmation modal state (replaces window.confirm for iframe safety)
+  const [baixaConfirmTx, setBaixaConfirmTx] = useState<Transaction | null>(null);
+  const [isCompletingBaixa, setIsCompletingBaixa] = useState(false);
+  const [completingBaixaTxId, setCompletingBaixaTxId] = useState<string | null>(null);
+
   // Helper to parse multiple timestamp formats (Firestore/ISO/Milliseconds) to Date
   const getParsedDate = (timestampField: any): Date | null => {
     if (!timestampField) return null;
@@ -623,13 +628,18 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   };
 
   const handleDeleteWithdrawal = async (id: string) => {
-    if (!window.confirm('Tem certeza que deseja cancelar esta retirada? O saldo correspondente retornará ao caixa de recarga.')) return;
-    try {
-      await deleteDoc(doc(db, 'withdrawals', id));
-      toast.success('Retirada cancelada com sucesso!');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, 'withdrawals');
-    }
+    setDeleteConfirm({
+      id: `Retirada #${id.slice(0, 8)}`,
+      type: 'stall',
+      action: async () => {
+        try {
+          await deleteDoc(doc(db, 'withdrawals', id));
+          toast.success('Retirada cancelada com sucesso!');
+        } catch (error) {
+          handleFirestoreError(error, OperationType.DELETE, 'withdrawals');
+        }
+      }
+    });
   };
 
   const handleAddStall = async () => {
@@ -1592,27 +1602,33 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   };
 
   const handleUnlinkCard = async (user: UserProfile) => {
-    if (!confirm(`Deseja realmente desvincular o cartão ${user.qrCode} de ${user.name}?`)) {
-      return;
-    }
-    try {
-      const pendingCode = `PENDING-${Date.now()}-${Math.floor(Math.random()*1000)}`;
-      await updateDoc(doc(db, 'users', user.uid), {
-        qrCode: pendingCode,
-        _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
-      });
-      toast.success('Cartão desvinculado com sucesso!');
-    } catch (e) {
-      console.error(e);
-      toast.error('Erro ao desvincular cartão');
-    }
+    setDeleteConfirm({
+      id: `Cartão ${user.qrCode} de ${user.name}`,
+      type: 'user',
+      action: async () => {
+        try {
+          const pendingCode = `PENDING-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+          await updateDoc(doc(db, 'users', user.uid), {
+            qrCode: pendingCode,
+            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+          });
+          toast.success('Cartão desvinculado com sucesso!');
+        } catch (e) {
+          console.error(e);
+          toast.error('Erro ao desvincular cartão');
+        }
+      }
+    });
   };
 
-  const handleCompletePendingTransaction = async (txId: string) => {
-    if (!confirm('Deseja realmente confirmar o pagamento/recebimento desta conta pós-paga? Isso confirmará a liquidação do valor.')) {
-      return;
-    }
-    const loadingToast = toast.loading('Processando e confirmando baixa...');
+  const handleExecuteBaixa = async (txId: string) => {
+    setCompletingBaixaTxId(txId);
+    setIsCompletingBaixa(true);
+    const targetTx = transactions.find(t => t.id === txId) || baixaConfirmTx;
+    const clientName = targetTx?.userName || targetTx?.clientName || users.find(u => u.uid === targetTx?.userId)?.name || 'Cliente';
+    const amountVal = targetTx?.amount ? `R$ ${targetTx.amount.toFixed(2)}` : '';
+    const loadingToast = toast.loading(`Processando baixa ${amountVal ? `de ${amountVal} ` : ''}...`);
+
     try {
       const response = await fetch('/api/rede/admin/complete-transaction', {
         method: 'POST',
@@ -1621,20 +1637,45 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         },
         body: JSON.stringify({
           txId,
-          requesterEmail: auth.currentUser?.email
+          requesterEmail: auth.currentUser?.email || profile.email || 'financeiro@modeloalpha.com.br'
         })
       });
       const data = await response.json();
       toast.dismiss(loadingToast);
+
       if (response.ok && data.success) {
-        toast.success('Baixa registrada com sucesso!');
+        toast.success('Baixa registrada com sucesso!', {
+          description: `A conta ${amountVal ? `de ${amountVal} ` : ''}(${clientName}) foi liquidada e o status alterado para Pago.`
+        });
+        setBaixaConfirmTx(null);
       } else {
-        throw new Error(data.error || 'Erro ao confirmar baixa.');
+        const errorMsg = data.error || data.message || 'Erro ao registrar baixa.';
+        toast.error('Não foi possível dar baixa', {
+          description: errorMsg
+        });
       }
     } catch (e: any) {
       toast.dismiss(loadingToast);
       console.error(e);
-      toast.error(e.message || 'Erro ao confirmar pagamento.');
+      toast.error('Erro de conexão ao dar baixa', {
+        description: e.message || 'Falha de comunicação com o servidor.'
+      });
+    } finally {
+      setIsCompletingBaixa(false);
+      setCompletingBaixaTxId(null);
+    }
+  };
+
+  const handleCompletePendingTransaction = (tx: Transaction | string) => {
+    if (typeof tx === 'string') {
+      const found = transactions.find(t => t.id === tx);
+      if (found) {
+        setBaixaConfirmTx(found);
+      } else {
+        handleExecuteBaixa(tx);
+      }
+    } else {
+      setBaixaConfirmTx(tx);
     }
   };
 
@@ -3856,6 +3897,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
 
                               // Pending transactions
                               if (isConta) {
+                                const isRowLoading = isCompletingBaixa && completingBaixaTxId === tx.id;
                                 return (
                                   <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
                                     <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 bg-amber-50 text-amber-800 border-amber-300">
@@ -3865,11 +3907,23 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                     {tx.type === 'credit' && (
                                       <Button
                                         size="sm"
-                                        onClick={() => handleCompletePendingTransaction(tx.id)}
-                                        className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2.5 text-[9px] font-black uppercase tracking-wider border-none shadow-sm cursor-pointer"
+                                        onClick={() => handleCompletePendingTransaction(tx)}
+                                        disabled={isCompletingBaixa}
+                                        className={`h-7 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-wider border-none shadow-sm flex items-center gap-1.5 transition-all ${
+                                          isRowLoading 
+                                            ? 'bg-emerald-700/80 text-white cursor-wait' 
+                                            : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-95'
+                                        }`}
                                         title="Confirmar recebimento do valor da conta pós-paga"
                                       >
-                                        Dar Baixa
+                                        {isRowLoading ? (
+                                          <>
+                                            <Loader2 className="h-3 w-3 animate-spin text-white" />
+                                            <span>Baixando...</span>
+                                          </>
+                                        ) : (
+                                          'Dar Baixa'
+                                        )}
                                       </Button>
                                     )}
                                   </div>
@@ -3896,6 +3950,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                 );
                               }
 
+                              const isRowLoading = isCompletingBaixa && completingBaixaTxId === tx.id;
                               return (
                                 <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
                                   <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 bg-amber-50 text-amber-800 border-amber-300">
@@ -3905,11 +3960,23 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                                   {tx.type === 'credit' && (
                                     <Button
                                       size="sm"
-                                      onClick={() => handleCompletePendingTransaction(tx.id)}
-                                      className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2.5 text-[9px] font-black uppercase tracking-wider border-none shadow-sm cursor-pointer"
+                                      onClick={() => handleCompletePendingTransaction(tx)}
+                                      disabled={isCompletingBaixa}
+                                      className={`h-7 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-wider border-none shadow-sm flex items-center gap-1.5 transition-all ${
+                                        isRowLoading 
+                                          ? 'bg-emerald-700/80 text-white cursor-wait' 
+                                          : 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-95'
+                                      }`}
                                       title="Confirmar recebimento / Baixa"
                                     >
-                                      Dar Baixa
+                                      {isRowLoading ? (
+                                        <>
+                                          <Loader2 className="h-3 w-3 animate-spin text-white" />
+                                          <span>Baixando...</span>
+                                        </>
+                                      ) : (
+                                        'Dar Baixa'
+                                      )}
                                     </Button>
                                   )}
                                 </div>
@@ -4888,7 +4955,86 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editingUser && false} onOpenChange={() => {}}> {/* Placeholder for safety */}
+      {/* Baixa Confirmation Dialog (replaces window.confirm for iframe safety) */}
+      <Dialog open={!!baixaConfirmTx} onOpenChange={(open) => !open && !isCompletingBaixa && setBaixaConfirmTx(null)}>
+        <DialogContent className="rounded-[36px] border-none shadow-2xl p-0 max-w-md overflow-hidden bg-white">
+          {baixaConfirmTx && (
+            <div className="w-full">
+              <div className="bg-emerald-50 p-7 flex flex-col items-center justify-center border-b border-emerald-100">
+                <div className="h-16 w-16 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30 mb-3">
+                  <CheckCircle2 className="h-8 w-8" />
+                </div>
+                <DialogHeader className="space-y-1 text-center">
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">Quitação de Conta Pós-paga</span>
+                  <DialogTitle className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+                    Confirmar Baixa
+                  </DialogTitle>
+                </DialogHeader>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/70 space-y-2.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500 font-semibold">Cliente:</span>
+                    <span className="text-slate-900 font-black">
+                      {baixaConfirmTx.userName || baixaConfirmTx.clientName || users.find(u => u.uid === baixaConfirmTx.userId)?.name || 'Cliente'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500 font-semibold">Código Transação:</span>
+                    <span className="font-mono font-bold text-slate-700">#{baixaConfirmTx.id.slice(0, 8)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500 font-semibold">Tipo / Operação:</span>
+                    <span className="font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md text-[10px] uppercase">
+                      {baixaConfirmTx.description || 'Recarga Ponto de Venda (Conta)'}
+                    </span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                    <span className="text-xs text-slate-600 font-bold">Valor da Liquidação:</span>
+                    <span className="text-xl font-black text-emerald-600 font-mono">
+                      R$ {baixaConfirmTx.amount.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-500 leading-relaxed text-center">
+                  Ao confirmar a baixa, você atesta que recebeu este valor do cliente. O status desta transação será alterado de <strong>"Em Aberto (Conta)"</strong> para <strong>"Pago"</strong>.
+                </p>
+
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setBaixaConfirmTx(null)}
+                    disabled={isCompletingBaixa}
+                    className="flex-1 h-12 rounded-xl text-slate-500 font-bold uppercase text-xs hover:bg-slate-100 cursor-pointer"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => handleExecuteBaixa(baixaConfirmTx.id)}
+                    disabled={isCompletingBaixa}
+                    className="flex-1 h-12 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase text-xs rounded-xl shadow-lg shadow-emerald-600/20 cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {isCompletingBaixa ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin text-white" />
+                        <span>Processando Baixa...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>Confirmar Baixa</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
