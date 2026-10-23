@@ -298,6 +298,11 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
   }, [recentSales, dashboardFilterPreset, dashboardStartDate, dashboardEndDate]);
 
   useEffect(() => {
+    // If running in terminal mode (vendor forcedTab), skip heavy admin listeners
+    if (forcedTab === 'terminal') {
+      return;
+    }
+
     const unsubStalls = onSnapshot(collection(db, 'stalls'), (snap) => {
       setStalls(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Stall)));
     }, (error) => {
@@ -310,9 +315,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       handleFirestoreError(error, OperationType.GET, 'products');
     });
 
-    // Withdrawals - Admin Only
+    // Withdrawals - Admin Only on overview or reports
     let unsubWithdrawals = () => {};
-    if (profile.role === 'admin') {
+    if (profile.role === 'admin' && (activeTab === 'overview' || activeTab === 'reports')) {
       unsubWithdrawals = onSnapshot(collection(db, 'withdrawals'), (snap) => {
         setWithdrawals(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Withdrawal)));
       }, (error) => {
@@ -320,10 +325,10 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       });
     }
 
-    // Consumption - Admin or Vendor
+    // Consumption - Admin Only on overview, stalls or reports with limit(350)
     let unsubSales = () => {};
-    if (profile.role === 'admin' || profile.role === 'vendor') {
-      const qSales = query(collection(db, 'consumption'), orderBy('timestamp', 'desc'));
+    if (profile.role === 'admin' && (activeTab === 'overview' || activeTab === 'reports' || activeTab === 'stalls')) {
+      const qSales = query(collection(db, 'consumption'), orderBy('timestamp', 'desc'), limit(350));
       unsubSales = onSnapshot(qSales, (snap) => {
         setRecentSales(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       }, (error) => {
@@ -331,10 +336,10 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       });
     }
 
-    // Transactions - Admin or Vendor or Recharge
+    // Transactions - Admin Only on overview, transactions or reports with limit(350)
     let unsubTransactions = () => {};
-    if (profile.role === 'admin' || profile.role === 'vendor' || profile.role === 'recharge') {
-      const qTransactions = query(collection(db, 'transactions'), orderBy('timestamp', 'desc'));
+    if (profile.role === 'admin' && (activeTab === 'overview' || activeTab === 'transactions' || activeTab === 'reports')) {
+      const qTransactions = query(collection(db, 'transactions'), orderBy('timestamp', 'desc'), limit(350));
       unsubTransactions = onSnapshot(qTransactions, (snap) => {
         setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Transaction)));
       }, (error) => {
@@ -342,9 +347,9 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       });
     }
 
-    // Users - Admin can see all, Vendors might need it for scanning but rules allow list
+    // Users - Only admin or when on recharge_pos / clients / users tabs
     let unsubUsers = () => {};
-    if (profile.role === 'admin' || profile.role === 'vendor' || profile.role === 'recharge') {
+    if (profile.role === 'admin' || activeTab === 'recharge_pos' || activeTab === 'clients') {
       unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
         setUsers(snap.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile)));
       }, (error) => {
@@ -360,7 +365,7 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
       unsubWithdrawals();
       unsubTransactions();
     };
-  }, [profile.role]);
+  }, [profile.role, forcedTab, activeTab]);
 
   const stats = useMemo(() => {
     const totalTransactions = filteredTransactions.filter(t => t.type === 'debit' && t.status === 'completed');
@@ -3745,21 +3750,24 @@ export default function AdminDashboard({ profile, forcedTab }: { profile: UserPr
                             </span>
                           </TableCell>
                           <TableCell className="py-4 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-full ${
-                                tx.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 
-                                tx.status === 'pending' ? 'bg-amber-100 text-amber-700' : 
-                                'bg-rose-100 text-rose-700'
+                            <div className="flex flex-col sm:flex-row items-center justify-center gap-1.5">
+                              <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border flex items-center gap-1 ${
+                                tx.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                                tx.status === 'pending' ? 'bg-amber-50 text-amber-800 border-amber-300 animate-pulse' : 
+                                'bg-rose-50 text-rose-700 border-rose-200'
                               }`}>
-                                {tx.status === 'completed' ? 'Pago' : tx.status === 'pending' ? 'Pendente' : 'Erro'}
+                                {tx.status === 'completed' ? 'Pago' : 
+                                 tx.status === 'pending' ? 'Aguardando Pagamento' : 
+                                 'Não Realizado'}
                               </span>
                               {tx.type === 'credit' && tx.status === 'pending' && (
                                 <Button
                                   size="sm"
                                   onClick={() => handleCompletePendingTransaction(tx.id)}
-                                  className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2 text-[9px] font-black uppercase tracking-wider border-none scale-90"
+                                  className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-2.5 text-[9px] font-black uppercase tracking-wider border-none shadow-sm cursor-pointer"
+                                  title="Confirmar recebimento / Baixa"
                                 >
-                                  Baixar
+                                  Dar Baixa
                                 </Button>
                               )}
                             </div>

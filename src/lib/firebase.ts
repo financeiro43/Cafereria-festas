@@ -1,13 +1,15 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, memoryLocalCache } from 'firebase/firestore';
 import { getAnalytics } from 'firebase/analytics';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-// Use standard Firestore to prevent multi-tab leasing locks in sandboxed browser environments
-export const db = getFirestore(app);
+// Use in-memory cache to completely prevent multi-tab persistent lease locks in sandbox/iframe environments
+export const db = initializeFirestore(app, {
+  localCache: memoryLocalCache()
+});
 
 export const auth = getAuth();
 export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;

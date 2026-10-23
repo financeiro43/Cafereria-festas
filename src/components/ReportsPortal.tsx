@@ -159,32 +159,12 @@ export default function ReportsPortal({
 
   // Formatter matching online card (16 numbers with spaces every 4 digits)
   const formatCardNumber = (str: string) => {
-    if (!str) return '0000 0000 0000 0000';
-    
-    const cleanDigits = str.replace(/\D/g, '');
-    const isPurelyNumeric = /^\d+$/.test(cleanDigits);
-    const isSystemCode = str.includes('PENDING') || str.includes('VIRTUAL');
-    
-    if (isPurelyNumeric && !isSystemCode && cleanDigits.length > 0) {
-      const padded = cleanDigits.padEnd(16, '0').substring(0, 16);
-      return padded.replace(/(.{4})/g, '$1 ').trim();
-    }
-    
-    let hash1 = 0;
-    let hash2 = 0;
+    if (!str) return '';
+    let hash = 0;
     for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash1 = char + ((hash1 << 5) - hash1);
-      hash2 = char + ((hash2 << 7) - hash2) + hash1;
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
     }
-    
-    let seed = Math.abs(hash1 ^ hash2);
-    let numeric = '';
-    for (let i = 0; i < 16; i++) {
-      seed = (seed * 9301 + 49297) % 233280;
-      numeric += (seed % 10).toString();
-    }
-    
+    const numeric = Math.abs(hash).toString().padEnd(16, '0').substring(0, 16);
     return numeric.replace(/(.{4})/g, '$1 ').trim();
   };
 

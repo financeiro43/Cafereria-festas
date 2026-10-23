@@ -14,6 +14,7 @@ import { Sparkles, ShieldCheck, CreditCard, ChevronRight, Mail, Lock, LayoutDash
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import heroEventImage from '@/assets/images/hero_festival_event_1792594264230.jpg';
 
 // Lazy load components for performance
 const ParentDashboard = lazy(() => import('./components/ParentDashboard'));
@@ -423,37 +424,164 @@ function MainApp() {
 
   if (!user || !profile) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <nav className="p-6 flex justify-between items-center max-w-7xl mx-auto">
-          <div className="flex items-center gap-2 font-black text-2xl text-slate-900 tracking-tighter">
-            <div className="bg-slate-900 p-1.5 rounded-lg">
-              <Sparkles className="h-5 w-5 text-yellow-400" />
+      <div className="min-h-screen bg-slate-900 text-white selection:bg-blue-600 selection:text-white">
+        {/* Top Bar following 3-zone contract */}
+        <header className="border-b border-white/10 bg-slate-950/80 backdrop-blur-xl sticky top-0 z-50">
+          <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between gap-8">
+            {/* Zone 1: Brand Wordmark */}
+            <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
+              <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg shadow-blue-500/20">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <span className="font-black text-2xl tracking-tighter text-white">
+                FESTA <span className="text-blue-500">PASS</span>
+              </span>
             </div>
-            FESTA <span className="text-blue-600">PASS</span>
-          </div>
-          <Button onClick={() => setIsLoginOpen(true)} variant="outline" className="rounded-xl font-bold uppercase tracking-widest text-[10px] px-6">Entrar</Button>
-        </nav>
 
-        <main className="max-w-7xl mx-auto px-6 py-12 md:py-24 grid md:grid-cols-2 gap-12 items-center">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <span className="text-blue-600 font-bold tracking-wider uppercase text-sm">Escolas do Futuro</span>
-            <h1 className="text-5xl md:text-7xl font-black text-slate-900 mt-4 leading-tight tracking-tighter">
-              Sua festa sem <br />
-              <span className="text-blue-600">filas.</span>
-            </h1>
-            <p className="text-lg text-slate-600 mt-6 max-w-md font-medium">
-              O sistema definitivo para eventos e festivais. Pagamentos via QR Code, gestão de barracas e recargas instantâneas.
-            </p>
-            <Button onClick={() => setIsLoginOpen(true)} size="lg" className="mt-10 bg-slate-900 text-white px-8 h-14 rounded-xl text-lg group">
-              Começar Agora <ChevronRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-            </Button>
-          </motion.div>
-          <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="relative">
-            <div className="aspect-square bg-slate-200 rounded-3xl overflow-hidden relative shadow-2xl">
-              <img src="https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&q=80&w=1200" alt="Evento" className="object-cover w-full h-full mix-blend-overlay opacity-80" referrerPolicy="no-referrer" />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent" />
+            {/* Zone 2: Navigation Links */}
+            <nav className="hidden md:flex items-center gap-8 text-xs font-bold uppercase tracking-widest text-slate-400">
+              <span className="hover:text-white transition-colors cursor-pointer whitespace-nowrap shrink-0">PDV Rápido</span>
+              <span className="hover:text-white transition-colors cursor-pointer whitespace-nowrap shrink-0">Cartão de Consumo</span>
+              <span className="hover:text-white transition-colors cursor-pointer whitespace-nowrap shrink-0">Gestão e Caixas</span>
+            </nav>
+
+            {/* Zone 3: Primary Action */}
+            <div className="flex items-center gap-3 shrink-0">
+              <Button 
+                onClick={() => setIsLoginOpen(true)} 
+                className="bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-widest text-xs h-11 px-6 rounded-xl shadow-lg shadow-blue-600/30 transition-all hover:scale-105 active:scale-95"
+              >
+                Acessar Conta
+              </Button>
             </div>
-          </motion.div>
+          </div>
+        </header>
+
+        {/* Hero Section */}
+        <main className="max-w-7xl mx-auto px-6 py-12 md:py-20">
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+            <motion.div 
+              initial={{ opacity: 0, y: 24 }} 
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+              className="space-y-6"
+            >
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold">
+                <Store className="h-3.5 w-3.5" />
+                <span>Solução Cashless para Festivais e Escolas</span>
+              </div>
+
+              <h1 className="text-4xl sm:text-6xl font-black text-white leading-[1.08] tracking-tight text-balance">
+                Gestão ágil para seu evento, <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-300">sem filas e sem travamentos.</span>
+              </h1>
+
+              <p className="text-base sm:text-lg text-slate-400 leading-relaxed max-w-xl font-normal">
+                Terminal de vendas ultrarrápido para todas as barracas, recargas instantâneas via QR Code, cartões físicos de 16 dígitos e sincronização resiliente em tempo real.
+              </p>
+
+              {/* Unboxed Metadata Indicators */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-400 pt-2">
+                <span>Vendas em &lt; 1s</span>
+                <span aria-hidden="true">·</span>
+                <span>Alerta Sonoro e Tátil</span>
+                <span aria-hidden="true">·</span>
+                <span>Cartões Físicos e Digitais</span>
+                <span aria-hidden="true">·</span>
+                <span>Relatórios em Excel e PDF</span>
+              </div>
+
+              <div className="pt-4 flex flex-col sm:flex-row gap-4">
+                <Button 
+                  onClick={() => setIsLoginOpen(true)} 
+                  size="lg" 
+                  className="bg-blue-600 hover:bg-blue-500 text-white font-black uppercase tracking-wider text-xs h-14 px-8 rounded-2xl shadow-xl shadow-blue-600/30 group"
+                >
+                  Entrar no Sistema 
+                  <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                </Button>
+                <Button 
+                  onClick={() => {
+                    setIsRegistering(true);
+                    setIsLoginOpen(true);
+                  }}
+                  variant="outline" 
+                  size="lg" 
+                  className="bg-white/5 border-white/10 hover:bg-white/10 text-white font-bold uppercase tracking-wider text-xs h-14 px-8 rounded-2xl"
+                >
+                  Cadastre-se Gratuitamente
+                </Button>
+              </div>
+            </motion.div>
+
+            {/* Interactive Visual Card Showcase */}
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.6, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
+              className="relative"
+            >
+              <div className="relative rounded-[32px] overflow-hidden border border-white/10 shadow-2xl bg-slate-950 aspect-[4/3] group">
+                <img 
+                  src={heroEventImage} 
+                  alt="Ambiente de festival cashless organizado com barracas e pessoas" 
+                  className="object-cover w-full h-full brightness-90 group-hover:scale-105 transition-transform duration-700" 
+                  referrerPolicy="no-referrer" 
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent" />
+                
+                {/* Floating Mock Cashless Card Preview */}
+                <motion.div 
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.35, duration: 0.5 }}
+                  className="absolute bottom-6 left-6 right-6 p-5 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-white/15 text-white flex items-center justify-between shadow-2xl"
+                >
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-400">Cartão de Consumo Ativo</p>
+                    <p className="text-sm font-black text-white">Consumo Rápido &bull; Festa Pass</p>
+                    <p className="text-xs font-mono text-slate-300">5521 &bull;&bull;&bull;&bull; &bull;&bull;&bull;&bull; 8920</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] uppercase font-bold text-slate-400">Saldo Disponível</p>
+                    <p className="text-xl font-black text-emerald-400 tabular-nums">R$ 150,00</p>
+                  </div>
+                </motion.div>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* Feature Highlights Grid */}
+          <div className="grid md:grid-cols-3 gap-6 mt-16 pt-12 border-t border-white/10">
+            <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/5 space-y-3">
+              <div className="h-10 w-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+                <ShoppingCart className="h-5 w-5" />
+              </div>
+              <h3 className="font-black text-white text-base">PDV Ultrarrápido</h3>
+              <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                Vendas em menos de 1 segundo. Validação instantânea de saldo com confirmação sonora e feedback tátil por vibração.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/5 space-y-3">
+              <div className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                <CreditCard className="h-5 w-5" />
+              </div>
+              <h3 className="font-black text-white text-base">Cartões Físicos de 16 Dígitos</h3>
+              <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                Gere e imprima lotes de cartões profissionais com QR Code de alta precisão e número numérico único de conferência.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/5 space-y-3">
+              <div className="h-10 w-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center">
+                <LayoutDashboard className="h-5 w-5" />
+              </div>
+              <h3 className="font-black text-white text-base">Gestão em Tempo Real</h3>
+              <p className="text-xs text-slate-400 leading-relaxed font-medium">
+                Controle financeiro com faturamento por barraca, controle de saídas físicas de malote e exportação completa para Excel e PDF.
+              </p>
+            </div>
+          </div>
         </main>
 
         <Dialog open={isLoginOpen} onOpenChange={setIsLoginOpen}>
@@ -582,16 +710,27 @@ function MainApp() {
 
   return (
     <Suspense fallback={<LoadingFallback />}>
-      <Routes>
-        <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/pdv' : profile.role === 'recharge' ? '/recharge' : '/portal'} replace />} />
-        <Route path="/admin/*" element={<ProtectedRoute allowedRoles={['admin']} profile={profile}><AdminDashboard profile={profile} /></ProtectedRoute>} />
-        <Route path="/vendor/*" element={<ProtectedRoute allowedRoles={['vendor']} profile={profile}><VendorDashboard profile={profile} /></ProtectedRoute>} />
-        <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />
-        <Route path="/recharge/*" element={<ProtectedRoute allowedRoles={['recharge']} profile={profile}><AdminDashboard profile={profile} forcedTab="recharge_pos" /></ProtectedRoute>} />
-        <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
-        <Route path="/mock-payment" element={<MockPayment />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={location.pathname.split('/')[1] || 'root'}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+          className="min-h-screen"
+        >
+          <Routes location={location}>
+            <Route path="/" element={<Navigate to={profile.role === 'admin' ? '/admin' : profile.role === 'vendor' ? '/pdv' : profile.role === 'recharge' ? '/recharge' : '/portal'} replace />} />
+            <Route path="/admin/*" element={<ProtectedRoute allowedRoles={['admin']} profile={profile}><AdminDashboard profile={profile} /></ProtectedRoute>} />
+            <Route path="/vendor/*" element={<ProtectedRoute allowedRoles={['vendor']} profile={profile}><VendorDashboard profile={profile} /></ProtectedRoute>} />
+            <Route path="/pdv/*" element={<ProtectedRoute allowedRoles={['vendor']} profile={profile}><AdminDashboard profile={profile} forcedTab="terminal" /></ProtectedRoute>} />
+            <Route path="/recharge/*" element={<ProtectedRoute allowedRoles={['recharge']} profile={profile}><AdminDashboard profile={profile} forcedTab="recharge_pos" /></ProtectedRoute>} />
+            <Route path="/portal/*" element={<ProtectedRoute allowedRoles={['student']} profile={profile}><ParentDashboard profile={profile} /></ProtectedRoute>} />
+            <Route path="/mock-payment" element={<MockPayment />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </motion.div>
+      </AnimatePresence>
     </Suspense>
   );
 }

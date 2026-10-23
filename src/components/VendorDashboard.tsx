@@ -13,6 +13,50 @@ import { motion, AnimatePresence } from 'motion/react';
 
 import QRScanner from './QRScanner';
 
+export const playPdvChime = (type: 'success' | 'error' | 'click') => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    if (type === 'success') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+      osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.12); // G5
+      gain.gain.setValueAtTime(0.18, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.28);
+      if (navigator.vibrate) try { navigator.vibrate([40, 30, 40]); } catch(e){}
+    } else if (type === 'error') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(220, ctx.currentTime);
+      osc.frequency.setValueAtTime(140, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+      if (navigator.vibrate) try { navigator.vibrate([150]); } catch(e){}
+    } else {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(750, ctx.currentTime);
+      gain.gain.setValueAtTime(0.06, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.05);
+      if (navigator.vibrate) try { navigator.vibrate(15); } catch(e){}
+    }
+  } catch(e) {}
+};
+
 export default function VendorDashboard({ 
   profile,
   externalCart,
@@ -293,10 +337,11 @@ export default function VendorDashboard({
       setLoading(false);
     });
 
-    // Fetch Digital Orders
+    // Fetch Digital Orders (limited to 60 to prevent memory lock during heavy events)
     const qO = query(
       collection(db, 'orders'), 
-      where('stallId', '==', activeStallId)
+      where('stallId', '==', activeStallId),
+      limit(60)
     );
     const unsubOrders = onSnapshot(qO, (snap) => {
       const allOrders = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
@@ -325,10 +370,11 @@ export default function VendorDashboard({
       setDeliveredDigitalOrders(completedOrders);
     });
 
-    // Fetch POS Sales (consumption)
+    // Fetch POS Sales (consumption) (limited to 60 recent sales to maintain instant responsiveness)
     const qC = query(
       collection(db, 'consumption'),
-      where('stallId', '==', activeStallId)
+      where('stallId', '==', activeStallId),
+      limit(60)
     );
     const unsubConsumption = onSnapshot(qC, (snap) => {
       const sales = snap.docs.map(doc => {
@@ -450,6 +496,7 @@ export default function VendorDashboard({
   }, [cart]);
 
   const addToCart = (product: Product) => {
+    playPdvChime('click');
     setCart(prev => {
       const existing = prev.find(item => item.id === product.id);
       if (existing) {
@@ -663,11 +710,13 @@ export default function VendorDashboard({
       if (activeUser.balance < cartTotal) {
         clearTimeout(failsafe);
         setProcessing(false);
+        playPdvChime('error');
+        const shortage = cartTotal - activeUser.balance;
         setStatusModal({
           show: true,
           type: 'error',
-          title: 'Saldo Insuficiente',
-          message: `Eu fiz a venda e tem saldo indisponível. O saldo não é suficiente.\n\nCliente: ${activeUser.name}\nSaldo Atual: R$ ${activeUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nValor Necessário: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+          title: 'Pagamento Não Realizado',
+          message: `O cliente não possui saldo suficiente para autorizar esta compra.\n\n• Cliente: ${activeUser.name}\n• Saldo Disponível: R$ ${activeUser.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n• Total da Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n• Faltam: R$ ${shortage.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\nNenhum produto foi liberado e nenhuma taxa foi cobrada.`
         });
         return;
       }
@@ -676,28 +725,30 @@ export default function VendorDashboard({
       if (activeUser.transactionLimit && activeUser.transactionLimit > 0 && cartTotal > activeUser.transactionLimit) {
         clearTimeout(failsafe);
         setProcessing(false);
+        playPdvChime('error');
         setStatusModal({
           show: true,
           type: 'error',
-          title: 'Limite por Compra Excedido',
-          message: `Este cartão possui um limite máximo de R$ ${activeUser.transactionLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} por compra.\n\nCliente: ${activeUser.name}\nValor da Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+          title: 'Pagamento Não Realizado',
+          message: `Limite por compra excedido neste cartão.\n\n• Limite Máximo por Compra: R$ ${activeUser.transactionLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n• Tentativa de Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n• Cliente: ${activeUser.name}\n\nSolicite a autorização do responsável ou divida a compra.`
         });
         return;
       }
 
-      // Validar limite diário acumulado (Daily spending limit limit)
+      // Validar limite diário acumulado (Daily spending limit)
       const todayStr = new Date().toISOString().split('T')[0];
       const currentSpentToday = (activeUser.lastSpentDate === todayStr) ? (activeUser.spentToday || 0) : 0;
       
       if (activeUser.dailyLimit && activeUser.dailyLimit > 0 && (currentSpentToday + cartTotal) > activeUser.dailyLimit) {
         clearTimeout(failsafe);
         setProcessing(false);
+        playPdvChime('error');
         const remainingLimit = Math.max(0, activeUser.dailyLimit - currentSpentToday);
         setStatusModal({
           show: true,
           type: 'error',
-          title: 'Limite Diário Excedido',
-          message: `Este cartão possui um limite diário de R$ ${activeUser.dailyLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.\n\nCliente: ${activeUser.name}\nJá gasto hoje: R$ ${currentSpentToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nDisponível restante: R$ ${remainingLimit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\nTentativa de compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+          title: 'Pagamento Não Realizado',
+          message: `Limite diário excedido para este cartão.\n\n• Limite Diário Configurado: R$ ${activeUser.dailyLimit?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n• Já Utilizado Hoje: R$ ${currentSpentToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n• Disponível Restante: R$ ${remainingLimit.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n• Tentativa da Compra: R$ ${cartTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
         });
         return;
       }
@@ -779,6 +830,7 @@ export default function VendorDashboard({
       writeTransactionPromise.catch(e => console.error("Erro em background (transactions):", e));
       writeConsumptionPromise.catch(e => console.error("Erro em background (consumption):", e));
 
+      playPdvChime('success');
       const completedItems = [...cart];
 
       setStatusModal({
@@ -802,6 +854,7 @@ export default function VendorDashboard({
       clearCart();
     } catch (error) {
       console.error('Erro no processamento da venda:', error);
+      playPdvChime('error');
       // Already handled by nested tries or generic catch if top-level logic fails
     } finally {
       clearTimeout(failsafe);
@@ -2287,61 +2340,78 @@ export default function VendorDashboard({
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-[40px] shadow-2xl overflow-hidden text-center p-8"
             >
-              <div className="flex flex-col items-center gap-6">
-                <div className={`h-24 w-24 rounded-full flex items-center justify-center ${
-                  statusModal.type === 'success' ? 'bg-green-500/10 text-green-500 ring-4 ring-green-500/5' :
-                  statusModal.type === 'error' ? 'bg-red-500/10 text-red-500 ring-4 ring-red-500/5' :
-                  'bg-blue-500/10 text-blue-500 ring-4 ring-blue-500/5'
+              <div className="flex flex-col items-center gap-5">
+                <div className={`h-22 w-22 rounded-3xl flex items-center justify-center border ${
+                  statusModal.type === 'success' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.2)]' :
+                  statusModal.type === 'error' ? 'bg-red-500/15 text-red-400 border-red-500/30 shadow-[0_0_30px_rgba(239,68,68,0.2)]' :
+                  'bg-blue-500/15 text-blue-400 border-blue-500/30 shadow-[0_0_30px_rgba(59,130,246,0.2)]'
                 }`}>
-                  {statusModal.type === 'success' ? <CheckCircle2 className="h-12 w-12" /> :
-                   statusModal.type === 'error' ? <XCircle className="h-12 w-12" /> :
-                   <QrCode className="h-12 w-12" />}
+                  {statusModal.type === 'success' ? <CheckCircle2 className="h-11 w-11" strokeWidth={2.5} /> :
+                   statusModal.type === 'error' ? <XCircle className="h-11 w-11" strokeWidth={2.5} /> :
+                   <QrCode className="h-11 w-11" />}
                 </div>
 
-                <div className="space-y-2 w-full">
-                  <h3 className="text-2xl font-black text-white uppercase tracking-tighter">
+                <div className="space-y-1.5 w-full">
+                  <span className={`text-[10px] font-black uppercase tracking-[0.25em] ${
+                    statusModal.type === 'success' ? 'text-emerald-400' :
+                    statusModal.type === 'error' ? 'text-red-400' : 'text-blue-400'
+                  }`}>
+                    {statusModal.type === 'success' ? 'Venda Aprovada' :
+                     statusModal.type === 'error' ? 'Transação Não Concluída' : 'Aviso do Sistema'}
+                  </span>
+                  <h3 className="text-2xl font-black text-white tracking-tight">
                     {statusModal.title}
                   </h3>
-                  <p className="text-slate-400 text-sm font-medium whitespace-pre-wrap leading-relaxed">
-                    {statusModal.message}
-                  </p>
+                  
+                  {statusModal.type === 'error' ? (
+                    <div className="bg-red-950/40 border border-red-500/20 rounded-2xl p-4 text-left mt-3 space-y-2">
+                      <p className="text-xs text-red-200 font-medium whitespace-pre-wrap leading-relaxed">
+                        {statusModal.message}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-slate-300 text-xs font-medium whitespace-pre-wrap leading-relaxed mt-2">
+                      {statusModal.message}
+                    </p>
+                  )}
+
                   {statusModal.type === 'success' && (
                     <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mt-4">
                       <motion.div 
                         initial={{ width: '100%' }}
                         animate={{ width: 0 }}
                         transition={{ duration: 2.5, ease: 'linear' }}
-                        className="h-full bg-green-500"
+                        className="h-full bg-emerald-500"
                       />
                     </div>
                   )}
                 </div>
 
                 {statusModal.type === 'success' && statusModal.items && statusModal.items.length > 0 && (
-                  <div className="w-full bg-slate-950/60 rounded-3xl border border-white/5 p-4 text-left space-y-3.5 max-h-56 overflow-y-auto">
+                  <div className="w-full bg-slate-950/60 rounded-2xl border border-white/5 p-4 text-left space-y-3 max-h-52 overflow-y-auto">
                     <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider border-b border-white/5 pb-2">
-                      Resumo da Venda
+                      Resumo dos Produtos
                     </p>
-                    <div className="space-y-2.5">
+                    <div className="space-y-2">
                       {statusModal.items.map((item, idx) => (
                         <div key={idx} className="flex justify-between items-start gap-2 text-xs">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-emerald-400 font-extrabold font-mono text-xs">
+                            <span className="text-emerald-400 font-black font-mono text-xs tabular-nums">
                               {item.quantity}x
                             </span>
                             <span className="text-slate-300 font-bold truncate">
                               {item.name}
                             </span>
                           </div>
-                          <span className="text-slate-400 font-mono text-xs shrink-0">
+                          <span className="text-slate-400 font-mono text-xs shrink-0 tabular-nums">
                             R$ {(item.price * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                       ))}
                     </div>
-                    <div className="pt-2.5 border-t border-white/5 flex justify-between items-center text-xs font-black">
+                    <div className="pt-2 border-t border-white/5 flex justify-between items-center text-xs font-black">
                       <span className="text-slate-400 uppercase tracking-widest text-[9px]">Total Geral</span>
-                      <span className="text-emerald-400 font-mono text-sm font-black">
+                      <span className="text-emerald-400 font-mono text-sm font-black tabular-nums">
                         R$ {statusModal.items.reduce((sum, item) => sum + (item.price * item.quantity), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
@@ -2350,13 +2420,13 @@ export default function VendorDashboard({
 
                 <Button 
                   onClick={() => setStatusModal(prev => ({ ...prev, show: false }))}
-                  className={`w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest transition-all ${
-                    statusModal.type === 'success' ? 'bg-green-600 hover:bg-green-500 shadow-xl shadow-green-600/20' :
-                    statusModal.type === 'error' ? 'bg-red-600 hover:bg-red-500 shadow-xl shadow-red-600/20' :
-                    'bg-blue-600 hover:bg-blue-500'
+                  className={`w-full h-13 rounded-2xl font-black uppercase text-xs tracking-wider transition-all cursor-pointer ${
+                    statusModal.type === 'success' ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xl shadow-emerald-600/20' :
+                    statusModal.type === 'error' ? 'bg-red-600 hover:bg-red-500 text-white shadow-xl shadow-red-600/20' :
+                    'bg-blue-600 hover:bg-blue-500 text-white'
                   }`}
                 >
-                  {statusModal.type === 'success' ? 'Continuar (Auto)' : 'Continuar'}
+                  {statusModal.type === 'success' ? 'Continuar (Auto)' : 'Fechar e Voltar ao Caixa'}
                 </Button>
               </div>
             </motion.div>

@@ -45,7 +45,7 @@ export const authService = {
     // 1. Look for existing pre-registered document in Firestore before creating Auth user to get their role and balance
     const qSnap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanEmail), limit(1)));
     
-    let role: UserRole = 'student';
+    let role: UserRole = cleanEmail === 'financeiro@modeloalpha.com.br' ? 'admin' : 'student';
     let balance = 0;
     let qrCode = '';
     let vendorIds: string[] | undefined = undefined;

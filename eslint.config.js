@@ -6,4 +6,3 @@ export default [
   },
   firebaseRulesPlugin.configs['flat/recommended']
 ];
-

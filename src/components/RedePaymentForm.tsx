@@ -37,7 +37,7 @@ interface RedePaymentFormProps {
 type PaymentMethod = 'credit' | 'debit' | 'pix';
 
 export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: RedePaymentFormProps) {
-  const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_pix'>('idle');
+  const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'awaiting_pix' | 'cancelled'>('idle');
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('credit');
   const [loading, setLoading] = useState(false);
@@ -52,6 +52,22 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     expiry: '',
     cvv: ''
   });
+
+  const handleCancelPayment = async () => {
+    if (pixData?.tid) {
+      try {
+        await updateDoc(doc(db, 'transactions', pixData.tid), {
+          status: 'cancelled',
+          updatedAt: serverTimestamp(),
+          _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+        });
+      } catch (e) {
+        console.warn('Erro ao atualizar status para cancelado:', e);
+      }
+    }
+    setStatus('cancelled');
+    setLoading(false);
+  };
 
   // Listen for Pix payment confirmation
   React.useEffect(() => {
@@ -121,7 +137,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           if (issue.path[0]) errors[issue.path[0] as string] = issue.message;
         });
         setFormErrors(errors);
-        toast.error('Verifique o formulário', { 
+        toast.error('Verifique os dados informados', { 
           description: 'Alguns campos do cartão estão incorretos ou incompletos.' 
         });
         return;
@@ -137,7 +153,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     const processTimeout = setTimeout(() => {
       setStatus(prev => {
         if (prev === 'processing') {
-          setPaymentError('O tempo de processamento excedeu 45 segundos. Isso pode ser instabilidade na Rede ou na sua conexão.');
+          setPaymentError('O tempo de processamento excedeu o limite. A transação não foi finalizada.');
           return 'error';
         }
         return prev;
@@ -179,7 +195,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         if (paymentMethod === 'pix' && response.data.pix) {
           const qrCode = response.data.pix.qrCode;
           if (!qrCode) {
-            setPaymentError('Erro ao gerar código Pix. A operadora não retornou os dados do QR Code.');
+            setPaymentError('Erro ao gerar código Pix. A operadora financeira não retornou os dados.');
             setStatus('error');
             return;
           }
@@ -187,26 +203,24 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
           setStatus('awaiting_pix');
         } else {
           setStatus('success');
-          toast.success('Pagamento Aprovado!', { description: 'Seu saldo foi atualizado.' });
+          toast.success('Pagamento Aprovado!', { description: 'Seu saldo foi creditado com sucesso.' });
           setTimeout(() => onSuccess(response.data.tid || tid), 2000);
         }
       } else {
-        throw new Error(response.data?.message || 'Erro desconhecido na resposta da operadora');
+        throw new Error(response.data?.message || 'Transação não autorizada pela operadora');
       }
     } catch (error: any) {
       clearTimeout(processTimeout);
       console.error('Erro detalhado do pagamento:', error);
       
-      let errorMsg = 'Não foi possível completar a transação.';
-      let description = 'Tente novamente em alguns instantes.';
+      let errorMsg = 'Pagamento Não Realizado';
+      let description = 'Não foi possível concluir a transação.';
       
       if (error.code === 'ECONNABORTED') {
         errorMsg = 'Tempo Limite Excedido';
-        description = 'O servidor demorou muito para responder. Verifique se as chaves da Rede estão corretas.';
+        description = 'A operadora demorou para responder. Verifique sua conexão e tente novamente.';
       } else if (error.response?.data) {
         const errorData = error.response.data;
-        
-        // Extract message from various possible locations in Rede/Gateway response
         const rawMsg = errorData.message || errorData.error || errorData.returnMessage || 
                        (Array.isArray(errorData.message) ? errorData.message[0]?.message : null) ||
                        (errorData.details?.[0]?.message) ||
@@ -215,38 +229,31 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         description = rawMsg;
 
         if (errorData.returnCode === "203") {
-          errorMsg = "Serviço de Autenticação (3DS) não Ativo";
-          description = "Seu PV da Rede não possui o serviço de autenticação 3DS habilitado. Isso é obrigatório para Transações de Débito. Use Crédito ou fale com a Rede para ativar o 3DS.";
+          errorMsg = "Autenticação 3DS Necessária";
+          description = "Transações de débito exigem autenticação 3DS no banco. Recomendamos usar Cartão de Crédito ou Pix.";
         } else if (error.response?.status === 500) {
-           errorMsg = 'Erro Interno no Servidor (500)';
-           const redeMsg = error.response.data?.returnMessage || error.response.data?.message || (Array.isArray(error.response.data?.errors) ? error.response.data.errors[0]?.message : null);
-           description = redeMsg ? `Rede diz: ${redeMsg}` : 'O gateway da Rede retornou um erro interno. Verifique se o seu PV e Token estão em modo Produção ou Sandbox conforme configurado.';
-           
-           if (error.response.data?.debug) {
-             const { url, sandbox } = error.response.data.debug;
-             description += ` | Ambiente: ${sandbox ? 'SANDBOX' : 'PRODUÇÃO'} | URL: ${url}`;
-           }
+           errorMsg = 'Instabilidade no Gateway';
+           description = 'O gateway de pagamento retornou erro temporário. Tente via Pix ou tente novamente em alguns instantes.';
         } else if (error.response?.status === 401) {
-           errorMsg = 'Erro de Autenticação (401)';
-           description = 'As credenciais da Rede (PV/Token) são inválidas. Revise nas configurações do Administrador.';
+           errorMsg = 'Erro de Autenticação';
+           description = 'As credenciais do gateway estão expiradas ou inválidas.';
         } else {
-           errorMsg = 'Transação Negada';
-           
+           errorMsg = 'Pagamento Não Autorizado';
            const lowerMsg = String(rawMsg).toLowerCase();
-           if (lowerMsg.includes('insufficient funds')) description = 'O cartão não possui saldo suficiente.';
-           else if (lowerMsg.includes('expired card')) description = 'O cartão informado está vencido.';
-           else if (lowerMsg.includes('invalid card')) description = 'O número do cartão é inválido.';
-           else if (lowerMsg.includes('security code')) description = 'O código CVV está incorreto.';
-           else if (lowerMsg.includes('contact issuer') || lowerMsg.includes('unauthorized')) description = 'O banco emissor negou a transação. Entre em contato com seu banco.';
+           if (lowerMsg.includes('insufficient funds')) description = 'Saldo insuficiente no cartão.';
+           else if (lowerMsg.includes('expired card')) description = 'Cartão informado está vencido.';
+           else if (lowerMsg.includes('invalid card')) description = 'Número do cartão inválido.';
+           else if (lowerMsg.includes('security code')) description = 'Código CVV incorreto.';
+           else if (lowerMsg.includes('contact issuer') || lowerMsg.includes('unauthorized')) description = 'O banco emissor negou a autorização da transação.';
         }
       } else if (error.request) {
-        errorMsg = 'Erro de Comunicação';
-        description = 'Sem resposta do servidor. Verifique sua internet.';
+        errorMsg = 'Falha de Conexão';
+        description = 'Sem resposta do servidor. Verifique sua conexão com a internet.';
       } else if (error.message) {
         description = error.message;
       }
       
-      setPaymentError(`${errorMsg}: ${description}`);
+      setPaymentError(description);
       setStatus('error');
       toast.error(errorMsg, { 
         description: description,
@@ -262,7 +269,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     if (pixData) {
       navigator.clipboard.writeText(pixData.qrcode);
       setCopied(true);
-      toast.success('Código Pix copiado!');
+      toast.success('Código Pix copiado com sucesso!');
       setTimeout(() => setCopied(false), 2000);
     }
   };
@@ -281,18 +288,17 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         });
         onSuccess(pixData.tid);
       } else {
-        const redeStatus = response.data.redeStatus || 'Pendente';
-        const redeCode = response.data.redeCode || '---';
+        const redeStatus = response.data.redeStatus || 'Aguardando';
         setPendingStatusInfo(redeStatus);
         
-        toast.info(`Status: ${redeStatus}`, {
-          description: `Código Rede: ${redeCode}. O pagamento ainda não foi processado pela operadora.`,
+        toast.info(`Aguardando Pagamento`, {
+          description: `O banco ainda não identificou a liquidação do Pix. Se já pagou, aguarde 15 a 30 segundos.`,
           duration: 5000
         });
       }
     } catch (e: any) {
       console.error('[REDE-FORM] Erro checkStatus:', e);
-      const msg = e.response?.data?.details || e.response?.data?.message || 'Falha na conexão com o servidor.';
+      const msg = e.response?.data?.details || e.response?.data?.message || 'Falha na verificação bancária.';
       toast.error('Erro na Verificação', { description: msg });
     } finally {
       setLoading(false);
@@ -305,12 +311,12 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
 
   if (status === 'processing') {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="flex flex-col items-center justify-center py-16 text-center">
         <div className="relative">
           <motion.div
             animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-            className="h-24 w-24 border-t-4 border-r-4 border-blue-500 rounded-full"
+            transition={{ duration: 1.8, repeat: Infinity, ease: "linear" }}
+            className="h-24 w-24 border-4 border-blue-500/20 border-t-blue-500 rounded-full"
           />
           <div className="absolute inset-0 flex items-center justify-center">
             <CreditCard className="h-8 w-8 text-blue-500 animate-pulse" />
@@ -319,33 +325,31 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-8 space-y-2"
+          className="mt-8 space-y-3"
         >
-          <h3 className="text-xl font-black text-white uppercase tracking-tighter">Processando</h3>
-          <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest max-w-[200px] mx-auto">
-            Comunicando com o gateway seguro da Rede...
+          <span className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-400">Processamento em Andamento</span>
+          <h3 className="text-2xl font-black text-white tracking-tight">Aguardando Pagamento</h3>
+          <p className="text-slate-400 text-xs font-medium max-w-[280px] mx-auto leading-relaxed">
+            Estamos comunicando com a operadora Rede para confirmar a transação de <strong className="text-white">R$ {amount.toFixed(2)}</strong>.
           </p>
           
-          <div className="pt-8 flex flex-col gap-3 min-w-[240px]">
+          <div className="pt-6 flex flex-col gap-3 min-w-[240px]">
             {showForceCancel ? (
               <Button 
                 variant="destructive" 
-                onClick={() => {
-                  setStatus('idle');
-                  setLoading(false);
-                }}
-                className="h-12 bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest text-[10px] rounded-xl shadow-lg"
+                onClick={handleCancelPayment}
+                className="h-12 bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-wider text-xs rounded-xl shadow-lg cursor-pointer"
               >
-                Parar Processamento
+                Parar e Cancelar
               </Button>
             ) : (
               <div className="flex items-center justify-center gap-2 h-12">
                  {[0,1,2].map(i => (
                    <motion.div 
                      key={i}
-                     animate={{ scale: [1, 1.5, 1], opacity: [0.3, 1, 0.3] }}
+                     animate={{ scale: [1, 1.4, 1], opacity: [0.3, 1, 0.3] }}
                      transition={{ repeat: Infinity, duration: 1, delay: i * 0.2 }}
-                     className="h-1.5 w-1.5 bg-blue-500 rounded-full"
+                     className="h-2 w-2 bg-blue-500 rounded-full"
                    />
                  ))}
               </div>
@@ -353,8 +357,8 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
             
             <Button 
               variant="ghost" 
-              onClick={onCancel}
-              className="text-[10px] text-slate-500 hover:text-white uppercase font-black tracking-widest h-10"
+              onClick={handleCancelPayment}
+              className="text-xs text-slate-400 hover:text-white uppercase font-bold tracking-wider h-10 cursor-pointer"
             >
               Cancelar Transação
             </Button>
@@ -364,69 +368,121 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
     );
   }
 
+  // SCREEN: PAGAMENTO CANCELADO
+  if (status === 'cancelled') {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 text-center">
+        <motion.div
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="h-20 w-20 bg-amber-500/15 border border-amber-500/30 rounded-3xl flex items-center justify-center text-amber-400 mb-6 shadow-[0_0_30px_rgba(245,158,11,0.2)]"
+        >
+          <XCircle className="h-10 w-10" strokeWidth={2.5} />
+        </motion.div>
+
+        <div className="space-y-2 mb-6">
+          <span className="text-[10px] font-black uppercase tracking-[0.25em] text-amber-400">Transação Interrompida</span>
+          <h3 className="text-2xl font-black text-white tracking-tight">Pagamento Não Finalizado</h3>
+          <p className="text-slate-400 text-xs font-medium max-w-[280px] leading-relaxed mx-auto">
+            Você cancelou esta operação. <strong>Nenhum valor foi debitado</strong> da sua conta ou cartão.
+          </p>
+        </div>
+
+        <div className="w-full bg-white/5 border border-white/5 rounded-2xl p-4 mb-6 text-left space-y-1.5">
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-slate-400">Valor pretendido:</span>
+            <span className="text-white font-mono font-bold tabular-nums">R$ {amount.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-slate-400">Status atual:</span>
+            <span className="text-amber-400 font-bold uppercase text-[10px]">Cancelado pelo usuário</span>
+          </div>
+        </div>
+
+        <div className="w-full flex flex-col gap-2.5">
+          <Button 
+            onClick={() => setStatus('idle')}
+            className="w-full h-13 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-wider text-xs rounded-xl shadow-lg cursor-pointer"
+          >
+            Tentar Novamente
+          </Button>
+          <Button 
+            variant="ghost" 
+            onClick={onCancel}
+            className="w-full h-11 text-slate-400 hover:text-white uppercase font-bold text-xs tracking-wider cursor-pointer"
+          >
+            Voltar para Carteira
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // SCREEN: PAGAMENTO NÃO REALIZADO (ERRO)
   if (status === 'error') {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center overflow-hidden">
+      <div className="flex flex-col items-center justify-center py-10 text-center">
         <motion.div
-          initial={{ scale: 0, rotate: 20 }}
-          animate={{ scale: 1, rotate: 0 }}
-          transition={{ 
-            type: 'spring', 
-            stiffness: 260, 
-            damping: 20,
-            delay: 0.1 
-          }}
-          className="relative h-24 w-24 bg-red-500 rounded-full flex items-center justify-center text-white shadow-[0_20px_50px_rgba(239,68,68,0.3)] mb-8"
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 20 }}
+          className="relative h-20 w-20 bg-red-500/15 border border-red-500/30 rounded-3xl flex items-center justify-center text-red-400 shadow-[0_0_40px_rgba(239,68,68,0.25)] mb-6"
         >
-          <XCircle className="h-12 w-12" strokeWidth={3} />
+          <XCircle className="h-10 w-10" strokeWidth={2.5} />
         </motion.div>
 
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="space-y-3"
+          className="space-y-2 mb-6"
         >
-           <h3 className="text-3xl font-black text-white uppercase tracking-tighter">Ops! Falhou</h3>
-           <p className="text-slate-400 font-bold text-sm max-w-[320px] leading-relaxed mx-auto px-4 mb-6">
-             {paymentError || 'Não conseguimos processar o pagamento no momento.'}
+           <span className="text-[10px] font-black uppercase tracking-[0.25em] text-red-400">Operação Não Autorizada</span>
+           <h3 className="text-2xl font-black text-white tracking-tight">Pagamento Não Realizado</h3>
+           <p className="text-slate-300 text-xs font-semibold max-w-[320px] leading-relaxed mx-auto px-2">
+             {paymentError || 'Não foi possível autorizar o pagamento com as informações fornecidas.'}
            </p>
-
-           <div className="text-left space-y-3 p-5 bg-slate-950/50 rounded-2xl border border-white/5 mx-4">
-              <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest flex items-center gap-2">
-                <Info className="h-3.5 w-3.5" />
-                Dicas para Resolver
-              </p>
-              <ul className="space-y-2">
-                <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                   <strong>Atenção:</strong> Se seu Token começa com <code className="text-pink-400 font-bold">sk_live</code>, ele é do <strong>Stripe</strong>. Use o Token da <strong>Rede</strong>.
-                </li>
-                <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                   <strong>Configuração:</strong> Verifique se as chaves REDE_PV e REDE_TOKEN foram coladas corretamente.
-                </li>
-                <li className="text-[10px] text-slate-400 font-medium leading-relaxed">
-                   <strong>Modo Sandbox:</strong> Se usar chaves de Produção, mude <code className="text-blue-400">REDE_SANDBOX</code> para <code className="text-blue-400">false</code>.
-                </li>
-              </ul>
-            </div>
         </motion.div>
+
+        <div className="w-full bg-red-950/30 border border-red-500/20 rounded-2xl p-4 text-left space-y-2.5 mb-6">
+          <div className="flex items-center gap-2 text-red-300 text-xs font-bold">
+            <Info className="h-4 w-4 shrink-0 text-red-400" />
+            <span>Nenhuma cobrança foi realizada</span>
+          </div>
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Seu saldo e limites continuam protegidos. Você pode tentar outro cartão, conferir o limite bancário ou utilizar o pagamento via Pix.
+          </p>
+          <div className="pt-2 border-t border-red-500/15 flex justify-between items-center text-xs">
+            <span className="text-slate-400">Tentativa de recarga:</span>
+            <span className="text-white font-mono font-bold tabular-nums">R$ {amount.toFixed(2)}</span>
+          </div>
+        </div>
 
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-          className="mt-10 w-full flex flex-col gap-3 px-4"
+          className="w-full flex flex-col gap-2.5"
         >
           <Button 
-            onClick={() => setStatus('idle')}
-            className="w-full h-14 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-[.2em] rounded-xl text-xs shadow-xl"
+            onClick={() => {
+              setPaymentMethod('pix');
+              setStatus('idle');
+            }}
+            className="w-full h-13 bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-wider rounded-xl text-xs shadow-lg cursor-pointer flex items-center justify-center gap-2"
           >
-            Tentar Novamente
+            <QrCode className="h-4 w-4" /> Pagar via Pix (Mais Rápido)
           </Button>
+
+          <Button 
+            onClick={() => setStatus('idle')}
+            className="w-full h-12 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-wider rounded-xl text-xs cursor-pointer"
+          >
+            Tentar Outro Cartão
+          </Button>
+
           <Button 
             variant="ghost"
             onClick={onCancel}
-            className="w-full h-12 text-slate-500 hover:text-white font-black uppercase tracking-widest text-[9px]"
+            className="w-full h-10 text-slate-400 hover:text-white font-bold uppercase tracking-wider text-[11px] cursor-pointer"
           >
             Voltar para Carteira
           </Button>
@@ -434,6 +490,7 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
       </div>
     );
   }
+
 
   if (status === 'success') {
     return (
@@ -590,40 +647,72 @@ export default function RedePaymentForm({ amount, uid, onSuccess, onCancel }: Re
         {paymentMethod === 'pix' ? (
           <motion.div key="pix" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4">
              {status === 'awaiting_pix' ? (
-                <div className="flex flex-col items-center justify-center py-4 text-center space-y-6">
-                  <div className="p-4 bg-white rounded-[32px] shadow-2xl relative">
-                    {pixData && <QRCodeSVG value={pixData.qrcode} size={180} level="H" includeMargin />}
-                    <div className="absolute -top-3 -right-3 h-10 w-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg animate-bounce">
-                      <QrCode className="h-5 w-5" />
+                <div className="flex flex-col items-center justify-center py-2 text-center space-y-5">
+                  {/* Status Banner: AGUARDANDO PAGAMENTO */}
+                  <div className="w-full bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 text-left flex items-start gap-3">
+                    <div className="h-8 w-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-black uppercase text-amber-400 tracking-wider">Aguardando Pagamento</span>
+                        <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full uppercase">Pendente</span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-snug">
+                        Escaneie o QR Code ou copie o código Pix abaixo no app do seu banco para creditar <strong>R$ {amount.toFixed(2)}</strong>.
+                      </p>
                     </div>
                   </div>
-                  <div className="w-full space-y-3">
-                    <Button onClick={copyPix} className="w-full h-14 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-500 font-black uppercase text-[10px] tracking-widest rounded-2xl flex items-center justify-center gap-3">
-                      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                      {copied ? 'Código Copiado!' : 'Copia e Cola (Pix)'}
+
+                  {/* QR Code Container */}
+                  <div className="p-4 bg-white rounded-[28px] shadow-2xl relative">
+                    {pixData && <QRCodeSVG value={pixData.qrcode} size={180} level="H" includeMargin />}
+                    <div className="absolute -top-2.5 -right-2.5 h-9 w-9 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg">
+                      <QrCode className="h-4 w-4" />
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="w-full space-y-2.5">
+                    <Button 
+                      type="button"
+                      onClick={copyPix} 
+                      className="w-full h-13 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 font-black uppercase text-[11px] tracking-wider rounded-xl flex items-center justify-center gap-2 cursor-pointer transition-all"
+                    >
+                      {copied ? <Check className="h-4 w-4 text-emerald-300" /> : <Copy className="h-4 w-4" />}
+                      {copied ? 'Código Pix Copiado!' : 'Copiar Código Pix (Copia e Cola)'}
                     </Button>
                     
-                    <div className="flex w-full">
-                       <Button 
-                         onClick={checkStatus} 
-                         disabled={loading}
-                         className="w-full h-14 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-[.2em] rounded-2xl shadow-xl flex items-center justify-center gap-2"
-                       >
-                         {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-                         {loading ? 'Verificando...' : 'Verificar Pagamento'}
-                       </Button>
-                    </div>
+                    <Button 
+                      type="button"
+                      onClick={checkStatus} 
+                      disabled={loading}
+                      className="w-full h-13 bg-white text-slate-950 hover:bg-slate-200 font-black uppercase tracking-wider text-xs rounded-xl shadow-xl flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                      {loading ? 'Verificando com o Banco...' : 'Já Fiz o Pagamento • Verificar'}
+                    </Button>
 
-                    <div className="flex flex-col items-center justify-center gap-2">
-                       <div className="flex items-center gap-2">
-                         <Loader2 className="h-3 w-3 text-slate-500 animate-spin" />
-                         <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">
-                           {pendingStatusInfo ? `Status: ${pendingStatusInfo}` : 'Aguardando confirmação bancária...'}
+                    <Button 
+                      type="button"
+                      variant="ghost"
+                      onClick={handleCancelPayment}
+                      disabled={loading}
+                      className="w-full h-10 text-slate-400 hover:text-red-400 text-xs font-bold uppercase tracking-wider cursor-pointer"
+                    >
+                      Cancelar Transação
+                    </Button>
+
+                    <div className="flex flex-col items-center justify-center gap-1 pt-1">
+                       <div className="flex items-center gap-1.5">
+                         <div className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                         <p className="text-[10px] text-slate-400 font-semibold">
+                           {pendingStatusInfo ? `Status bancário: ${pendingStatusInfo}` : 'Monitorando confirmação instantânea...'}
                          </p>
                        </div>
                        {pixData?.tid && (
-                         <p className="text-[7px] text-slate-700 font-mono uppercase opacity-50">
-                           ID: {pixData.tid.substring(0, 16).toUpperCase()}...
+                         <p className="text-[8px] text-slate-600 font-mono">
+                           ID: {pixData.tid.substring(0, 18)}...
                          </p>
                        )}
                     </div>

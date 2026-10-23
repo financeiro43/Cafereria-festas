@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { UserProfile, Transaction } from '../types';
 import { handleFirestoreError, OperationType } from '@/lib/error-handler';
 import { authService } from '@/services/authService';
-import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff, Sparkles, Ticket, ShieldAlert, Trash2, Lock, Sliders, SlidersHorizontal } from 'lucide-react';
+import { PlusCircle, History, QrCode, LogOut, Wallet, CreditCard, ChevronRight, Info, Zap, ShieldCheck, X, ShoppingBag, Share2, Download, Users, Loader2, Wifi, WifiOff, Sparkles, Ticket, ShieldAlert, Trash2, Lock, Sliders, SlidersHorizontal, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -851,6 +851,54 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
           </div>
         </header>
 
+        {/* Banner de Aviso: Aguardando Pagamento */}
+        {(() => {
+          const pendingTx = transactions.find(t => t.status === 'pending');
+          if (!pendingTx) return null;
+          return (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-amber-500/10 border border-amber-500/30 rounded-3xl p-4.5 backdrop-blur-xl relative overflow-hidden ring-1 ring-amber-500/20"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-amber-400">Aguardando Pagamento</span>
+                      <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full uppercase">Pendente</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 font-medium">
+                      Recarga de <strong className="text-white font-mono">R$ {Math.abs(pendingTx.amount).toFixed(2)}</strong> aguardando confirmação do banco ou pagamento via Pix.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 sm:shrink-0">
+                  <Button
+                    onClick={() => {
+                      setSelectedAmount(Math.abs(pendingTx.amount));
+                      setShowPaymentModal(true);
+                    }}
+                    className="h-9 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[10px] uppercase tracking-wider rounded-xl cursor-pointer shadow-md"
+                  >
+                    Ver / Concluir
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setActiveTab(ParentTab.HISTORY)}
+                    className="h-9 px-3 text-slate-400 hover:text-white font-bold text-[10px] uppercase tracking-wider rounded-xl cursor-pointer"
+                  >
+                    Ver no Histórico
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          );
+        })()}
+
         <AnimatePresence mode="wait">
           {activeTab === ParentTab.PAYMENT && (
             <motion.div 
@@ -1161,12 +1209,28 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                         const stall = tx.stallName || (tx.description.includes('barraca') ? tx.description.split(': ')[0].replace('Compra na barraca ', '') : tx.description);
                         const items = tx.items || (tx.description.includes(': ') ? tx.description.split(': ')[1].split(', ') : []);
 
+                        const isPending = tx.status === 'pending';
+                        const isFailed = tx.status === 'cancelled' || tx.status === 'failed';
+
                         return (
-                          <div key={tx.id} className="p-5 hover:bg-white/[0.02] transition-colors border-b border-white/5 last:border-0 group">
+                          <div 
+                            key={tx.id} 
+                            className={`p-5 transition-all border-b last:border-0 group ${
+                              isPending ? 'bg-amber-500/[0.04] border-amber-500/20' :
+                              isFailed ? 'bg-rose-500/[0.03] border-rose-500/20' :
+                              'hover:bg-white/[0.02] border-white/5'
+                            }`}
+                          >
                             <div className="flex justify-between items-start">
                               <div className="flex items-center gap-4">
-                                <div className={`h-10 w-10 rounded-2xl flex items-center justify-center transition-all group-hover:scale-110 ${tx.type === 'credit' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'}`}>
-                                  {tx.type === 'credit' ? <PlusCircle className="h-5 w-5" /> : <ShoppingBag className="h-5 w-5" />}
+                                <div className={`h-10 w-10 rounded-2xl flex items-center justify-center transition-all group-hover:scale-105 ${
+                                  isPending ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30' :
+                                  isFailed ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' :
+                                  tx.type === 'credit' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                                }`}>
+                                  {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> :
+                                   isFailed ? <XCircle className="h-5 w-5" /> :
+                                   tx.type === 'credit' ? <PlusCircle className="h-5 w-5" /> : <ShoppingBag className="h-5 w-5" />}
                                 </div>
                                 <div className="space-y-1">
                                   <p className="text-[11px] font-black text-white uppercase tracking-tight leading-none group-hover:text-blue-400 transition-colors">
@@ -1183,19 +1247,69 @@ export default function ParentDashboard({ profile }: { profile: UserProfile }) {
                                   </div>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <div className={`text-sm font-black tabular-nums ${tx.type === 'credit' ? 'text-emerald-500' : 'text-slate-200'}`}>
+                              <div className="text-right flex flex-col items-end gap-1">
+                                <div className={`text-sm font-black tabular-nums ${
+                                  isPending ? 'text-amber-400' :
+                                  isFailed ? 'text-slate-400 line-through' :
+                                  tx.type === 'credit' ? 'text-emerald-500' : 'text-slate-200'
+                                }`}>
                                   {tx.type === 'credit' ? '+' : '-'} R$ {Math.abs(tx.amount).toFixed(2)}
                                 </div>
-                                <span className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded-md ${
-                                  tx.status === 'completed' ? 'bg-emerald-500/10 text-emerald-500' : 
-                                  tx.status === 'pending' ? 'bg-amber-500/10 text-amber-500' : 
-                                  'bg-rose-500/10 text-rose-500'
-                                }`}>
-                                  {tx.status}
-                                </span>
+                                
+                                {isPending ? (
+                                  <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 shadow-sm">
+                                    <Loader2 className="h-2.5 w-2.5 animate-spin" /> Aguardando Pagamento
+                                  </span>
+                                ) : isFailed ? (
+                                  <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                                    <XCircle className="h-2.5 w-2.5" /> Pagamento Não Realizado
+                                  </span>
+                                ) : (
+                                  <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+                                    <CheckCircle2 className="h-2.5 w-2.5" /> Concluído
+                                  </span>
+                                )}
                               </div>
                             </div>
+
+                            {/* Alert box when pending */}
+                            {isPending && (
+                              <div className="mt-3 pl-14 flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                                <p className="text-[10px] text-amber-200/90 font-medium leading-tight">
+                                  Esta recarga aguarda confirmação bancária ou leitura do Pix.
+                                </p>
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedAmount(Math.abs(tx.amount));
+                                    setShowPaymentModal(true);
+                                  }}
+                                  className="h-7 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9px] uppercase tracking-wider rounded-lg shrink-0 cursor-pointer shadow-sm"
+                                >
+                                  Pagar / Verificar
+                                </Button>
+                              </div>
+                            )}
+
+                            {/* Alert box when failed */}
+                            {isFailed && (
+                              <div className="mt-3 pl-14 flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl">
+                                <p className="text-[10px] text-rose-200/90 font-medium leading-tight">
+                                  Transação cancelada ou negada pela instituição. Nenhum valor foi debitado.
+                                </p>
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setRechargeAmount(Math.abs(tx.amount).toString());
+                                    setSelectedAmount(Math.abs(tx.amount));
+                                    setShowPaymentModal(true);
+                                  }}
+                                  className="h-7 px-3 bg-white/10 hover:bg-white/20 text-white font-black text-[9px] uppercase tracking-wider rounded-lg shrink-0 cursor-pointer"
+                                >
+                                  Tentar Novamente
+                                </Button>
+                              </div>
+                            )}
                             
                             {isPurchase && items.length > 0 && (
                               <div className="mt-3 pl-14 flex flex-wrap gap-1.5">

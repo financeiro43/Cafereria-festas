@@ -859,14 +859,38 @@ async function startServer() {
     }
   });
 
+  // Helper function to robustly check if an email belongs to an administrator
+  async function checkIsAdmin(email: string | undefined): Promise<boolean> {
+    if (!email) return false;
+    const emailLower = email.toLowerCase().trim();
+    if (emailLower === "financeiro@modeloalpha.com.br" || emailLower === "admin@modeloalpha.com.br") {
+      return true;
+    }
+    if (!db) return false;
+    try {
+      const usersRef = db.collection("users");
+      const snap = await usersRef.where("email", "==", emailLower).get();
+      if (!snap.empty) {
+        const uDoc = snap.docs[0];
+        if (uDoc.data()?.role === "admin") {
+          return true;
+        }
+      }
+    } catch (e) {
+      console.error("[AUTH-CHECK] Erro ao consultar privilégios de administrador:", e);
+    }
+    return false;
+  }
+
   // Admin Set User Balance Endpoint
   app.post(`${API_BASE}/admin/set-user-balance`, async (req, res) => {
     try {
       const { targetUserId, newBalance, requesterEmail } = req.body;
       
-      // Safety/Security check: Only allow if the requester is the authorized admin email
-      if (requesterEmail !== 'financeiro@modeloalpha.com.br' && requesterEmail !== 'admin@modeloalpha.com.br') {
-        return res.status(403).json({ error: "Acesso Negado: Apenas o administrador financeiro pode realizar esta operação." });
+      // Safety/Security check: Only allow if the requester is an authorized admin
+      const isAuthorized = await checkIsAdmin(requesterEmail);
+      if (!isAuthorized) {
+        return res.status(403).json({ error: "Acesso Negado: Apenas o administrador financeiro ou gerentes administrativos podem realizar esta operação." });
       }
 
       if (!targetUserId || newBalance === undefined) {
@@ -909,9 +933,10 @@ async function startServer() {
     try {
       const { txId, requesterEmail } = req.body;
       
-      // Safety/Security check: Only allow if the requester is the authorized admin email
-      if (requesterEmail !== 'financeiro@modeloalpha.com.br' && requesterEmail !== 'admin@modeloalpha.com.br') {
-        return res.status(403).json({ error: "Acesso Negado: Apenas o administrador financeiro pode realizar esta operação." });
+      // Safety/Security check: Only allow if the requester is an authorized admin
+      const isAuthorized = await checkIsAdmin(requesterEmail);
+      if (!isAuthorized) {
+        return res.status(403).json({ error: "Acesso Negado: Apenas o administrador financeiro ou gerentes administrativos podem realizar esta operação." });
       }
 
       if (!txId) {
@@ -933,6 +958,10 @@ async function startServer() {
       }
 
       const { userId, amount } = txnData;
+      if (!userId) {
+        return res.status(400).json({ error: "O campo userId não está presente nesta transação." });
+      }
+
       const userRef = db.collection("users").doc(userId);
       const userDoc = await userRef.get();
 
@@ -940,7 +969,7 @@ async function startServer() {
         return res.status(404).json({ error: "Usuário/Cliente não encontrado." });
       }
 
-      console.log(`[ADMIN-COMPLETE-TX] Baixando manualmente transação ${txId} para o usuário ${userId}. Valor: R$ ${amount}`);
+      console.log(`[ADMIN-COMPLETE-TX] Baixando manualmente transação ${txId} para o usuário ${userId}. Valor: R$ ${amount}. Método de Pagamento: ${txnData.paymentMethod}`);
 
       await db.runTransaction(async (t) => {
         const currentTxnDoc = await t.get(txnRef);
@@ -960,12 +989,17 @@ async function startServer() {
           const targetDoc = isShared ? await t.get(targetUserRef) : uDoc;
           const currentBalance = targetDoc.data()?.balance || 0;
 
-          t.update(targetUserRef, { 
-            balance: currentBalance + amount,
-            lastRecharge: FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp(),
-            _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
-          });
+          const isPostPaid = txnData.paymentMethod === 'Conta';
+
+          if (!isPostPaid) {
+            // Only add balance if it's NOT a post-paid "Em Conta" transaction (since Em Conta is credited upon creation)
+            t.update(targetUserRef, { 
+              balance: currentBalance + amount,
+              lastRecharge: FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
+              _backendSecret: 'FESTA_PASS_SRV_2026_SECRET'
+            });
+          }
           
           t.update(txnRef, { 
             status: "completed", 
@@ -989,9 +1023,10 @@ async function startServer() {
     try {
       const { requesterEmail } = req.body;
       
-      // Safety/Security check: Only allow if the requester is the authorized admin email
-      if (requesterEmail !== 'financeiro@modeloalpha.com.br' && requesterEmail !== 'admin@modeloalpha.com.br') {
-        return res.status(403).json({ error: "Acesso Negado: Apenas o administrador financeiro pode realizar esta operação." });
+      // Safety/Security check: Only allow if the requester is an authorized admin
+      const isAuthorized = await checkIsAdmin(requesterEmail);
+      if (!isAuthorized) {
+        return res.status(403).json({ error: "Acesso Negado: Apenas o administrador financeiro ou gerentes administrativos podem realizar esta operação." });
       }
 
       if (!db) return res.status(500).json({ error: "Banco de dados não disponível" });
